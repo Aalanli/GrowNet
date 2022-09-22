@@ -22,7 +22,7 @@ template meta-programming classes for convenience in kernel specialization
 #include <map>
 #include <iostream>
 
-#include "type_repr.cuh"
+#include "type_repr.h"
 
 namespace fn_builder {
 
