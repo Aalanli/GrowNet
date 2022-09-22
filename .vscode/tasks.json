@@ -1,0 +1,59 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Make build files from CMakeLists.txt",
+            "type": "shell",
+            "command": "cmake -G Ninja -S ${workspaceFolder}/src -B ${workspaceFolder}/src/cbuild",
+            "problemMatcher": []
+        },
+        {
+            "type": "cppbuild",
+            "label": "C/C++: cmake compile",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "${workspaceFolder}/src/cbuild",
+                "-j",
+                "12",
+                "&&",
+                "${workspaceFolder}/src/cbuild/main"
+            ],
+            "options": {
+                "cwd": "${fileDirname}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "compiler: /usr/bin/cpp"
+        },
+        {
+            "type": "cppbuild",
+            "label": "C/C++: g++-9 build active file",
+            "command": "/bin/g++-9",
+            "args": [
+                "-fdiagnostics-color=always",
+                "-g",
+                "${file}",
+                "-o",
+                "${fileDirname}/${fileBasenameNoExtension}",
+                "&&",
+                "${fileDirname}/${fileBasenameNoExtension}"
+            ],
+            "options": {
+                "cwd": "${fileDirname}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build",
+            "detail": "compiler: /bin/g++-9"
+        }
+    ]
+}
