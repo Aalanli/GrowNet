@@ -33,3 +33,6 @@
 
 # build directory
 cbuild
+build
+dist
+GrowNet.*
