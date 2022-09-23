@@ -3,5 +3,4 @@ target_sources(main
         func_constructor.h
         torch_utils.h
         utils.h
-        type_repr.h
 )
