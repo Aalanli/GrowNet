@@ -16,6 +16,10 @@ pub struct WorldTensor<T> {
     marker: PhantomData<T>,  // tells compiler that Tensor owns values of type T
 }
 
+pub enum TensorSlice {
+    
+}
+
 pub struct WorldSlice<'a, T> {
     world: &'a WorldTensor<T>,
     trunc_dims: Vec<(usize, usize)>,
