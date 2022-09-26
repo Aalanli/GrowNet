@@ -23,7 +23,7 @@ void print(T val, Args... args) {
 int prod(const std::vector<int> &a) {
     int i = 1;
     for (auto const &it : a) {
-        i *= a;
+        i *= it;
     }
     return i;
 }
