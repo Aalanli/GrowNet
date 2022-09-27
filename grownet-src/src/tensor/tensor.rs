@@ -8,6 +8,15 @@ use std::iter::Iterator;
 use super::TIndex;
 
 
+pub enum TensorSlice {
+    Edge,
+    Index(usize)
+}
+
+pub struct SliceSeq(Vec<(TensorSlice, TensorSlice)>);
+
+
+
 pub struct WorldTensor<T> {
     ptr: NonNull<T>,         // NonNull pointer
     dims: Vec<usize>,        // dimensions row-major
