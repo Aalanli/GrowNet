@@ -113,23 +113,20 @@ macro_rules! count_exprs {
     ($head:expr, $($tail:expr),*) => (1 + count_exprs!($($tail),*));
 }
 
+macro_rules! slicev2 {
+    ($l:expr ; $r:expr) => {
+        
+    };
+
+    (trace $l:expr ; $r:expr, $($ts:tt)*) => {
+        
+    };
+}
+
 macro_rules! slice {
     ($($r:expr),*) => {
         {
-            use std::mem::{self, MaybeUninit};
-
-            const N: usize = count_exprs!($($r),*);
-            let mut temp_data: [MaybeUninit<TsSlice>; N] = unsafe {
-                MaybeUninit::uninit().assume_init()
-            };
-            let mut i: usize = 0;
-            $(
-                temp_data[i] = MaybeUninit::new(($r).to_slice());
-                i += 1;
-            )*
-
-            let temp_data = unsafe {mem::transmute::<_, [TsSlice; N]>(temp_data)};
-            StaticTsSlices::<N>(temp_data)
+            [$(($r).to_slice()),*]
         }
     };
 }
@@ -138,5 +135,7 @@ fn main() {
     let c = TsSlice((Edge, Edge));
     let i = 1;
     let s = slice![1..2, 2.., ..];
+    slicev2![1;2];
+
     println!("{}", s.len());
 }
