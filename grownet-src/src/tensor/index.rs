@@ -1,9 +1,12 @@
 use std::ops::Deref;
 
 pub trait TIndex {
+    type MP: TIndex;
     fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize>;
+    fn offset(&self, offsets: &[usize]) -> Self::MP;
 }
-struct UnsafeIndex<T>(T);
+
+pub struct UnsafeIndex<T>(T);
 
 impl<T> Deref for UnsafeIndex<T> {
     type Target = T;
@@ -12,20 +15,20 @@ impl<T> Deref for UnsafeIndex<T> {
     }
 }
 
-impl TIndex for usize {
-    fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize> {
-        if *self >= dims[0] * strides[0] {
-            return None;
-        }
-        Some(*self)
-    }
-}
-
-impl TIndex for UnsafeIndex<usize> {
-    fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize> {
-        Some(self.0)
-    }
-}
+//impl TIndex for usize {
+//    fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize> {
+//        if *self >= dims[0] * strides[0] {
+//            return None;
+//        }
+//        Some(*self)
+//    }
+//}
+//
+//impl TIndex for UnsafeIndex<usize> {
+//    fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize> {
+//        Some(self.0)
+//    }
+//}
 
 fn tile_cartesian(indices: &[usize], dims: &[usize], strides: &[usize]) -> Option<usize> {
     let mut idx: usize = 0;
@@ -73,50 +76,51 @@ fn in_bounds_static_tile_cartesian<const N: usize>(indices: &[usize; N], dims: &
     Some(idx)
 }
 
-impl TIndex for Vec<usize> {
-    fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize> {
-        tile_cartesian(self, dims, strides)
+fn offset_ind(indices: &[usize], offsets: &[usize]) -> Vec<usize> {
+    let mut new_indices: Vec<usize> = indices.to_vec();
+    for i in 0..offsets.len() {
+        new_indices[i] += offsets[i];
     }
+    new_indices
 }
 
-impl TIndex for &Vec<usize> {
-    fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize> {
-        tile_cartesian(self, dims, strides)
+fn static_offset_ind<const N: usize>(indices: &[usize; N], offsets: &[usize]) -> [usize; N] {
+    let mut new_indices = indices.clone();
+    for i in 0..offsets.len() {
+        new_indices[i] += offsets[i];
     }
+    new_indices
 }
 
-impl<const N: usize> TIndex for [usize; N] {
-    fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize> {
-        static_tile_cartesian::<N>(self, dims, strides)
-    }
+
+macro_rules! deriveTIndex {
+    ($N:ident, $op_func:ident, $dv_func:ident, $tp:ty, $($args:ident),*) => {
+        impl<const $N:usize> TIndex for $tp {
+            type MP = [usize; N];
+            fn $dv_func(&self, $($args : &[usize]),*) -> Option<usize> {
+                ($op_func)(&(*self), $($args),*)
+            }
+            fn offset(&self, offsets: &[usize]) -> [usize; N] {
+                static_offset_ind(&self, offsets)
+            }
+        }
+    };
+
+    ($op_func:ident, $dv_func:ident, $tp:ty, $($args:ident),*) => {
+        impl TIndex for $tp {
+            type MP = Vec<usize>;
+            fn $dv_func(&self, $($args : &[usize]),*) -> Option<usize> {
+                ($op_func)(&(*self), $($args),*)
+            }
+            fn offset(&self, offsets: &[usize]) -> Vec<usize> {
+                offset_ind(&self, offsets)
+            }
+        }
+    };
 }
 
-impl<const N: usize> TIndex for &[usize; N] {
-    fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize> {
-        static_tile_cartesian::<N>(self, dims, strides)
-    }
-}
-
-impl TIndex for UnsafeIndex<Vec<usize>> {
-    fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize> {
-        in_bounds_tile_cartesian(self, dims, strides)
-    }
-}
-
-impl TIndex for UnsafeIndex<&Vec<usize>> {
-    fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize> {
-        in_bounds_tile_cartesian(self, dims, strides)
-    }
-}
-
-impl<const N: usize> TIndex for UnsafeIndex<[usize; N]> {
-    fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize> {
-        in_bounds_static_tile_cartesian::<N>(self, dims, strides)
-    }
-}
-
-impl<const N: usize> TIndex for UnsafeIndex<&[usize; N]> {
-    fn tile_cartesian(&self, dims: &[usize], strides: &[usize]) -> Option<usize> {
-        in_bounds_static_tile_cartesian::<N>(self, dims, strides)
-    }
-}
+deriveTIndex!(tile_cartesian, tile_cartesian, Vec<usize>, dims, strides);
+deriveTIndex!(N, static_tile_cartesian, tile_cartesian, [usize; N], dims, strides);
+deriveTIndex!(in_bounds_tile_cartesian, tile_cartesian, UnsafeIndex<Vec<usize>>, dims, strides);
+deriveTIndex!(in_bounds_tile_cartesian, tile_cartesian, UnsafeIndex<&Vec<usize>>, dims, strides);
+deriveTIndex!(N, in_bounds_static_tile_cartesian, tile_cartesian, UnsafeIndex<&[usize; N]>, dims, strides);
