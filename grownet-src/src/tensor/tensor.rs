@@ -14,6 +14,8 @@ trait Tensor<T, I>: Index<I, Output = T> {
     fn clone(&self) -> Self;
     fn iter(&self) -> TsIter<T>;
     fn nelems(&self) -> usize;
+    fn ptr(&self) -> *const T;
+    fn ptr_mut(&mut self) -> *mut T;
 }
 
 trait MutTensor<T, I>: IndexMut<I, Output = T> + Tensor<T, I> {
@@ -27,6 +29,7 @@ pub struct WorldTensor<T> {
     len: usize,              // total n elements
     marker: PhantomData<T>,  // tells compiler that Tensor owns values of type T
 }
+
 
 // WorldSlice represents a slice of a WorldTensor,
 // 
@@ -52,30 +55,6 @@ pub struct MutTsIter<'a, T> {
     world: &'a mut T,
     ind: usize
 }
-
-impl<'a, T: Tensor<T, usize>> Iterator for TsIter<'a, T> {
-    type Item = &'a T;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.ind < self.world.nelems() {
-            self.ind += 1;
-            Some(&self.world[self.ind])
-        } else {
-            None
-        }
-    }
-}
-
-//impl<'a, T: MutTensor<T, usize>> Iterator for MutTsIter<'a, T> {
-//    type Item = &'a mut T;
-//    fn next<'p>(&'p mut self) -> Option<&'_ mut T> {
-//        if self.ind < self.world.nelems() {
-//            self.ind += 1;
-//            Some(&mut self.world[self.ind])
-//        } else {
-//            None
-//        }
-//    }
-//}
 
 
 impl<T> WorldTensor<T> 
@@ -120,6 +99,34 @@ fn compute_strides(dims: &[usize]) -> Vec<usize> {
         k *= dims[i];
     }
     strides
+}
+
+impl<'a, T: Tensor<T, usize>> Iterator for TsIter<'a, T> {
+    type Item = &'a T;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ind < self.world.nelems() {
+            self.ind += 1;
+            Some(&self.world[self.ind])
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a, T> Iterator for MutTsIter<'a, MutWorldSlice<'a, T>> {
+    type Item = &'a mut T;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ind < self.world.world.len {
+            self.ind += 1;
+            unsafe {
+                let i = tile_strides(self.ind, &self.world.slice.strides, 
+                    &self.world.world.strides);
+                Some(self.world.world.ptr.as_ptr().add(i).as_mut().unwrap())
+            }
+        } else {
+            None
+        }
+    }
 }
 
 // Have to watchout for the case where the size of the slice is 0, 
