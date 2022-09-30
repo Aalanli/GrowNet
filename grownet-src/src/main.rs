@@ -6,12 +6,10 @@ mod tensor;
 
 use tensor as ts;
 
-fn test<const N: usize>() {
-    println!("");
-}
 
 fn main() {
-    let a = [1, 2, 3];
-    let b = &a;
-    let c = b.iter();
+    let slice = ts::tslice![1..2];
+    let ts = ts::WorldTensor::<i32>::new(vec![3, 3, 3]);
+    let h = ts[[1, 2, 1]];
+    println!("{}", h);
 }

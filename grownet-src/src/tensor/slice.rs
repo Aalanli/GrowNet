@@ -117,7 +117,7 @@ impl SliceSpec for isize {
 macro_rules! slice {
     ($($r:expr),*) => {
         {
-            vec![$(crate::tensor::tensor::SliceSpec::to_slice(&($r))),*]
+            vec![$(crate::tensor::slice::SliceSpec::to_slice(&($r))),*]
         }
     };
 }

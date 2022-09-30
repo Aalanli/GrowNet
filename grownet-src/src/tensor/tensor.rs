@@ -6,20 +6,20 @@ use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 use std::iter::Iterator;
 
-use super::index::{TIndex, UnsafeIndex};
-use super::slice::{slice, IndexBounds, TsSlices, Slice, Edge, S};
+use super::index::{TIndex};
+use super::slice::{IndexBounds, TsSlices, Slice, Edge, S};
 
-trait Tensor<T, I>: Index<I, Output = T> {
+trait Tensor<T, I>: Index<I, Output = T> + Sized {
     fn slice(&self, slices: TsSlices) -> WorldSlice<'_, T>;
-    fn clone(&self) -> Self;
-    fn iter(&self) -> TsIter<T>;
+    fn iter(&self) -> TsIter<Self>;
     fn nelems(&self) -> usize;
     fn ptr(&self) -> *const T;
-    fn ptr_mut(&mut self) -> *mut T;
 }
 
 trait MutTensor<T, I>: IndexMut<I, Output = T> + Tensor<T, I> {
     fn mut_slice(&mut self, slices: TsSlices) -> MutWorldSlice<'_, T>;
+    fn ptr_mut(&mut self) -> *mut T;
+    fn iter_mut(&mut self) -> MutTsIter<Self>;
 }
 
 pub struct WorldTensor<T> {
@@ -30,6 +30,52 @@ pub struct WorldTensor<T> {
     marker: PhantomData<T>,  // tells compiler that Tensor owns values of type T
 }
 
+impl<T: Clone> Clone for WorldTensor<T> {
+    fn clone(&self) -> Self {
+        let layout = Layout::array::<T>(self.len).unwrap();
+
+        let ptr = unsafe { alloc::alloc(layout) };
+        let ptr = match NonNull::new(ptr as *mut T) {
+            Some(p) => p,
+            None  => alloc::handle_alloc_error(layout) 
+        };
+        for i in 0..self.len {
+            unsafe {
+                *ptr.as_ptr().add(i) = (*self.ptr.as_ptr().add(i)).clone();
+            }
+        }
+        WorldTensor { ptr, dims: self.dims.clone(), strides: self.strides.clone(), len: self.len, marker: PhantomData}
+    }
+}
+
+impl<T, I: TIndex> Tensor<T, I> for WorldTensor<T> {
+    fn slice(&self, slices: TsSlices) -> WorldSlice<'_, T> {
+        let slice = construct_slice(&self.dims, &self.strides, slices);
+        WorldSlice { world: self, slice }
+    }
+    fn iter(&self) -> TsIter<Self> {
+        TsIter { world: self, ind: 0 }
+    }
+    fn nelems(&self) -> usize {
+        self.len
+    }
+    fn ptr(&self) -> *const T {
+        self.ptr.as_ptr()
+    }
+}
+
+impl<T, I: TIndex> MutTensor<T, I> for WorldTensor<T> {
+    fn iter_mut(&mut self) -> MutTsIter<Self> {
+        MutTsIter { world: self, ind: 0 }
+    }
+    fn mut_slice(&mut self, slices: TsSlices) -> MutWorldSlice<'_, T> {
+        let slice = construct_slice(&self.dims, &self.strides, slices);
+        MutWorldSlice { world: self, slice }
+    }
+    fn ptr_mut(&mut self) -> *mut T {
+        self.ptr.as_ptr()
+    }
+}
 
 // WorldSlice represents a slice of a WorldTensor,
 // 
@@ -200,12 +246,13 @@ impl<'a, T> MutWorldSlice<'a, T> {
     }
 }
 
+
 impl<T, I> Index<I> for WorldTensor<T> 
 where I: TIndex
 {
     type Output = T;
     fn index(&self, ind: I) -> &T {
-        if let Some(idx) = ind.tile_cartesian(&self.dims, &self.strides) {
+        if let Some(idx) = ind.tile_cartesian(&self.dims, &self.strides, self.len) {
             return inbounds_get_ptr(&self.ptr, idx);
         } else {
             panic!("Index out of bounds");
@@ -217,50 +264,11 @@ impl<T, I> IndexMut<I> for WorldTensor<T>
 where I: TIndex
 {
     fn index_mut(&mut self, ind: I) -> &mut T {
-        if let Some(idx) = ind.tile_cartesian(&self.dims, &self.strides) {
+        if let Some(idx) = ind.tile_cartesian(&self.dims, &self.strides, self.len) {
             return inbounds_get_ptr_mut(&mut self.ptr, idx);
         } else {
             panic!("Index out of bounds");
         }
-    }
-}
-
-
-impl<T> Index<usize> for WorldTensor<T> 
-{
-    type Output = T;
-    fn index(&self, ind: usize) -> &T {
-        if ind > self.len {
-            return inbounds_get_ptr(&self.ptr, ind);
-        } else {
-            panic!("Index out of bounds");
-        }
-    }
-}
-
-impl<T> Index<UnsafeIndex<usize>> for WorldTensor<T> 
-{
-    type Output = T;
-    fn index(&self, ind: UnsafeIndex<usize>) -> &T {
-        return inbounds_get_ptr(&self.ptr, *ind);
-    }
-}
-
-impl<T> IndexMut<usize> for WorldTensor<T> 
-{
-    fn index_mut(&mut self, ind: usize) -> &mut T {
-        if ind > self.len {
-            return inbounds_get_ptr_mut(&mut self.ptr, ind);
-        } else {
-            panic!("Index out of bounds");
-        }
-    }
-}
-
-impl<T> IndexMut<UnsafeIndex<usize>> for WorldTensor<T> 
-{
-    fn index_mut(&mut self, ind: UnsafeIndex<usize>) -> &mut T {
-        return inbounds_get_ptr_mut(&mut self.ptr, *ind);
     }
 }
 
@@ -270,7 +278,8 @@ where I: TIndex
 {
     type Output = T;
     fn index(&self, index: I) -> &Self::Output {
-        if let Some(idx) = index.offset(&self.slice.offsets).tile_cartesian(&self.slice.sizes, &self.world.strides) {
+        if let Some(idx) = index.offset(&self.slice.offsets, &self.slice.strides).tile_cartesian(
+            &self.slice.sizes, &self.world.strides, self.world.len) {
             return inbounds_get_ptr(&self.world.ptr, idx + self.slice.lin_offset);
         } else {
             panic!("Index out of bounds");
@@ -292,69 +301,18 @@ fn tile_strides(index: usize, s_strides: &[usize], g_strides: &[usize]) -> usize
     idx
 }
 
-impl<'a, T> Index<usize> for WorldSlice<'a, T>
-{
-    type Output = T;
-    fn index(&self, ind: usize) -> &T {
-        let ind = tile_strides(ind, &self.slice.strides, &self.world.strides);
-        if ind > self.world.len {
-            return inbounds_get_ptr(&self.world.ptr, ind);
-        } else {
-            panic!("Index out of bounds");
-        }
-    }
-}
-
-impl<'a, T> Index<UnsafeIndex<usize>> for WorldSlice<'a, T>
-{
-    type Output = T;
-    fn index(&self, ind: UnsafeIndex<usize>) -> &T {
-        let ind = tile_strides(*ind, &self.slice.strides, &self.world.strides);
-        return inbounds_get_ptr(&self.world.ptr, ind);
-    }
-}
-
-impl<'a, T> Index<usize> for MutWorldSlice<'a, T>
-{
-    type Output = T;
-    fn index(&self, ind: usize) -> &T {
-        let ind = tile_strides(ind, &self.slice.strides, &self.world.strides);
-        if ind > self.world.len {
-            return inbounds_get_ptr(&self.world.ptr, ind);
-        } else {
-            panic!("Index out of bounds");
-        }
-    }
-}
-
-impl<'a, T> Index<UnsafeIndex<usize>> for MutWorldSlice<'a, T>
-{
-    type Output = T;
-    fn index(&self, ind: UnsafeIndex<usize>) -> &T {
-        let ind = tile_strides(*ind, &self.slice.strides, &self.world.strides);
-        return inbounds_get_ptr(&self.world.ptr, ind);
-    }
-}
-
-impl<'a, T> IndexMut<usize> for MutWorldSlice<'a, T>
-{
-    fn index_mut(&mut self, ind: usize) -> &mut T {
-        let ind = tile_strides(ind, &self.slice.strides, &self.world.strides);
-        if ind > self.world.len {
-            return inbounds_get_ptr_mut(&mut self.world.ptr, ind);
-        } else {
-            panic!("Index out of bounds");
-        }
-    }
-}
-
-impl<'a, T> IndexMut<UnsafeIndex<usize>> for MutWorldSlice<'a, T> 
-{
-    fn index_mut(&mut self, ind: UnsafeIndex<usize>) -> &mut T {
-        let ind = tile_strides(*ind, &self.slice.strides, &self.world.strides);
-        return inbounds_get_ptr_mut(&mut self.world.ptr, ind);
-    }
-}
+//impl<'a, T> Index<usize> for WorldSlice<'a, T>
+//{
+//    type Output = T;
+//    fn index(&self, ind: usize) -> &T {
+//        let ind = tile_strides(ind, &self.slice.strides, &self.world.strides);
+//        if ind > self.world.len {
+//            return inbounds_get_ptr(&self.world.ptr, ind);
+//        } else {
+//            panic!("Index out of bounds");
+//        }
+//    }
+//}
 
 
 fn inbounds_get_ptr<T>(ptr: &NonNull<T>, i: usize) -> &T {
