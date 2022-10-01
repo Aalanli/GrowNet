@@ -239,6 +239,6 @@ impl<'a, const N: usize> TsIndex for &'a [usize; N] {
 impl<'a> TsIndex for &'a usize {
     type IndexT = StaticUIndex<'a, usize, 0>;
     fn convert(&self) -> Self::IndexT {
-        StaticUIndex{ptr: *self as *const usize, marker: PhantomData}
+        StaticUIndex{ptr: **self as *const usize, marker: PhantomData}
     }
 }
