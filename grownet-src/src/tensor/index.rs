@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::convert::Into;
 
@@ -33,7 +34,7 @@ use std::convert::Into;
 // [usize; N], Vec<usize>, &[usize], etc, into only a few
 // manageable representations, that does not check bounds when indexed
 // (usually these representations are raw pointers)
-pub trait TsIndex {
+pub trait TsIndex: Debug {
     type IndexT: TileIndex;
     fn convert(self) -> Self::IndexT;
 }
@@ -175,11 +176,10 @@ impl<'a> TileIndex for SliceMarker<UniversalIndex<'a, usize>> {
                 idx += *meta.g_strides.add(k) * *self.0.ptr.add(i);
             }
         }
-        idx += meta.linear_offset;
         if idx > meta.nelems {
             return None;
         }
-        Some(idx)
+        Some(idx + meta.linear_offset)
     }
 }
 
@@ -197,7 +197,7 @@ impl<'a, const N: usize> TileIndex for SliceMarker<StaticUIndex<'a, usize, N>> {
                 if idx >= meta.nelems {
                     return None;
                 }
-                return Some(idx);
+                return Some(idx + meta.linear_offset);
             } else { // otherwise more efficient multi-dimensional indexing into slices
                 if meta.s_len < N {
                     return None;
@@ -212,11 +212,12 @@ impl<'a, const N: usize> TileIndex for SliceMarker<StaticUIndex<'a, usize, N>> {
                     let k = *meta.s_stride_ind.add(j);
                     idx += *meta.g_strides.add(k) * *self.0.ptr.add(i);
                 }
-                idx += meta.linear_offset;
                 if idx > meta.nelems {
                     return None;
                 }
-                return Some(idx);
+                println!("idx {}, nelems: {}", idx, meta.nelems);
+                println!("lin-offset {}", meta.linear_offset + idx);
+                return Some(idx + meta.linear_offset);
             }
          }
     }
@@ -262,6 +263,5 @@ pub unsafe fn tile_strides(tidx: usize, s: &IndexSlice) -> usize {
             break;
         }
     }
-    idx += s.linear_offset;
     return idx;
 }

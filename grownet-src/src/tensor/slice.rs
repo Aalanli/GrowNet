@@ -29,6 +29,7 @@ pub struct TsSlices(pub Vec<IndexBounds>);
 
 // struct representing absolute indicies to the sliced tensor
 // in contrast to TsSlices which represents relative slices
+#[derive(Debug)]
 pub struct Slice {
     pub offsets: Vec<usize>,
     pub sizes: Vec<usize>,

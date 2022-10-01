@@ -38,12 +38,12 @@ pub struct WorldTensor<T> {
 // dims - representing the number of slices with size greater than 1
 pub struct WorldSlice<'a, T> {
     world: &'a WorldTensor<T>,
-    slice: Slice
+    pub slice: Slice
 }
 
 pub struct MutWorldSlice<'a, T> {
     world: &'a mut WorldTensor<T>,
-    slice: Slice
+    pub slice: Slice
 }
 
 pub struct TsIter<'a, T> {
@@ -119,7 +119,6 @@ where ind::SliceMarker<<I as TsIndex>::IndexT>: TileIndex,
     }
 }
 
-
 impl<'a, T, I: TsIndex> Tensor<T, I> for MutWorldSlice<'a, T>
 where ind::SliceMarker<<I as TsIndex>::IndexT>: TileIndex,
     <ind::SliceMarker<<I as TsIndex>::IndexT> as TileIndex>::Meta: From<*const MutWorldSlice<'a, T>>
@@ -193,36 +192,6 @@ impl<T: Display> Display for WorldTensor<T> {
     }
 }
 
-fn recursive_write<T: Display>(f: &mut std::fmt::Formatter<'_>, arr: *const T, cur_dim: usize, cur_idx: usize, dim: &[usize], strides: &[usize], n_elems: usize) {
-    if cur_dim == dim.len() - 1 {
-        write!(f, "[").unwrap();
-        for i in 0..dim[cur_dim]-1 {
-            if cur_idx + i < n_elems {
-                let v = unsafe {&*arr.add(i + cur_idx)};
-                write!(f, "{},", v).unwrap();
-            } else {
-                panic!("index out of bounds while printing");
-            }
-        }
-        let i = dim[cur_dim] - 1;
-        if cur_idx + i < n_elems {
-            let v = unsafe {&*arr.add(i + cur_idx)};
-            write!(f, "{}]", v).unwrap();
-        } else {
-            panic!("index out of bounds while printing");
-        }
-    } else {
-        //write!(f, "[\n").unwrap();
-        for i in 0..dim[cur_dim]-1 {
-            recursive_write(f, arr, cur_dim + 1, cur_idx + i * strides[cur_dim], dim, strides, n_elems);
-            write!(f, ",\n").unwrap();
-        }
-        let i = dim[cur_dim]-1;
-        recursive_write(f, arr, cur_dim + 1, cur_idx + i * strides[cur_dim], dim, strides, n_elems);    
-        write!(f, "\n").unwrap();
-    }
-}
-
 impl<T: Clone> Clone for WorldTensor<T> {
     fn clone(&self) -> Self {
         let layout = Layout::array::<T>(self.len).unwrap();
@@ -292,7 +261,7 @@ impl<'a, T> From<*const WorldSlice<'a, T>> for IndexSlice<'a> {
                 s_stride_ind: a.slice.ref_inds.as_ptr(),
                 s_len: a.slice.strides.len(), 
                 linear_offset: a.slice.lin_offset,
-                nelems: a.world.len, 
+                nelems: a.slice.strides[0] * a.slice.sizes[0], 
                 marker: PhantomData }
         }
     }
@@ -308,7 +277,7 @@ impl<'a, T> From<*const MutWorldSlice<'a, T>> for IndexSlice<'a> {
                 s_stride_ind: a.slice.ref_inds.as_ptr(),
                 s_len: a.slice.strides.len(), 
                 linear_offset: a.slice.lin_offset,
-                nelems: a.world.len, 
+                nelems: a.slice.strides[0] * a.slice.sizes[0], 
                 marker: PhantomData }
         }
     }
@@ -379,7 +348,7 @@ where I: TsIndex,
     type Output = T;
     fn index(&self, index: I) -> &Self::Output {
         if let Some(idx) = index.convert().mark_slice().tile_cartesian((self as *const WorldSlice<'a, T>).into()) {
-            return inbounds_get_ptr(&self.world.ptr, idx + self.slice.lin_offset);
+            return inbounds_get_ptr(&self.world.ptr, idx);
         } else {
             panic!("Index out of bounds");
         }
@@ -394,8 +363,8 @@ where I: TsIndex,
     type Output = T;
     fn index(&self, index: I) -> &Self::Output {
         let t = index.convert().mark_slice().tile_cartesian((self as *const MutWorldSlice<'a, T>).into());
-        if let Some(idx) = t{
-            return inbounds_get_ptr(&self.world.ptr, idx + self.slice.lin_offset);
+        if let Some(idx) = t {
+            return inbounds_get_ptr(&self.world.ptr, idx);
         } else {
             panic!("Index out of bounds");
         }
@@ -409,10 +378,41 @@ where I: TsIndex,
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         if let Some(idx) = index.convert().mark_slice().tile_cartesian((self as *const MutWorldSlice<'a, T>).into()) {
-            return inbounds_get_ptr_mut(&mut self.world.ptr, idx + self.slice.lin_offset);
+            return inbounds_get_ptr_mut(&mut self.world.ptr, idx);
         } else {
             panic!("Index out of bounds");
         }
+    }
+}
+
+
+fn recursive_write<T: Display>(f: &mut std::fmt::Formatter<'_>, arr: *const T, cur_dim: usize, cur_idx: usize, dim: &[usize], strides: &[usize], n_elems: usize) {
+    if cur_dim == dim.len() - 1 {
+        write!(f, "[").unwrap();
+        for i in 0..dim[cur_dim]-1 {
+            if cur_idx + i < n_elems {
+                let v = unsafe {&*arr.add(i + cur_idx)};
+                write!(f, "{},", v).unwrap();
+            } else {
+                panic!("index out of bounds while printing");
+            }
+        }
+        let i = dim[cur_dim] - 1;
+        if cur_idx + i < n_elems {
+            let v = unsafe {&*arr.add(i + cur_idx)};
+            write!(f, "{}]", v).unwrap();
+        } else {
+            panic!("index out of bounds while printing");
+        }
+    } else {
+        //write!(f, "[\n").unwrap();
+        for i in 0..dim[cur_dim]-1 {
+            recursive_write(f, arr, cur_dim + 1, cur_idx + i * strides[cur_dim], dim, strides, n_elems);
+            write!(f, ",\n").unwrap();
+        }
+        let i = dim[cur_dim]-1;
+        recursive_write(f, arr, cur_dim + 1, cur_idx + i * strides[cur_dim], dim, strides, n_elems);    
+        write!(f, "\n").unwrap();
     }
 }
 
@@ -471,6 +471,7 @@ fn construct_slice(dims: &[usize], strides: &[usize], slices: TsSlices) -> Slice
     for j in slices.len()..dims.len() {
         offsets.push(0);
         sizes.push(dims[j]);
+        refer_inds.push(j);
     }
     let strides = compute_strides(&sizes);
     Slice{offsets, sizes, non_zero_dims: new_dims, ref_inds: refer_inds, lin_offset, strides}
@@ -528,6 +529,7 @@ fn construct_slice_from_slice(s_sizes: &[usize], s_offsets: &[usize], s_ref_inds
     for j in slices.len()..s_sizes.len() {
         offsets.push(0);
         sizes.push(s_sizes[j]);
+        refer_inds.push(s_ref_inds[j]);
     }
     let strides = compute_strides(&offsets);
     lin_offset += old_lin_offset;
