@@ -133,9 +133,7 @@ impl<'a, const N: usize> TileIndex for StaticUIndex<'a, usize, N> {
             // to index into the tensor, which just represents linear
             // indexing
             if N == 0 {
-                println!("indexed with usize");
                 let idx = *self.ptr;
-                println!("idx {}", idx);
                 if idx >= meta.nelems {
                     return None;
                 }

@@ -1,10 +1,10 @@
-use std::ptr::NonNull;
 use std::marker::PhantomData;
 use std::alloc::{self, Layout};
-use std::ptr;
+use std::ptr::{self, NonNull};
 use std::ops::{Index, IndexMut};
 use std::iter::Iterator;
 use std::convert::{From, Into};
+use std::fmt::Display;
 
 use super::index::{self as ind, TsIndex, TileIndex, IndexReg, IndexSlice, tile_strides};
 use super::slice::{IndexBounds, TsSlices, Slice, Edge, S};
@@ -24,13 +24,37 @@ trait MutTensor<T, I>: IndexMut<I, Output = T> + Tensor<T, I> {
 }
 
 pub struct WorldTensor<T> {
-    ptr: NonNull<T>,         // NonNull pointer
-    dims: Vec<usize>,        // dimensions row-major
-    strides: Vec<usize>,     // strides row-major
-    len: usize,              // total n elements
-    marker: PhantomData<T>,  // tells compiler that Tensor owns values of type T
+    pub ptr: NonNull<T>,         // NonNull pointer
+    pub dims: Vec<usize>,        // dimensions row-major
+    pub strides: Vec<usize>,     // strides row-major
+    pub len: usize,              // total n elements
+    pub marker: PhantomData<T>,  // tells compiler that Tensor owns values of type T
 }
 
+// WorldSlice represents a slice of a WorldTensor,
+// 
+// params: 
+// trunc_dims - a pair representing (offset, size) of the slice of a dimension
+// dims - representing the number of slices with size greater than 1
+pub struct WorldSlice<'a, T> {
+    world: &'a WorldTensor<T>,
+    slice: Slice
+}
+
+pub struct MutWorldSlice<'a, T> {
+    world: &'a mut WorldTensor<T>,
+    slice: Slice
+}
+
+pub struct TsIter<'a, T> {
+    world: &'a T,
+    ind: usize
+}
+
+pub struct MutTsIter<'a, T> {
+    world: &'a mut T,
+    ind: usize
+}
 
 impl<T, I: TsIndex> Tensor<T, I> for WorldTensor<T>
 where <<I as TsIndex>::IndexT as TileIndex>::Meta: From<*const WorldTensor<T>> 
@@ -143,32 +167,6 @@ where ind::SliceMarker<<I as TsIndex>::IndexT>: TileIndex,
 }
 
 
-// WorldSlice represents a slice of a WorldTensor,
-// 
-// params: 
-// trunc_dims - a pair representing (offset, size) of the slice of a dimension
-// dims - representing the number of slices with size greater than 1
-pub struct WorldSlice<'a, T> {
-    world: &'a WorldTensor<T>,
-    slice: Slice
-}
-
-pub struct MutWorldSlice<'a, T> {
-    world: &'a mut WorldTensor<T>,
-    slice: Slice
-}
-
-pub struct TsIter<'a, T> {
-    world: &'a T,
-    ind: usize
-}
-
-pub struct MutTsIter<'a, T> {
-    world: &'a mut T,
-    ind: usize
-}
-
-
 impl<T> WorldTensor<T> {
     pub fn new(dims: Vec<usize>) -> WorldTensor<T> {
         let strides= compute_strides(&dims);
@@ -185,6 +183,43 @@ impl<T> WorldTensor<T> {
 
 
         WorldTensor{ptr, dims, strides, len: nelems, marker: PhantomData}
+    }
+}
+
+impl<T: Display> Display for WorldTensor<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        recursive_write(f, self.ptr.as_ptr(), 0, 0, &self.dims, &self.strides, self.len);
+        write!(f, "")
+    }
+}
+
+fn recursive_write<T: Display>(f: &mut std::fmt::Formatter<'_>, arr: *const T, cur_dim: usize, cur_idx: usize, dim: &[usize], strides: &[usize], n_elems: usize) {
+    if cur_dim == dim.len() - 1 {
+        write!(f, "[").unwrap();
+        for i in 0..dim[cur_dim]-1 {
+            if cur_idx + i < n_elems {
+                let v = unsafe {&*arr.add(i + cur_idx)};
+                write!(f, "{},", v).unwrap();
+            } else {
+                panic!("index out of bounds while printing");
+            }
+        }
+        let i = dim[cur_dim] - 1;
+        if cur_idx + i < n_elems {
+            let v = unsafe {&*arr.add(i + cur_idx)};
+            write!(f, "{}]", v).unwrap();
+        } else {
+            panic!("index out of bounds while printing");
+        }
+    } else {
+        //write!(f, "[\n").unwrap();
+        for i in 0..dim[cur_dim]-1 {
+            recursive_write(f, arr, cur_dim + 1, cur_idx + i * strides[cur_dim], dim, strides, n_elems);
+            write!(f, ",\n").unwrap();
+        }
+        let i = dim[cur_dim]-1;
+        recursive_write(f, arr, cur_dim + 1, cur_idx + i * strides[cur_dim], dim, strides, n_elems);    
+        write!(f, "\n").unwrap();
     }
 }
 
@@ -437,8 +472,7 @@ fn construct_slice(dims: &[usize], strides: &[usize], slices: TsSlices) -> Slice
         offsets.push(0);
         sizes.push(dims[j]);
     }
-    let strides = compute_strides(&offsets);
-
+    let strides = compute_strides(&sizes);
     Slice{offsets, sizes, non_zero_dims: new_dims, ref_inds: refer_inds, lin_offset, strides}
 }
 
@@ -508,6 +542,7 @@ fn compute_strides(dims: &[usize]) -> Vec<usize> {
         strides.push(k);
         k *= dims[i];
     }
+    strides.reverse();
     strides
 }
 
