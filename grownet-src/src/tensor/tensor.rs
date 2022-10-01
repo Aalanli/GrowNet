@@ -335,7 +335,7 @@ where I: TsIndex,
         if let Some(idx) = ind.convert().tile_cartesian((self as *const WorldTensor<T>).into()) {
             return inbounds_get_ptr_mut(&mut self.ptr, idx);
         } else {
-            panic!("Index out of bounds");
+            panic!("IndexMut out of bounds for WorldTensor");
         }
     }
 }
@@ -350,7 +350,7 @@ where I: TsIndex,
         if let Some(idx) = index.convert().mark_slice().tile_cartesian((self as *const WorldSlice<'a, T>).into()) {
             return inbounds_get_ptr(&self.world.ptr, idx);
         } else {
-            panic!("Index out of bounds");
+            panic!("Index out of bounds for WorldSlice");
         }
     }
 }
@@ -366,7 +366,7 @@ where I: TsIndex,
         if let Some(idx) = t {
             return inbounds_get_ptr(&self.world.ptr, idx);
         } else {
-            panic!("Index out of bounds");
+            panic!("Index out of bounds MutWorldSlice");
         }
     }
 }
@@ -380,7 +380,7 @@ where I: TsIndex,
         if let Some(idx) = index.convert().mark_slice().tile_cartesian((self as *const MutWorldSlice<'a, T>).into()) {
             return inbounds_get_ptr_mut(&mut self.world.ptr, idx);
         } else {
-            panic!("Index out of bounds");
+            panic!("IndexMut out of bounds for MutWorldSlice");
         }
     }
 }
