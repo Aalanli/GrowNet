@@ -1,12 +1,9 @@
 #![allow(dead_code)]
 
-
 mod m2;
 mod tensor;
 
 use tensor as ts;
-
-use crate::tensor::MutWorldSlice;
 
 trait Test {
     fn test<T>(a: T) -> T;

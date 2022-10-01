@@ -33,6 +33,7 @@ pub struct Slice {
     pub offsets: Vec<usize>,
     pub sizes: Vec<usize>,
     pub strides: Vec<usize>,
+    pub ref_inds: Vec<usize>,
     pub non_zero_dims: usize,
     pub lin_offset: usize,
 }

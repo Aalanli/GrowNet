@@ -2,7 +2,6 @@ use std::ptr::NonNull;
 use std::marker::PhantomData;
 use std::alloc::{self, Layout};
 use std::ptr;
-use std::fmt::Display;
 use std::ops::{Index, IndexMut};
 use std::iter::Iterator;
 use std::convert::{From, Into};
@@ -15,6 +14,7 @@ trait Tensor<T, I>: Index<I, Output = T> + Sized {
     fn iter(&self) -> TsIter<Self>;
     fn nelems(&self) -> usize;
     fn ptr(&self) -> *const T;
+    fn lin_index(&self, idx: usize) -> usize;
 }
 
 trait MutTensor<T, I>: IndexMut<I, Output = T> + Tensor<T, I> {
@@ -31,8 +31,10 @@ pub struct WorldTensor<T> {
     marker: PhantomData<T>,  // tells compiler that Tensor owns values of type T
 }
 
-/*
-impl<T, I: TsIndex> Tensor<T, I> for WorldTensor<T> {
+
+impl<T, I: TsIndex> Tensor<T, I> for WorldTensor<T>
+where <<I as TsIndex>::IndexT as TileIndex>::Meta: From<*const WorldTensor<T>> 
+{
     fn slice(&self, slices: TsSlices) -> WorldSlice<'_, T> {
         let slice = construct_slice(&self.dims, &self.strides, slices);
         WorldSlice { world: self, slice }
@@ -46,9 +48,14 @@ impl<T, I: TsIndex> Tensor<T, I> for WorldTensor<T> {
     fn ptr(&self) -> *const T {
         self.ptr.as_ptr()
     }
+    fn lin_index(&self, idx: usize) -> usize {
+        idx
+    }
 }
 
-impl<T, I: TsIndex> MutTensor<T, I> for WorldTensor<T> {
+impl<T, I: TsIndex> MutTensor<T, I> for WorldTensor<T> 
+where <<I as TsIndex>::IndexT as TileIndex>::Meta: From<*const WorldTensor<T>> 
+{
     fn iter_mut(&mut self) -> MutTsIter<Self> {
         MutTsIter { world: self, ind: 0 }
     }
@@ -60,7 +67,82 @@ impl<T, I: TsIndex> MutTensor<T, I> for WorldTensor<T> {
         self.ptr.as_ptr()
     }
 }
-*/
+
+impl<'a, T, I: TsIndex> Tensor<T, I> for WorldSlice<'a, T>
+where ind::SliceMarker<<I as TsIndex>::IndexT>: TileIndex,
+    <ind::SliceMarker<<I as TsIndex>::IndexT> as TileIndex>::Meta: From<*const WorldSlice<'a, T>>
+{
+    fn slice(&self, slices: TsSlices) -> WorldSlice<'_, T> {
+        let slice = construct_slice_from_slice(
+            &self.slice.sizes, &self.slice.offsets, 
+            &self.slice.ref_inds, &self.world.strides, 
+            self.slice.lin_offset, slices);
+        WorldSlice { world: self.world, slice }
+    }
+    fn iter(&self) -> TsIter<Self> {
+        TsIter { world: self, ind: 0 }
+    }
+    fn nelems(&self) -> usize {
+        self.world.len
+    }
+    fn ptr(&self) -> *const T {
+        self.world.ptr.as_ptr()
+    }
+    fn lin_index(&self, idx: usize) -> usize {
+        unsafe {
+            tile_strides(idx, &(self as *const Self).into())
+        }
+    }
+}
+
+
+impl<'a, T, I: TsIndex> Tensor<T, I> for MutWorldSlice<'a, T>
+where ind::SliceMarker<<I as TsIndex>::IndexT>: TileIndex,
+    <ind::SliceMarker<<I as TsIndex>::IndexT> as TileIndex>::Meta: From<*const MutWorldSlice<'a, T>>
+{
+    fn slice(&self, slices: TsSlices) -> WorldSlice<'_, T> {
+        let slice = construct_slice_from_slice(
+            &self.slice.sizes, &self.slice.offsets, 
+            &self.slice.ref_inds, &self.world.strides, 
+            self.slice.lin_offset, slices);
+        WorldSlice { world: self.world, slice }
+    }
+    fn iter(&self) -> TsIter<Self> {
+        TsIter { world: self, ind: 0 }
+    }
+    fn nelems(&self) -> usize {
+        self.world.len
+    }
+    fn ptr(&self) -> *const T {
+        self.world.ptr.as_ptr()
+    }
+    fn lin_index(&self, idx: usize) -> usize {
+        unsafe {
+            tile_strides(idx, &(self as *const Self).into())
+        }
+    }
+}
+
+impl<'a, T, I: TsIndex> MutTensor<T, I> for MutWorldSlice<'a, T> 
+where ind::SliceMarker<<I as TsIndex>::IndexT>: TileIndex,
+    <ind::SliceMarker<<I as TsIndex>::IndexT> as TileIndex>::Meta: From<*const MutWorldSlice<'a, T>>
+{
+    fn iter_mut(&mut self) -> MutTsIter<Self> {
+        MutTsIter { world: self, ind: 0 }
+    }
+    fn mut_slice(&mut self, slices: TsSlices) -> MutWorldSlice<'_, T> {
+        let slice = construct_slice_from_slice(
+            &self.slice.sizes, &self.slice.offsets, 
+            &self.slice.ref_inds, &self.world.strides, 
+            self.slice.lin_offset, slices);
+        MutWorldSlice { world: self.world, slice }
+    }
+    fn ptr_mut(&mut self) -> *mut T {
+        self.world.ptr.as_ptr()
+    }
+}
+
+
 // WorldSlice represents a slice of a WorldTensor,
 // 
 // params: 
@@ -172,7 +254,9 @@ impl<'a, T> From<*const WorldSlice<'a, T>> for IndexSlice<'a> {
             IndexSlice { dims: a.slice.sizes.as_ptr(), 
                 s_strides: a.slice.strides.as_ptr(), 
                 g_strides: a.world.strides.as_ptr(), 
-                len: a.world.strides.len(), 
+                s_stride_ind: a.slice.ref_inds.as_ptr(),
+                s_len: a.slice.strides.len(), 
+                linear_offset: a.slice.lin_offset,
                 nelems: a.world.len, 
                 marker: PhantomData }
         }
@@ -185,36 +269,38 @@ impl<'a, T> From<*const MutWorldSlice<'a, T>> for IndexSlice<'a> {
             let a = &*a;
             IndexSlice { dims: a.slice.sizes.as_ptr(), 
                 s_strides: a.slice.strides.as_ptr(), 
-                g_strides: a.world.strides.as_ptr(), 
-                len: a.world.strides.len(), 
+                g_strides: a.world.strides.as_ptr(),
+                s_stride_ind: a.slice.ref_inds.as_ptr(),
+                s_len: a.slice.strides.len(), 
+                linear_offset: a.slice.lin_offset,
                 nelems: a.world.len, 
                 marker: PhantomData }
         }
     }
 }
 
-impl<'a, T: Tensor<T, usize>> Iterator for TsIter<'a, T> {
+impl<'a, T: Tensor<T, &'a usize>> Iterator for TsIter<'a, T> {
     type Item = &'a T;
     fn next(&mut self) -> Option<Self::Item> {
         if self.ind < self.world.nelems() {
+            let ptr = self.world.ptr();
+            let v = unsafe {&*ptr.add(self.world.lin_index(self.ind))};
             self.ind += 1;
-            Some(&self.world[self.ind])
+            Some(v)
         } else {
             None
         }
     }
 }
 
-impl<'a, T> Iterator for MutTsIter<'a, MutWorldSlice<'a, T>> {
+impl<'a, T: Tensor<T, &'a usize>> Iterator for MutTsIter<'a, T> {
     type Item = &'a mut T;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.ind < self.world.world.len {
-            unsafe {
-                let i = tile_strides(self.ind, self.world.slice.strides.as_ptr(), 
-                self.world.world.strides.as_ptr(), self.world.slice.strides.len());
-                self.ind += 1;
-                Some(self.world.world.ptr.as_ptr().add(i).as_mut().unwrap())
-            }
+        if self.ind < self.world.nelems() {
+            let ptr = self.world.ptr() as *mut T;
+            let v = unsafe {&mut *ptr.add(self.ind)};
+            self.ind += 1;
+            Some(v)
         } else {
             None
         }
@@ -301,6 +387,7 @@ where I: TsIndex,
 fn construct_slice(dims: &[usize], strides: &[usize], slices: TsSlices) -> Slice {
     let mut offsets = Vec::<usize>::new();
     let mut sizes = Vec::<usize>::new();
+    let mut refer_inds = Vec::<usize>::new();
 
     let mut new_dims = dims.len();
     let mut lin_offset = 0usize;
@@ -321,11 +408,13 @@ fn construct_slice(dims: &[usize], strides: &[usize], slices: TsSlices) -> Slice
                 let e = wrap(*l, d, i);
                 offsets.push(e);
                 sizes.push(d-e);
+                refer_inds.push(i);
             },
             IndexBounds(Edge, S(r)) => {
                 let e = wrap(*r, d, i);
                 offsets.push(0);
                 sizes.push(e);
+                refer_inds.push(i);
             },
             IndexBounds(S(l), S(r)) => {
                 if l > r {
@@ -339,6 +428,7 @@ fn construct_slice(dims: &[usize], strides: &[usize], slices: TsSlices) -> Slice
                 } else {
                     offsets.push(e1);
                     sizes.push(wrap(*r, d, i) - e1);
+                    refer_inds.push(i);
                 }
             }
         };
@@ -349,7 +439,65 @@ fn construct_slice(dims: &[usize], strides: &[usize], slices: TsSlices) -> Slice
     }
     let strides = compute_strides(&offsets);
 
-    Slice{offsets, sizes, non_zero_dims: new_dims, lin_offset, strides}
+    Slice{offsets, sizes, non_zero_dims: new_dims, ref_inds: refer_inds, lin_offset, strides}
+}
+
+fn construct_slice_from_slice(s_sizes: &[usize], s_offsets: &[usize], s_ref_inds: &[usize], g_strides: &[usize], old_lin_offset:usize, slices: TsSlices) -> Slice {
+    let mut offsets = Vec::<usize>::new();
+    let mut sizes = Vec::<usize>::new();
+    let mut refer_inds = Vec::<usize>::new();
+
+    let mut new_dims = s_sizes.len();
+    let mut lin_offset = 0usize;
+
+    let wrap = |x: isize, d, i| {
+        if x.abs() as usize > d {
+            panic!("pos {} of slice {} is out of bounds", slices[i], slices);
+        }
+        if x < 0 {d + x as usize}
+        else {x as usize}
+    };
+
+    for (s, i) in (*slices).iter().zip(0..slices.len()) {
+        let d = s_sizes[i];
+        match s {
+            IndexBounds(Edge, Edge) => {offsets.push(s_offsets[i]); sizes.push(d)},
+            IndexBounds(S(l), Edge) => {
+                let e = wrap(*l, d, i);
+                offsets.push(e + s_offsets[i]);
+                sizes.push(d-e);
+                refer_inds.push(s_ref_inds[i]);
+            },
+            IndexBounds(Edge, S(r)) => {
+                let e = wrap(*r, d, i);
+                offsets.push(s_offsets[i]);
+                sizes.push(e);
+                refer_inds.push(s_ref_inds[i]);
+            },
+            IndexBounds(S(l), S(r)) => {
+                if l > r {
+                    panic!("left index {} is greater than right {} index for slice {}", l, r, slices);
+                }
+                let e1 = wrap(*l, d, i);
+
+                if l == r {
+                    new_dims -= 1;
+                    lin_offset += g_strides[s_ref_inds[i]] * e1;
+                } else {
+                    offsets.push(e1 + s_offsets[i]);
+                    sizes.push(wrap(*r, d, i) - e1);
+                    refer_inds.push(s_ref_inds[i]);
+                }
+            }
+        };
+    }
+    for j in slices.len()..s_sizes.len() {
+        offsets.push(0);
+        sizes.push(s_sizes[j]);
+    }
+    let strides = compute_strides(&offsets);
+    lin_offset += old_lin_offset;
+    Slice{offsets, sizes, non_zero_dims: new_dims, ref_inds: refer_inds, lin_offset, strides}
 }
 
 fn compute_strides(dims: &[usize]) -> Vec<usize> {

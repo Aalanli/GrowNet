@@ -1,32 +1,33 @@
-use std::ops::Deref;
 use std::marker::PhantomData;
-use std::convert::{From, Into};
+use std::convert::Into;
 
 // This macro automatically makes
 // unit polymorphic structs with deref auto derived
-macro_rules! auto_deref {
-    ($st_nm:ident) => {
-        pub struct $st_nm<T>(T);
-
-        impl<T> Deref for $st_nm<T> {
-            type Target = T;
-            fn deref(&self) -> &Self::Target {
-                &self.0
-            }
-        }
-    };
-    ($st_nm:ident($($tps:ty),*)) => {
-        {
-            struct $st_nm(($($tps),*));
-            impl Deref for $st_nm {
-                type Target = ($($tps),*);
-                fn deref(&self) -> &Self::Target {
-                    &self.0
-                }
-            }
-        }
-    };
-}
+// macro_rules! auto_deref {
+//     ($st_nm:ident) => {
+//         use std::ops::Deref;
+//         pub struct $st_nm<T>(T);
+// 
+//         impl<T> Deref for $st_nm<T> {
+//             type Target = T;
+//             fn deref(&self) -> &Self::Target {
+//                 &self.0
+//             }
+//         }
+//     };
+//     ($st_nm:ident($($tps:ty),*)) => {
+//         {
+//             use std::ops::Deref;
+//             struct $st_nm(($($tps),*));
+//             impl Deref for $st_nm {
+//                 type Target = ($($tps),*);
+//                 fn deref(&self) -> &Self::Target {
+//                     &self.0
+//                 }
+//             }
+//         }
+//     };
+// }
 
 // This trait converts all the possible indexing types
 // [usize; N], Vec<usize>, &[usize], etc, into only a few
@@ -47,18 +48,6 @@ pub trait TileIndex: Sized {
     fn mark_slice(self) -> SliceMarker<Self> {
         SliceMarker(self)
     }
-}
-
-struct Test (Vec<usize>);
-impl<'a> From<Test> for IndexReg<'a> {
-    fn from(a: Test) -> Self {
-        let meta = IndexReg { dims: a.0.as_ptr(), strides: a.0.as_ptr(), len: 3, nelems: 3, marker: PhantomData };
-        meta
-    }
-}
-
-pub trait Meta<M> {
-    fn get_meta(&self) -> M;
 }
 
 #[derive(Clone, Copy)]
@@ -89,8 +78,10 @@ pub struct IndexReg<'a> {
 pub struct IndexSlice<'a> {
     pub dims: *const usize,
     pub s_strides: *const usize,
+    pub s_stride_ind: *const usize,
     pub g_strides: *const usize,
-    pub len: usize,
+    pub s_len: usize,
+    pub linear_offset: usize,
     pub nelems: usize,
     pub marker: PhantomData<&'a usize>
 }
@@ -108,15 +99,9 @@ pub struct StaticIndexReg<'a, const N: usize> {
 pub struct StaticIndexSlice<'a, const N: usize> {
     dims: *const usize,
     s_strides: *const usize,
+    s_stride_ind: *const usize,
     g_strides: *const usize,
     marker: PhantomData<&'a usize>
-}
-
-fn test<I: TsIndex, W>(a: I, w: W)
-where W: Into<<<I as TsIndex>::IndexT as TileIndex>::Meta>, 
-{
-    let h = a.convert().tile_cartesian(w.into());
-
 }
 
 impl<'a> TileIndex for UniversalIndex<'a, usize> {
@@ -177,21 +162,26 @@ impl<'a, const N: usize> TileIndex for StaticUIndex<'a, usize, N> {
 impl<'a> TileIndex for SliceMarker<UniversalIndex<'a, usize>> {
     type Meta = IndexSlice<'a>;
     fn tile_cartesian(&self, meta: IndexSlice<'a>) -> Option<usize> {
-        if meta.len < self.0.len {
+        if meta.s_len < self.0.len {
             return None;
         }
         let mut idx: usize = 0;
-        let offset = meta.len - self.0.len;
+        let offset = meta.s_len - self.0.len;
         unsafe { 
             for i in 0..self.0.len {
                 let j = i + offset;
                 if *self.0.ptr.add(i) >= *meta.dims.add(j) {
                     return None;
                 }
-                idx += *meta.g_strides.add(j) * *self.0.ptr.add(i);
+                let k = *meta.s_stride_ind.add(j);
+                idx += *meta.g_strides.add(k) * *self.0.ptr.add(i);
             }
-            Some(idx)
-         }
+        }
+        idx += meta.linear_offset;
+        if idx > meta.nelems {
+            return None;
+        }
+        Some(idx)
     }
 }
 
@@ -205,32 +195,28 @@ impl<'a, const N: usize> TileIndex for SliceMarker<StaticUIndex<'a, usize, N>> {
             // and is supposed to be used with iterators with slices,
             // if used at all.
             if N == 0 {
-                let mut idx = 0;
-                let mut ind = *self.0.ptr;
-                for i in 0..meta.len {
-                    let c = ind / *meta.s_strides.add(i) as usize;
-                    idx += c * *meta.g_strides.add(i);
-                    ind -= c * *meta.s_strides.add(i);
-                    if ind <= 0 {
-                        break;
-                    }
-                }
+                let idx = tile_strides(*self.0.ptr, &meta);
                 if idx >= meta.nelems {
                     return None;
                 }
                 return Some(idx);
             } else { // otherwise more efficient multi-dimensional indexing into slices
-                if meta.len < N {
+                if meta.s_len < N {
                     return None;
                 }
                 let mut idx: usize = 0;
-                let offset = meta.len - N;
+                let offset = meta.s_len - N;
                 for i in 0..N {
                     let j = i + offset;
                     if *self.0.ptr.add(i) >= *meta.dims.add(j) {
                         return None;
                     }
-                    idx += *meta.g_strides.add(j) * *self.0.ptr.add(i);
+                    let k = *meta.s_stride_ind.add(j);
+                    idx += *meta.g_strides.add(k) * *self.0.ptr.add(i);
+                }
+                idx += meta.linear_offset;
+                if idx > meta.nelems {
+                    return None;
                 }
                 return Some(idx);
             }
@@ -266,16 +252,18 @@ impl<'a> TsIndex for &'a usize {
     }
 }
 
-pub unsafe fn tile_strides(tidx: usize, s_strides: *const usize, g_strides: *const usize, len: usize) -> usize {
+pub unsafe fn tile_strides(tidx: usize, s: &IndexSlice) -> usize {
     let mut idx = 0;
     let mut ind = tidx;
-    for i in 0..len {
-        let c = ind / *s_strides.add(i) as usize;
-        idx += c * *g_strides.add(i);
-        ind -= c * *s_strides.add(i);
+    for i in 0..s.s_len {
+        let c = ind / *s.s_strides.add(i) as usize;
+        let k = *s.s_stride_ind.add(i);
+        idx += c * *s.g_strides.add(k);
+        ind -= c * *s.s_strides.add(i);
         if ind <= 0 {
             break;
         }
     }
+    idx += s.linear_offset;
     return idx;
 }
