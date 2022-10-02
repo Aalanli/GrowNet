@@ -39,6 +39,15 @@ pub struct Slice {
     pub lin_offset: usize,
 }
 
+#[derive(Debug)]
+pub struct Slicev2 {
+    pub offsets: Vec<usize>,
+    pub sizes: Vec<usize>,
+    pub g_strides: Vec<usize>,
+    pub non_zero_dims: usize,
+    pub lin_offset: usize
+}
+
 impl Deref for TsSlices {
     type Target = Vec<IndexBounds>;
     fn deref(&self) -> &Self::Target {
