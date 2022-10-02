@@ -438,7 +438,8 @@ fn construct_slice(dims: &[usize], strides: &[usize], slices: TsSlices) -> Slice
     for (s, i) in (*slices).iter().zip(0..slices.len()) {
         let d = dims[i];
         match s {
-            IndexBounds(Edge, Edge) => {offsets.push(0); sizes.push(d)},
+            IndexBounds(Edge, Edge) => {
+                offsets.push(0); sizes.push(d); refer_inds.push(i)},
             IndexBounds(S(l), Edge) => {
                 let e = wrap(*l, d, i);
                 offsets.push(e);
@@ -496,7 +497,8 @@ fn construct_slice_from_slice(s_sizes: &[usize], s_offsets: &[usize], s_ref_inds
     for (s, i) in (*slices).iter().zip(0..slices.len()) {
         let d = s_sizes[i];
         match s {
-            IndexBounds(Edge, Edge) => {offsets.push(s_offsets[i]); sizes.push(d)},
+            IndexBounds(Edge, Edge) => {
+                offsets.push(s_offsets[i]); sizes.push(d); refer_inds.push(i)},
             IndexBounds(S(l), Edge) => {
                 let e = wrap(*l, d, i);
                 offsets.push(e + s_offsets[i]);
