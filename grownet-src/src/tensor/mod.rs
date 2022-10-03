@@ -11,6 +11,8 @@ pub use slice::Slicev2 as Slice;
 
 use std::ops::{Index, IndexMut};
 
+
+/// The tensor trait aims to support any generic tensor operations one may want
 trait Tensor<T, I>: Index<I, Output = T> + Sized {
     fn slice(&self, slices: &slice::TsSlices) -> WorldSlice<'_, T>;
     fn iter(&self) -> TsIter<Self>;

@@ -1,10 +1,31 @@
+/// Indexing is implemented using genrics to reduce boilerplate (perhaps unsuccessfully) 
+/// as the ConvertIndex trait converts disparate collections into an unified representation
+/// of which there are three possibilities, a dynamically sized multidimensional index
+/// a statically sized multidimensional index, and a linear index type. 
+/// Dynamically sized (DynIndex), and statically sized (StatIndex) indicate multidimensional
+/// while the LinIndex type represent linear indexing into contiguous memory.
+/// To extend indexing for another type, simply implement the ConvertIndex trait, as the Index
+/// trait takes care of computing the indicies, whether cartesian or linear.
+
+/// Right now, the structure is similar to this
+/// 
+/// Index representations | Unified Index reprs | Array Representations 
+/// Vec<usize>     -----> | DynIndex     -----> | (LinArr, Slice)
+/// &[usize]       -----> | DynIndex     -----> | (LinArr, Slice)
+/// &[usize; N]    -----> | StatIndex<N> -----> | (LinArr, Slice)
+/// usize          -----> | LinIndex     -----> | (LinArr, Slice)
+/// 
+/// Since rightnow there are only two tensor representations, a linear, contiguous memory layout
+/// and a view of contiguous memory
 
 pub trait ConvertIndex {
     type Result;
     fn convert(&self) -> Self::Result;
 }
+/////////////////////////////////////////////////
+/// Possible index types / representations
+/////////////////////////////////////////////////
 
-// Possible index types / representations
 #[derive(Clone, Copy)]
 pub struct DynIndex {
     ptr: *const usize,
@@ -44,7 +65,11 @@ impl ConvertIndex for usize {
     }
 }
 
-// Possible array types / representations
+/////////////////////////////////////////////////
+/// Possible array types / representations
+/////////////////////////////////////////////////
+
+
 pub struct LinArr{
     pub dims: *const usize,    // dynamic dimensions
     pub strides: *const usize, // dynamic strides
@@ -78,9 +103,11 @@ pub trait Index<Arr> {
 impl Index<Slice> for DynIndex {
     #[inline]
     fn tile_cartesian(&self, arr: &Slice) -> Option<usize> {
-        // if there are more indicies than dimensions in the slice
-        // then this will under-flow, causing an opaque error
-        // maybe check for it in advance?
+        // yes, there is a case where s_len is equal to 0, need to check for
+        // that to avoid underflow
+        if arr.s_len < self.len {
+            return None;
+        }
         let offset = arr.s_len - self.len;
         let mut idx = 0;
         for i in 0..self.len {
@@ -113,6 +140,11 @@ impl Index<Slice> for DynIndex {
 impl<const N: usize> Index<Slice> for StatIndex<N> {
     #[inline]
     fn tile_cartesian(&self, arr: &Slice) -> Option<usize> {
+        // yes, there is a case where s_len is equal to 0, need to check for
+        // that to avoid underflow
+        if arr.s_len < N {
+            return None;
+        }
         let offset = arr.s_len - N;
         let mut idx = 0;
         for i in 0..N {
@@ -150,6 +182,13 @@ impl Index<Slice> for LinIndex {
         let mut ind = self.0;
         // the index into contiguous memory
         let mut idx = 0;
+        // alas if s_len is 0, thent this crashes, since the arrays would have a size of 0 
+        // as well
+        if arr.s_len == 0 && self.0 == 0 {
+            return Some(arr.lin_offsets);
+        } else if self.0 > 0 {
+            return None;
+        }
         unsafe {
             for i in (1..arr.s_len).rev() {
                 let last_dim = *arr.s_dims.add(i);
