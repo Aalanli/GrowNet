@@ -282,7 +282,6 @@ where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
         let index_params = self.index_params();
         let i = TIndex::<ind::Slice>::tile_cartesian(&uindex, &index_params);
         if let Some(idx) = i {
-            println!("indexing {}", idx);
             // last check just to make sure
             if idx < self.world.nelems {
                 return inbounds_get_ptr(&self.world.ptr, idx);
@@ -299,10 +298,8 @@ where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
     fn index_mut(&mut self, ind: I) -> &mut T {
         let uindex = ind.convert();
         let index_params = self.index_params();
-        println!("hello again");
         let i = TIndex::<ind::Slice>::tile_cartesian(&uindex, &index_params);
         if let Some(idx) = i {
-            println!("indexing {}", idx);
             // last check just to make sure
             if idx < self.world.nelems {
                 return inbounds_get_ptr_mut(&mut self.world.ptr, idx);
