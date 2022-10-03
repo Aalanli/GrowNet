@@ -5,10 +5,6 @@ mod tensor;
 
 use tensor as ts;
 
-trait Test {
-    fn test<T>(a: T) -> T;
-}
-
 
 fn main() {
     let slice = ts::tslice![.., 1, 1];
