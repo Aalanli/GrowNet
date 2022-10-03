@@ -11,13 +11,12 @@ trait Test {
 
 
 fn main() {
-    let slice = ts::tslice![.., 1.., ..];
+    let slice = ts::tslice![.., 1, 1];
     println!("{}", slice);
     let mut tensor = ts::WorldTensor::<i32>::new(vec![3, 3, 3]);
-    let mut sts: ts::MutWorldSlice<'_, i32> = ts::MutWorldSlice::<i32>::new(&mut tensor, slice);
+    let mut sts: ts::MutWorldSlice<'_, i32> = ts::MutWorldSlice::<i32>::new(&mut tensor, &slice);
     println!("{:?}", sts.slice);
-    sts[3] += 9;
-    //sts[&8] = 3;
-    //tensor[&23] = 2;
-    println!("{}", tensor);
+    
+    sts.iter_mut().for_each(|x| {*x = -1;});
+    println!("hello {}", tensor);
 }

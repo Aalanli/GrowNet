@@ -7,7 +7,7 @@ use std::fmt::Display;
 
 use super::index2::{self as ind, ConvertIndex, Index as TIndex, LinArr};
 use super::slice::{IndexBounds, TsSlices, Slicev2, Edge, S};
-
+use super::{Tensor, MutTensor};
 
 pub struct WorldTensor<T> {
     pub ptr: NonNull<T>,         // NonNull pointer
@@ -31,7 +31,6 @@ impl<T> WorldTensor<T> {
             None  => alloc::handle_alloc_error(layout) 
         };
 
-
         WorldTensor{ptr, dims, strides, nelems, marker: PhantomData}
     }
 
@@ -39,12 +38,21 @@ impl<T> WorldTensor<T> {
         ind::LinArr { dims: self.dims.as_ptr(), strides: self.strides.as_ptr(), len: self.dims.len() }
     }
 
-    pub fn slice(&self, slices: TsSlices) -> WorldSlice<T> {
+    pub fn slice(&self, slices: &TsSlices) -> WorldSlice<T> {
         WorldSlice::new(self, slices)
     }
 
-    pub fn slice_mut(&mut self, slices: TsSlices) -> MutWorldSlice<T> {
+    pub fn slice_mut(&mut self, slices: &TsSlices) -> MutWorldSlice<T> {
         MutWorldSlice::new(self, slices)
+    }
+
+    pub fn iter(&self) -> TsIter<'_, Self> {
+        TsIter { world: self, ind: 0, nelems: self.nelems }
+    }
+
+    pub fn iter_mut(&mut self) -> MutTsIter<'_, Self> {
+        let nelems = self.dims.iter().product();
+        MutTsIter { world: self, ind: 0, nelems: nelems }
     }
 }
 
@@ -121,6 +129,45 @@ where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<LinArr>
     }
 }
 
+impl<T, I: ConvertIndex> Tensor<T, I> for WorldTensor<T>
+where <I as ConvertIndex>::Result: TIndex<LinArr>
+{
+    fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
+        let slice = construct_slice(&self.dims, &self.strides, slices, None);
+        WorldSlice { world: self, slice }
+    }
+    fn iter(&self) -> TsIter<Self> {
+        self.iter()
+    }
+    fn nelems(&self) -> usize {
+        self.nelems
+    }
+    fn ptr(&self) -> *const T {
+        self.ptr.as_ptr()
+    }
+    unsafe fn inbounds(&self, idx: usize) -> &T {
+        &*self.ptr.as_ptr().add(idx)
+    }
+}
+
+impl<T, I: ConvertIndex> MutTensor<T, I> for WorldTensor<T> 
+where <I as ConvertIndex>::Result: TIndex<LinArr>
+{
+    fn iter_mut(&mut self) -> MutTsIter<Self> {
+        self.iter_mut()
+    }
+    fn slice_mut(&mut self, slices: &TsSlices) -> MutWorldSlice<'_, T> {
+        let slice = construct_slice(&self.dims, &self.strides, slices, None);
+        MutWorldSlice { world: self, slice }
+    }
+    fn ptr_mut(&mut self) -> *mut T {
+        self.ptr.as_ptr()
+    }
+    unsafe fn inbounds_mut(&mut self, idx: usize) -> &mut T {
+        &mut *self.ptr.as_ptr().add(idx)
+    }
+}
+
 
 // WorldSlice represents a view of a WorldTensor, the memory order may not be contiguous
 pub struct WorldSlice<'a, T> {
@@ -134,7 +181,7 @@ pub struct MutWorldSlice<'a, T> {
 }
 
 impl<'a, T> WorldSlice<'a, T> {
-    pub fn new(tensor: &'a WorldTensor<T>, slices: TsSlices) -> WorldSlice<'a, T> {
+    pub fn new(tensor: &'a WorldTensor<T>, slices: &TsSlices) -> WorldSlice<'a, T> {
         let slice = construct_slice(&tensor.dims, &tensor.strides, slices, None);
         WorldSlice { world: tensor, slice }
     }
@@ -148,10 +195,20 @@ impl<'a, T> WorldSlice<'a, T> {
             lin_offsets: self.slice.lin_offset
         }
     }
+
+    pub fn iter(&self) -> TsIter<'_, Self> {
+        TsIter { world: self, ind: 0 , nelems: self.slice.sizes.iter().product()}
+    }
+
+    pub fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
+        let slice = construct_slice(
+            &self.slice.sizes, &self.slice.g_strides, slices, Some(&self.slice.offsets));
+        WorldSlice { world: self.world, slice }
+    }
 }
 
 impl<'a, T> MutWorldSlice<'a, T> {
-    pub fn new(tensor: &'a mut WorldTensor<T>, slices: TsSlices) -> MutWorldSlice<'a, T> {
+    pub fn new(tensor: &'a mut WorldTensor<T>, slices: &TsSlices) -> MutWorldSlice<'a, T> {
         let slice = construct_slice(&tensor.dims, &tensor.strides, slices, None);
         MutWorldSlice { world: tensor, slice }
     }
@@ -164,6 +221,27 @@ impl<'a, T> MutWorldSlice<'a, T> {
             s_len: self.slice.sizes.len(),
             lin_offsets: self.slice.lin_offset
         }
+    }
+
+    pub fn iter(&self) -> TsIter<'_, Self> {
+        TsIter { world: self, ind: 0 , nelems: self.slice.sizes.iter().product()}
+    }
+
+    pub fn iter_mut(&mut self) -> MutTsIter<'_, Self> {
+        let nelems = self.slice.sizes.iter().product();
+        MutTsIter { world: self, ind: 0, nelems: nelems }
+    }
+
+    pub fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
+        let slice = construct_slice(
+            &self.slice.sizes, &self.slice.g_strides, slices, Some(&self.slice.offsets));
+            WorldSlice{ world: self.world, slice }
+    }
+
+    pub fn slice_mut(&mut self, slices: &TsSlices) -> MutWorldSlice<'_, T> {
+        let slice = construct_slice(
+            &self.slice.sizes, &self.slice.g_strides, slices, Some(&self.slice.offsets));
+            MutWorldSlice{ world: self.world, slice }
     }
 }
 
@@ -224,16 +302,119 @@ where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
     }
 }
 
+impl<'a, T, I: ConvertIndex> Tensor<T, I> for WorldSlice<'a, T>
+where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
+{
+    fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
+        self.slice(&slices)
+    }
+    fn iter(&self) -> TsIter<Self> {
+        self.iter()
+    }
+    fn nelems(&self) -> usize {
+        self.world.nelems
+    }
+    fn ptr(&self) -> *const T {
+        self.world.ptr.as_ptr()
+    }
+    unsafe fn inbounds(&self, _idx: usize) -> &T {
+        panic!("inbounds for WorldSlice is not implementated")
+    }
+}
 
+impl<'a, T, I: ConvertIndex> Tensor<T, I> for MutWorldSlice<'a, T>
+where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
+{
+    fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
+        self.slice(&slices)
+    }
+    fn iter(&self) -> TsIter<Self> {
+        self.iter()
+    }
+    fn nelems(&self) -> usize {
+        self.world.nelems
+    }
+    fn ptr(&self) -> *const T {
+        self.world.ptr.as_ptr()
+    }
+    unsafe fn inbounds(&self, _idx: usize) -> &T {
+        panic!("inbounds for MutWorldSlice is not implementated")
+    }
+}
+
+impl<'a, T, I: ConvertIndex> MutTensor<T, I> for MutWorldSlice<'a, T> 
+where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
+{
+    fn iter_mut(&mut self) -> MutTsIter<Self> {
+        self.iter_mut()
+    }
+    fn slice_mut(&mut self, slices: &TsSlices) -> MutWorldSlice<'_, T> {
+        self.slice_mut(slices)
+    }
+    fn ptr_mut(&mut self) -> *mut T {
+        self.world.ptr.as_ptr()
+    }
+    unsafe fn inbounds_mut(&mut self, _idx: usize) -> &mut T {
+        panic!("inbounds_mut for MutWorldSlice is not implementated")
+    }
+}
+
+
+// Iterator implementations
 pub struct TsIter<'a, T> {
     world: &'a T,
-    ind: usize
+    ind: usize,
+    nelems: usize,
 }
 
 pub struct MutTsIter<'a, T> {
     world: &'a mut T,
-    ind: usize
+    ind: usize,
+    nelems: usize,
 }
+
+impl<'a, U: 'a, T: Index<usize, Output = U>> Iterator for TsIter<'a, T> {
+    type Item = &'a U;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ind >= self.nelems {
+            return None;
+        }
+        let t = &self.world[self.ind];
+        self.ind += 1;
+        Some(t)
+    }
+}
+
+
+impl<'a, T> Iterator for MutTsIter<'a, WorldTensor<T>> {
+    type Item = &'a mut T;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ind >= self.nelems {
+            return None;
+        }
+        let t = unsafe {
+            &mut *self.world.ptr.as_ptr().add(self.ind)
+        };
+        self.ind += 1;
+        Some(t)
+    }
+}
+
+impl<'a, T> Iterator for MutTsIter<'a, MutWorldSlice<'a, T>> {
+    type Item = &'a mut T;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ind >= self.nelems {
+            return None;
+        }
+        let t = unsafe{
+            let ptr = &mut self.world[self.ind] as *mut T;
+            &mut *ptr
+        };
+        self.ind += 1;
+        Some(t)
+    }
+}
+
 
 fn recursive_write<T: Display>(f: &mut std::fmt::Formatter<'_>, arr: *const T, cur_dim: usize, cur_idx: usize, dim: &[usize], strides: &[usize], n_elems: usize) {
     if cur_dim == dim.len() - 1 {
@@ -268,7 +449,7 @@ fn recursive_write<T: Display>(f: &mut std::fmt::Formatter<'_>, arr: *const T, c
 // Have to watchout for the case where the size of the slice is 0, 
 // as that state represents the removal of a dimension through slicing
 // similar to the case i:i+1, but that case preserves the dimension
-fn construct_slice(dims: &[usize], strides: &[usize], slices: TsSlices, old_offsets: Option<&[usize]>) -> Slicev2 {
+fn construct_slice(dims: &[usize], strides: &[usize], slices: &TsSlices, old_offsets: Option<&[usize]>) -> Slicev2 {
     // the offset of each dimension, as a slice may not being on 0, ex [2:], the offset would be 2 + i
     // if the index into that dimension is i
     let mut offsets = Vec::<usize>::new();
@@ -346,7 +527,7 @@ fn construct_slice(dims: &[usize], strides: &[usize], slices: TsSlices, old_offs
     Slicev2{offsets, sizes, non_zero_dims: new_dims, g_strides, lin_offset}
 }
 
-fn construct_slice_from_slice(old_slice: Slicev2, slices: TsSlices) -> Slicev2 {
+fn construct_slice_from_slice(old_slice: Slicev2, slices: &TsSlices) -> Slicev2 {
     let mut new_slice = construct_slice(
         &old_slice.sizes, &old_slice.g_strides, slices, Some(&old_slice.offsets));
     new_slice.lin_offset += old_slice.lin_offset;
