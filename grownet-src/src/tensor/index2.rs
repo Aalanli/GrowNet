@@ -17,9 +17,10 @@
 /// 
 /// Since rightnow there are only two tensor representations, a linear, contiguous memory layout
 /// and a view of contiguous memory
+use std::marker::PhantomData;
 
-pub trait ConvertIndex {
-    type Result;
+pub trait ConvertIndex<'a> {
+    type Result: 'a;
     fn convert(&self) -> Self::Result;
 }
 /////////////////////////////////////////////////
@@ -27,38 +28,41 @@ pub trait ConvertIndex {
 /////////////////////////////////////////////////
 
 #[derive(Clone, Copy)]
-pub struct DynIndex {
+pub struct DynIndex<'a> {
     ptr: *const usize,
     len: usize,
+    _marker: PhantomData<&'a usize>
 }
 #[derive(Clone, Copy)]
-pub struct StatIndex<const N: usize> {
+pub struct StatIndex<'a, const N: usize> {
     ptr: *const usize,
+    _marker: PhantomData<&'a usize>
+
 }
 pub struct LinIndex(usize);
 
-impl ConvertIndex for Vec<usize> {
-    type Result = DynIndex;
+impl<'a> ConvertIndex<'a> for Vec<usize> {
+    type Result = DynIndex<'a>;
     fn convert(&self) -> Self::Result {
-        DynIndex{ptr: self.as_ptr(), len: self.len()}
+        DynIndex{ptr: self.as_ptr(), len: self.len(), _marker: PhantomData}
     }
 }
 
-impl ConvertIndex for [usize] {
-    type Result = DynIndex;
+impl<'a> ConvertIndex<'a> for [usize] {
+    type Result = DynIndex<'a>;
     fn convert(&self) -> Self::Result {
-        DynIndex{ptr: self.as_ptr(), len: self.len()}
+        DynIndex{ptr: self.as_ptr(), len: self.len(), _marker: PhantomData}
     }
 }
 
-impl<const N: usize> ConvertIndex for [usize; N] {
-    type Result = StatIndex<N>;
+impl<'a, const N: usize> ConvertIndex<'a> for [usize; N] {
+    type Result = StatIndex<'a, N>;
     fn convert(&self) -> Self::Result {
-        StatIndex{ptr: self.as_ptr()}
+        StatIndex{ptr: self.as_ptr(), _marker: PhantomData}
     }
 }
 
-impl ConvertIndex for usize {
+impl<'a> ConvertIndex<'a> for usize {
     type Result = LinIndex;
     fn convert(&self) -> Self::Result {
         LinIndex(*self)
@@ -100,7 +104,7 @@ pub trait Index<Arr> {
 // in the slice, then we compute the index as if we padded the
 // index array to the left with zeros, to match the number of slicing
 // dimensions
-impl Index<Slice> for DynIndex {
+impl<'a> Index<Slice> for DynIndex<'a> {
     #[inline]
     fn tile_cartesian(&self, arr: &Slice) -> Option<usize> {
         // yes, there is a case where s_len is equal to 0, need to check for
@@ -137,7 +141,7 @@ impl Index<Slice> for DynIndex {
 
 // This is just like the dynamic case, except for a static number
 // of index dimensions, which will hopefully result in loop unrolling
-impl<const N: usize> Index<Slice> for StatIndex<N> {
+impl<'a, const N: usize> Index<Slice> for StatIndex<'a, N> {
     #[inline]
     fn tile_cartesian(&self, arr: &Slice) -> Option<usize> {
         // yes, there is a case where s_len is equal to 0, need to check for
@@ -210,7 +214,7 @@ impl Index<Slice> for LinIndex {
 }
 
 // Indexing into contiguous memory now, much easier than slice views
-impl Index<LinArr> for DynIndex {
+impl<'a> Index<LinArr> for DynIndex<'a> {
     #[inline]
     fn tile_cartesian(&self, arr: &LinArr) -> Option<usize> {
         let offset = arr.len - self.len;
@@ -231,7 +235,7 @@ impl Index<LinArr> for DynIndex {
 }
 
 // More (hopefully) loop unrolling, yay!
-impl<const N: usize> Index<LinArr> for StatIndex<N> {
+impl<'a, const N: usize> Index<LinArr> for StatIndex<'a, N> {
     #[inline]
     fn tile_cartesian(&self, arr: &LinArr) -> Option<usize> {
         let offset = arr.len - N;
@@ -252,7 +256,7 @@ impl<const N: usize> Index<LinArr> for StatIndex<N> {
 }
 
 // exactly the same code as before
-impl<const D: usize> Index<StatArr<D>> for DynIndex {
+impl<'a, const D: usize> Index<StatArr<D>> for DynIndex<'a> {
     #[inline]
     fn tile_cartesian(&self, arr: &StatArr<D>) -> Option<usize> {
         let offset = D - self.len;
@@ -272,7 +276,7 @@ impl<const D: usize> Index<StatArr<D>> for DynIndex {
     }
 }
 // just copy and paste
-impl<const N: usize, const D: usize> Index<StatArr<D>> for StatIndex<N> {
+impl<'a, const N: usize, const D: usize> Index<StatArr<D>> for StatIndex<'a, N> {
     #[inline]
     fn tile_cartesian(&self, arr: &StatArr<D>) -> Option<usize> {
         let offset = D - N;

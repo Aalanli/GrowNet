@@ -100,8 +100,8 @@ impl<T> Drop for WorldTensor<T> {
 /////////////////////////////////////////////////////////////////////
 // Indexing operations for WorldTensor, always checks inbounds and is always valid / safe
 /////////////////////////////////////////////////////////////////////
-impl<'a, T: 'a, I> Index<I> for WorldTensor<T> 
-where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<LinArr>
+impl<'a, T, I: 'a> Index<I> for WorldTensor<T> 
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<LinArr>
 {
     type Output = T;
     fn index(&self, ind: I) -> &T {
@@ -118,8 +118,8 @@ where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<LinArr>
     }
 }
 
-impl<'a, T: 'a, I> IndexMut<I> for WorldTensor<T> 
-where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<LinArr>
+impl<'a, T, I: 'a> IndexMut<I> for WorldTensor<T> 
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<LinArr>
 {
     fn index_mut(&mut self, ind: I) -> &mut T {
         let uindex = ind.convert();
@@ -135,8 +135,8 @@ where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<LinArr>
     }
 }
 
-impl<T, I: ConvertIndex> Tensor<T, I> for WorldTensor<T>
-where <I as ConvertIndex>::Result: TIndex<LinArr>
+impl<'a, T, I: ConvertIndex<'a> + 'a> Tensor<T, I> for WorldTensor<T>
+where <I as ConvertIndex<'a>>::Result: TIndex<LinArr>
 {
     fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
         let slice = construct_slice(&self.dims, &self.strides, slices, None);
@@ -156,8 +156,8 @@ where <I as ConvertIndex>::Result: TIndex<LinArr>
     }
 }
 
-impl<T, I: ConvertIndex> MutTensor<T, I> for WorldTensor<T> 
-where <I as ConvertIndex>::Result: TIndex<LinArr>
+impl<'a, T, I: ConvertIndex<'a> + 'a> MutTensor<T, I> for WorldTensor<T> 
+where <I as ConvertIndex<'a>>::Result: TIndex<LinArr>
 {
     fn iter_mut(&mut self) -> MutTsIter<Self> {
         self.iter_mut()
@@ -254,8 +254,8 @@ impl<'a, T> MutWorldSlice<'a, T> {
 
 // Indexing for Worldslice and MutWorldSlice
 // where the array param type is a slice
-impl<'a, T: 'a, I> Index<I> for WorldSlice<'a, T> 
-where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
+impl<'a, 'b, T: 'a, I> Index<I> for WorldSlice<'a, T> 
+where I: ConvertIndex<'b>, <I as ConvertIndex<'b>>::Result: TIndex<ind::Slice>
 {
     type Output = T;
     fn index(&self, ind: I) -> &T {
@@ -273,8 +273,8 @@ where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
 }
 
 // the index function is exactly the same as the previous block
-impl<'a, T: 'a, I> Index<I> for MutWorldSlice<'a, T> 
-where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
+impl<'a, 'b, T: 'a, I: 'b> Index<I> for MutWorldSlice<'a, T> 
+where I: ConvertIndex<'b>, <I as ConvertIndex<'b>>::Result: TIndex<ind::Slice>
 {
     type Output = T;
     fn index(&self, ind: I) -> &T {
@@ -292,8 +292,8 @@ where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
 }
 
 // this is also very similar to the previous block, copy & paste saves the day
-impl<'a, T: 'a, I> IndexMut<I> for MutWorldSlice<'a, T> 
-where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
+impl<'a, 'b, T: 'a, I: 'b> IndexMut<I> for MutWorldSlice<'a, T> 
+where I: ConvertIndex<'b>, <I as ConvertIndex<'b>>::Result: TIndex<ind::Slice>
 {
     fn index_mut(&mut self, ind: I) -> &mut T {
         let uindex = ind.convert();
@@ -309,8 +309,8 @@ where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
     }
 }
 
-impl<'a, T, I: ConvertIndex> Tensor<T, I> for WorldSlice<'a, T>
-where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
+impl<'a, 'b, T, I: ConvertIndex<'a>> Tensor<T, I> for WorldSlice<'a, T>
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice>
 {
     fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
         self.slice(&slices)
@@ -329,8 +329,8 @@ where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
     }
 }
 
-impl<'a, T, I: ConvertIndex> Tensor<T, I> for MutWorldSlice<'a, T>
-where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
+impl<'a, T, I: ConvertIndex<'a> + 'a> Tensor<T, I> for MutWorldSlice<'a, T>
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice>
 {
     fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
         self.slice(&slices)
@@ -349,8 +349,8 @@ where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
     }
 }
 
-impl<'a, T, I: ConvertIndex> MutTensor<T, I> for MutWorldSlice<'a, T> 
-where I: ConvertIndex, <I as ConvertIndex>::Result: TIndex<ind::Slice>
+impl<'a, T, I: ConvertIndex<'a> + 'a> MutTensor<T, I> for MutWorldSlice<'a, T> 
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice>
 {
     fn iter_mut(&mut self) -> MutTsIter<Self> {
         self.iter_mut()
