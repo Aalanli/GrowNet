@@ -74,24 +74,27 @@ impl<'a> ConvertIndex<'a> for usize {
 /////////////////////////////////////////////////
 
 
-pub struct LinArr{
+pub struct LinArr<'a> {
     pub dims: *const usize,    // dynamic dimensions
     pub strides: *const usize, // dynamic strides
     pub len: usize,            // length of the dims and strides array
+    pub _marker: PhantomData<&'a usize>
 }
 
 // A tensor with a static number of dimensions
-pub struct StatArr<const D: usize> {
+pub struct StatArr<'a, const D: usize> {
     pub dims: *const usize,
     pub strides: *const usize,
+    pub _marker: &'a usize,
 }
 
-pub struct Slice{
+pub struct Slice<'a> {
     pub s_dims: *const usize,    // the dimensions of the slice
     pub s_offsets: *const usize, // the offsets of the slice into global memory
     pub g_strides: *const usize, // the actual stride of the dimenions into global memory
     pub s_len: usize,            // length of the s_dims, s_offsets, and g_strides array
     pub lin_offsets: usize,      // Linearly offset, for any dimensions that may be removed during slicing
+    pub _marker: PhantomData<&'a usize>
 }
 
 // the indexing trait, where self represents the index representation
@@ -104,7 +107,7 @@ pub trait Index<Arr> {
 // in the slice, then we compute the index as if we padded the
 // index array to the left with zeros, to match the number of slicing
 // dimensions
-impl<'a> Index<Slice> for DynIndex<'a> {
+impl<'a> Index<Slice<'a>> for DynIndex<'a> {
     #[inline]
     fn tile_cartesian(&self, arr: &Slice) -> Option<usize> {
         // yes, there is a case where s_len is equal to 0, need to check for
@@ -141,7 +144,7 @@ impl<'a> Index<Slice> for DynIndex<'a> {
 
 // This is just like the dynamic case, except for a static number
 // of index dimensions, which will hopefully result in loop unrolling
-impl<'a, const N: usize> Index<Slice> for StatIndex<'a, N> {
+impl<'a, const N: usize> Index<Slice<'a>> for StatIndex<'a, N> {
     #[inline]
     fn tile_cartesian(&self, arr: &Slice) -> Option<usize> {
         // yes, there is a case where s_len is equal to 0, need to check for
@@ -180,7 +183,7 @@ impl<'a, const N: usize> Index<Slice> for StatIndex<'a, N> {
 // order was contiguous, which it is not. Which actually results
 // in similar or worse performance than the multidimensional index case
 // since we have to wrap around each dimension.
-impl Index<Slice> for LinIndex {
+impl<'a> Index<Slice<'a>> for LinIndex {
     #[inline]
     fn tile_cartesian(&self, arr: &Slice) -> Option<usize> {
         let mut ind = self.0;
@@ -214,7 +217,7 @@ impl Index<Slice> for LinIndex {
 }
 
 // Indexing into contiguous memory now, much easier than slice views
-impl<'a> Index<LinArr> for DynIndex<'a> {
+impl<'a> Index<LinArr<'a>> for DynIndex<'a> {
     #[inline]
     fn tile_cartesian(&self, arr: &LinArr) -> Option<usize> {
         let offset = arr.len - self.len;
@@ -235,7 +238,7 @@ impl<'a> Index<LinArr> for DynIndex<'a> {
 }
 
 // More (hopefully) loop unrolling, yay!
-impl<'a, const N: usize> Index<LinArr> for StatIndex<'a, N> {
+impl<'a, const N: usize> Index<LinArr<'a>> for StatIndex<'a, N> {
     #[inline]
     fn tile_cartesian(&self, arr: &LinArr) -> Option<usize> {
         let offset = arr.len - N;
@@ -256,7 +259,7 @@ impl<'a, const N: usize> Index<LinArr> for StatIndex<'a, N> {
 }
 
 // exactly the same code as before
-impl<'a, const D: usize> Index<StatArr<D>> for DynIndex<'a> {
+impl<'a, const D: usize> Index<StatArr<'a, D>> for DynIndex<'a> {
     #[inline]
     fn tile_cartesian(&self, arr: &StatArr<D>) -> Option<usize> {
         let offset = D - self.len;
@@ -276,7 +279,7 @@ impl<'a, const D: usize> Index<StatArr<D>> for DynIndex<'a> {
     }
 }
 // just copy and paste
-impl<'a, const N: usize, const D: usize> Index<StatArr<D>> for StatIndex<'a, N> {
+impl<'a, const N: usize, const D: usize> Index<StatArr<'a, D>> for StatIndex<'a, N> {
     #[inline]
     fn tile_cartesian(&self, arr: &StatArr<D>) -> Option<usize> {
         let offset = D - N;
@@ -300,13 +303,13 @@ impl<'a, const N: usize, const D: usize> Index<StatArr<D>> for StatIndex<'a, N> 
 // the simplist case, linear indexing into linear, contiguous memory
 // however, all the other ones produce inbounds indices, by nature
 // of their construction, but this one doesn't
-impl Index<LinArr> for LinIndex {
+impl<'a> Index<LinArr<'a>> for LinIndex {
     fn tile_cartesian(&self, _: &LinArr) -> Option<usize> {
         Some(self.0)
     }
 }
 
-impl<const D: usize> Index<StatArr<D>> for LinIndex {
+impl<'a, const D: usize> Index<StatArr<'a, D>> for LinIndex {
     fn tile_cartesian(&self, _: &StatArr<D>) -> Option<usize> {
         Some(self.0)
     }

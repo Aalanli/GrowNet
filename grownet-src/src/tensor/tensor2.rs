@@ -38,8 +38,8 @@ impl<T> WorldTensor<T> {
         WorldTensor{ptr, dims, strides, nelems, marker: PhantomData}
     }
 
-    fn index_params(&self) -> ind::LinArr {
-        ind::LinArr { dims: self.dims.as_ptr(), strides: self.strides.as_ptr(), len: self.dims.len() }
+    fn index_params<'t>(&self) -> ind::LinArr<'t> {
+        ind::LinArr { dims: self.dims.as_ptr(), strides: self.strides.as_ptr(), len: self.dims.len(), _marker: PhantomData }
     }
 
     pub fn slice(&self, slices: &TsSlices) -> WorldSlice<T> {
@@ -101,7 +101,7 @@ impl<T> Drop for WorldTensor<T> {
 // Indexing operations for WorldTensor, always checks inbounds and is always valid / safe
 /////////////////////////////////////////////////////////////////////
 impl<'a, T, I: 'a> Index<I> for WorldTensor<T> 
-where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<LinArr>
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<LinArr<'a>>
 {
     type Output = T;
     fn index(&self, ind: I) -> &T {
@@ -119,7 +119,7 @@ where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<LinArr>
 }
 
 impl<'a, T, I: 'a> IndexMut<I> for WorldTensor<T> 
-where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<LinArr>
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<LinArr<'a>>
 {
     fn index_mut(&mut self, ind: I) -> &mut T {
         let uindex = ind.convert();
@@ -136,7 +136,7 @@ where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<LinArr>
 }
 
 impl<'a, T, I: ConvertIndex<'a> + 'a> Tensor<T, I> for WorldTensor<T>
-where <I as ConvertIndex<'a>>::Result: TIndex<LinArr>
+where <I as ConvertIndex<'a>>::Result: TIndex<LinArr<'a>>
 {
     fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
         let slice = construct_slice(&self.dims, &self.strides, slices, None);
@@ -157,7 +157,7 @@ where <I as ConvertIndex<'a>>::Result: TIndex<LinArr>
 }
 
 impl<'a, T, I: ConvertIndex<'a> + 'a> MutTensor<T, I> for WorldTensor<T> 
-where <I as ConvertIndex<'a>>::Result: TIndex<LinArr>
+where <I as ConvertIndex<'a>>::Result: TIndex<LinArr<'a>>
 {
     fn iter_mut(&mut self) -> MutTsIter<Self> {
         self.iter_mut()
@@ -193,13 +193,14 @@ impl<'a, T> WorldSlice<'a, T> {
         WorldSlice { world: tensor, slice }
     }
 
-    fn index_params(&self) -> ind::Slice {
+    fn index_params<'t>(&self) -> ind::Slice<'t> {
         ind::Slice { 
             s_dims: self.slice.sizes.as_ptr(),
             s_offsets: self.slice.offsets.as_ptr(),
             g_strides: self.slice.g_strides.as_ptr(),
             s_len: self.slice.sizes.len(),
-            lin_offsets: self.slice.lin_offset
+            lin_offsets: self.slice.lin_offset,
+            _marker: PhantomData
         }
     }
 
@@ -220,13 +221,14 @@ impl<'a, T> MutWorldSlice<'a, T> {
         MutWorldSlice { world: tensor, slice }
     }
 
-    fn index_params(&self) -> ind::Slice {
+    fn index_params<'t>(&self) -> ind::Slice<'t> {
         ind::Slice { 
             s_dims: self.slice.sizes.as_ptr(),
             s_offsets: self.slice.offsets.as_ptr(),
             g_strides: self.slice.g_strides.as_ptr(),
             s_len: self.slice.sizes.len(),
-            lin_offsets: self.slice.lin_offset
+            lin_offsets: self.slice.lin_offset,
+            _marker: PhantomData
         }
     }
 
@@ -254,8 +256,8 @@ impl<'a, T> MutWorldSlice<'a, T> {
 
 // Indexing for Worldslice and MutWorldSlice
 // where the array param type is a slice
-impl<'a, 'b, T: 'a, I> Index<I> for WorldSlice<'a, T> 
-where I: ConvertIndex<'b>, <I as ConvertIndex<'b>>::Result: TIndex<ind::Slice>
+impl<'a, T, I> Index<I> for WorldSlice<'a, T> 
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a>>
 {
     type Output = T;
     fn index(&self, ind: I) -> &T {
@@ -273,8 +275,8 @@ where I: ConvertIndex<'b>, <I as ConvertIndex<'b>>::Result: TIndex<ind::Slice>
 }
 
 // the index function is exactly the same as the previous block
-impl<'a, 'b, T: 'a, I: 'b> Index<I> for MutWorldSlice<'a, T> 
-where I: ConvertIndex<'b>, <I as ConvertIndex<'b>>::Result: TIndex<ind::Slice>
+impl<'a, T, I> Index<I> for MutWorldSlice<'a, T> 
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a>>
 {
     type Output = T;
     fn index(&self, ind: I) -> &T {
@@ -292,8 +294,8 @@ where I: ConvertIndex<'b>, <I as ConvertIndex<'b>>::Result: TIndex<ind::Slice>
 }
 
 // this is also very similar to the previous block, copy & paste saves the day
-impl<'a, 'b, T: 'a, I: 'b> IndexMut<I> for MutWorldSlice<'a, T> 
-where I: ConvertIndex<'b>, <I as ConvertIndex<'b>>::Result: TIndex<ind::Slice>
+impl<'a, T, I> IndexMut<I> for MutWorldSlice<'a, T> 
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a>>
 {
     fn index_mut(&mut self, ind: I) -> &mut T {
         let uindex = ind.convert();
@@ -309,8 +311,8 @@ where I: ConvertIndex<'b>, <I as ConvertIndex<'b>>::Result: TIndex<ind::Slice>
     }
 }
 
-impl<'a, 'b, T, I: ConvertIndex<'a>> Tensor<T, I> for WorldSlice<'a, T>
-where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice>
+impl<'a, T, I: ConvertIndex<'a>> Tensor<T, I> for WorldSlice<'a, T>
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a>>
 {
     fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
         self.slice(&slices)
@@ -330,7 +332,7 @@ where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice>
 }
 
 impl<'a, T, I: ConvertIndex<'a> + 'a> Tensor<T, I> for MutWorldSlice<'a, T>
-where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice>
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a>>
 {
     fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
         self.slice(&slices)
@@ -350,7 +352,7 @@ where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice>
 }
 
 impl<'a, T, I: ConvertIndex<'a> + 'a> MutTensor<T, I> for MutWorldSlice<'a, T> 
-where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice>
+where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a>>
 {
     fn iter_mut(&mut self) -> MutTsIter<Self> {
         self.iter_mut()
