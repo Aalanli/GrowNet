@@ -1,18 +1,43 @@
+use std::collections::VecDeque;
 use std::mem;
 use std::ptr;
 use ndarray::prelude::*;
+use ndarray::{Axis};
 use ndarray_rand::{RandomExt, rand_distr::Normal, rand_distr::Uniform};
 use num::{self, Float};
 
 
 struct WeightedSigmoid {
     s: f32,
-    b: f32
+    b: f32,
+    ds: f32,
+    db: f32
 }
 
 impl WeightedSigmoid {
     pub fn forward(&self, x: f32) -> f32 {
         1.0 / (1.0 + (self.b * (x - self.s)).exp())
+    }
+
+    pub fn backward(&mut self, grad: f32, accum_mag: f32, xi: &Array1<f32>) -> Array1<f32> {
+        let s = self.forward(accum_mag);
+        let d_sigmoid = s * (1.0 - s);
+        self.db += -accum_mag * d_sigmoid;
+        self.ds += self.b * d_sigmoid;
+
+        let dg_ds = grad * d_sigmoid;
+        let dg_dxi = xi * dg_ds / accum_mag;
+        dg_dxi
+    }
+
+    pub fn zero_grad(&mut self) {
+        self.ds = 0.0;
+        self.db = 0.0;
+    }
+
+    pub fn apply_grad(&mut self, params: GlobalParams) {
+        self.b -= self.db * params.lr;
+        self.s -= self.ds * params.lr;
     }
 
     pub fn is_underflow(&self, x: f32, eps: f32) -> bool {
@@ -24,6 +49,9 @@ struct Relu {}
 impl Relu {
     pub fn forward(&self, x: f32) -> f32 {
         x.max(0.0)
+    }
+    pub fn backward(&self, x: f32) -> f32 {
+        x.max(0.0).min(1.0)
     }
 }
 
@@ -44,10 +72,19 @@ struct Message {
     sim: Similarity
 }
 
+impl Message {
+    pub fn new(msg: Array1<f32>, sim: Similarity) -> Message {
+        let norm = l2_norm(&msg);
+        Message { msg, mag: norm, sim }
+    }
+}
+
 struct ComputeInstance {
     w: Array2<f32>,
     b: Array1<f32>,
-    act_fn: Relu
+    act_fn: Relu,
+    dw: Array2<f32>,
+    db: Array1<f32>,
 }
 
 impl ComputeInstance {
@@ -55,17 +92,44 @@ impl ComputeInstance {
         ComputeInstance {
             w: Array::random((dim, dim), Normal::new(0.0, 1.0).unwrap()),
             b: Array::random((dim,), Uniform::new(-1.0, 1.0)),
+            dw: Array::zeros((dim,dim)),
+            db: Array::zeros((dim,)),
             act_fn: Relu{}
         }
     }
-    pub fn forward(&self, msg: &Message) -> Message {
+    pub fn forward(&mut self, msg: &Array1<f32>) -> Array1<f32> {
         // y = W*x + b
-        let mut k: Array<f32, Dim<[usize; 1]>> = self.w.dot(&msg.msg);
+        let mut k: Array<f32, Dim<[usize; 1]>> = self.w.dot(msg);
         k += &self.b;
         // yhat = relu(y)
         k.mapv_inplace(|x| self.act_fn.forward(x));
-        let norm = l2_norm(&k);
-        Message { msg: k, mag: norm, sim: msg.sim }
+        k
+    }
+
+    pub fn backward(&mut self, grad_msg: &Array1<f32>, past_msg: &Array1<f32>) -> Array1<f32> {
+        let dy_dx: Array1<f32> = grad_msg.mapv(|x| self.act_fn.backward(x));
+        self.db += &dy_dx;
+        let past_msg = past_msg.view().insert_axis(Axis(0));
+        let dy_dx = dy_dx.view().insert_axis(Axis(1));
+        self.dw += &dy_dx.dot(&past_msg);
+        let dx_ds = self.dw.t().dot(&dy_dx).remove_axis(Axis(1));
+        dx_ds
+    }
+
+    pub fn zero_grad(&mut self) {
+        self.dw.map_mut(|x| *x = 0.0);
+        self.db.map_mut(|x| *x = 0.0);
+    }
+
+    pub fn apply_grad(&mut self, params: GlobalParams) {
+        self.w.zip_mut_with(&self.dw, |a, b| *a -= b * params.lr);
+        self.b.zip_mut_with(&self.db, |a, b| *a -= b * params.lr);
+    }
+
+    pub unsafe fn new_instance(dim: usize) -> *mut Self {
+        let compute = ComputeInstance::new(dim);
+        let mut compute = mem::ManuallyDrop::new(compute);
+        &mut (*compute) as *mut ComputeInstance
     }
 }
 
@@ -111,13 +175,16 @@ struct ComputeNode {
     sim: Similarity,
     msg_accum: Message,
     compute: *mut ComputeInstance,
-    compute_dim: usize,
     compute_initialized: bool,
+    past_msgs: VecDeque<(Array1<f32>, f32)>,
 }
 
 struct GlobalParams {
     sim_strictness: f32,
-    underflow_epsilon: f32
+    underflow_epsilon: f32,
+    sim_epsilon: f32,
+    lr: f32,
+    compute_dim: usize
 }
 
 struct GlobalCoordinates([usize; 2]);
@@ -128,25 +195,45 @@ impl ComputeNode {
         self.msg_accum.mag += msg.mag * similarity;
         self.msg_accum.msg += &(&msg.msg * similarity);
         if !self.act_fn.is_underflow(self.msg_accum.mag, global_params.underflow_epsilon) {
-            let output_msg;
+            let output_vec;
             unsafe {
                 if !self.compute_initialized {
-                    let compute = ComputeInstance::new(self.compute_dim);
-                    let mut compute = mem::ManuallyDrop::new(compute);
-                    self.compute = &mut (*compute) as *mut ComputeInstance;
+                    self.compute = ComputeInstance::new_instance(global_params.compute_dim);
                     self.compute_initialized = true;
                 }
-                output_msg = (*self.compute).forward(&self.msg_accum);    
+                let norm_gate = self.act_fn.forward(self.msg_accum.mag);
+                let msg_vec = &self.msg_accum.msg * norm_gate;
+                output_vec = (*self.compute).forward(&msg_vec);
+                self.past_msgs.push_back((msg_vec, self.msg_accum.mag));
             }
             self.msg_accum.mag = 0.0;
-            self.msg_accum.msg *= 0.0;
-            NodeResult::Msg(output_msg)
+            self.msg_accum.msg.map_inplace(|x| {*x = 0.0;});
+
+            NodeResult::Msg(Message::new(output_vec, self.sim))
         } else {
             NodeResult::NoResult
         }
     }
 
-    pub fn backward() {} 
+    pub fn backward(&mut self, grad_msg: &Message, global_params: GlobalParams) -> NodeResult {
+        let similarity = Similarity::similarity(&self.sim, &grad_msg.sim, global_params.sim_strictness);
+        if similarity <= global_params.sim_epsilon {
+            return NodeResult::NoResult;
+        }
+
+        let grad = &grad_msg.msg * similarity;
+        let (past_msg, accum_mag) = if let Some((x, n)) = self.past_msgs.pop_front() {
+            (x, n) } else { panic!("Past undefined"); };
+        
+        let dy_ds = unsafe { (*self.compute).backward(&grad, &past_msg) };
+
+        let dy_dnorm_gate = dy_ds.sum();
+        let mut dy_dxi = self.act_fn.backward(dy_dnorm_gate, accum_mag, &dy_ds);
+        let norm_gate = self.act_fn.forward(accum_mag);
+        dy_dxi += norm_gate;
+
+        NodeResult::NoResult
+    } 
 
     pub fn forward_nodes() {}
 
