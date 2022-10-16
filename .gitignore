@@ -37,3 +37,7 @@ build
 dist
 GrowNet.*
 target
+
+__pycache__
+data
+.ipynb_checkpoints
