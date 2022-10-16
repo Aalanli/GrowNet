@@ -4,7 +4,6 @@ mod m2;
 mod tensor;
 use std::{marker::PhantomData, ops::Index};
 
-use std::marker::PhantomData;
 use std::process::Output;
 use std::fmt::Display;
 use ndarray_rand::rand_distr::uniform::SampleUniform;
