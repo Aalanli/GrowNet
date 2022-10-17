@@ -1743,6 +1743,8 @@ dependencies = [
  "ndarray",
  "ndarray-rand",
  "num",
+ "rand",
+ "rand_distr",
 ]
 
 [[package]]

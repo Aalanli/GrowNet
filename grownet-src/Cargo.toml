@@ -18,6 +18,9 @@ ndarray = "0.15.0"
 ndarray-rand = "0.14.0"
 bevy = { version = "0.8.1" }
 bevy-inspector-egui = "0.12.1"
+rand = "0.8.5"
+rand_distr = "0.4.3"
+
 
 [target.x86_64-unknown-linux-gnu]
 rustflags = ["-C", "link-args=-fuse-ld=/usr/local/mold"]
