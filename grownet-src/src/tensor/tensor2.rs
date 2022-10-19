@@ -22,7 +22,7 @@ pub struct WorldTensor<T> {
 }
 
 impl<T> WorldTensor<T> {
-    pub fn new(dims: Vec<usize>) -> WorldTensor<T> {
+    pub fn new<F: Fn() -> T>(dims: Vec<usize>, elem_fn: F) -> WorldTensor<T> {
         let strides= compute_strides(&dims);
         let nelems = strides[0] * dims[0];
         assert!(nelems > 0, "cannot make 0 sized tensor");
@@ -34,6 +34,12 @@ impl<T> WorldTensor<T> {
             Some(p) => p,
             None  => alloc::handle_alloc_error(layout) 
         };
+        let raw_ptr = ptr.as_ptr();
+        unsafe {
+            for i in 0..nelems {
+                *raw_ptr.add(i) = elem_fn();
+            }
+        }
 
         WorldTensor{ptr, dims, strides, nelems, marker: PhantomData}
     }
@@ -409,18 +415,26 @@ impl<'a, T> Iterator for MutTsIter<'a, WorldTensor<T>> {
     }
 }
 
-impl<'a, T> Iterator for MutTsIter<'a, MutWorldSlice<'a, T>> {
-    type Item = &'a mut T;
+struct SliceIter<'a, T> {
+    slice: &'a WorldSlice<'a, T>,
+    cur_dim: Vec<usize>
+}
+
+struct MutSliceIter<'a, T> {
+    slice: &'a mut WorldSlice<'a, T>,
+    cur_dim: Vec<usize>
+}
+
+impl<'a, T> Iterator for SliceIter<'a, T> {
+    type Item = &'a T;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.ind >= self.nelems {
-            return None;
-        }
-        let t = unsafe{
-            let ptr = &mut self.world[self.ind] as *mut T;
-            &mut *ptr
+        let idx = self.slice.slice.g_strides.iter()
+                        .zip(self.cur_dim.iter()).fold(0, |acc, (stride, idx)| acc + stride * idx );
+        let item = unsafe {
+            <WorldTensor<T> as Tensor<T, usize>>::inbounds(&self.slice.world, idx)
         };
-        self.ind += 1;
-        Some(t)
+
+        Some(item)
     }
 }
 
