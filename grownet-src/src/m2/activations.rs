@@ -37,6 +37,10 @@ impl WeightedSigmoid {
     pub fn is_underflow(&self, x: f32, eps: f32) -> bool {
         self.s - eps / self.b > x
     }
+
+    pub fn underflow_cutoff(&self, eps: f32) -> f32 {
+        self.s - eps / self.b
+    }
 }
 pub struct Relu {}
 

@@ -29,9 +29,10 @@ pub struct GlobalParams {
 
 /// The main enum signifying the output state of a node, as nodes may
 /// not output anything if internal requirements are not met
-pub enum NodeResult {
+#[derive(Clone)]
+pub enum NodeResult<T: Clone> {
     NoResult,
-    Msg(NodeMessage),
+    Msg(T),
 }
 
 /// Primary message format in the network, probably should make this
@@ -41,6 +42,7 @@ pub struct Message(Array1<f32>);
 
 /// Primary messages passed between different nodes, should make this a polymorphic
 /// trait
+#[derive(Clone)]
 pub struct NodeMessage {
     msg: Message,
     mag: f32

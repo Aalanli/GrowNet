@@ -135,7 +135,7 @@ impl ComputeNode {
         }
     }
 
-    pub fn forward(&mut self, msg: &NodeMessage, global_params: &GlobalParams) -> NodeResult {
+    pub fn forward(&mut self, msg: &NodeMessage, global_params: &GlobalParams) -> NodeResult<NodeMessage> {
         self.msg_accum.0 += &*msg.msg;
         self.mag = l2_norm(&self.msg_accum.0);
 
@@ -150,7 +150,7 @@ impl ComputeNode {
         }
     }
 
-    pub fn backward(&mut self, grad_msg: &Message, _global_params: &GlobalParams) -> NodeResult {
+    pub fn backward(&mut self, grad_msg: &Message, _global_params: &GlobalParams) -> NodeResult<NodeMessage> {
         let mut dl_dyi = self.inner_compute_backward(grad_msg);
         let dy_dw = dl_dyi.0.dot(&*self.msg_accum);
         let dw_dt = self.act_fn.backward(dy_dw);
@@ -178,6 +178,13 @@ impl ComputeNode {
             }
         }
     }
+
+    pub fn zero_accum(&mut self) {
+        self.msg_accum.0.mapv_inplace(|_| 0.0);
+        self.mag = 0.0
+    }
+
+
 }
 
 
