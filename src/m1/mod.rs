@@ -1,4 +1,6 @@
 mod compute;
+mod grid;
+mod indexing;
 
 pub struct GlobalParams {
     lr: f32,
