@@ -14,9 +14,11 @@ pub struct Baseline<I> {
 impl<I> Baseline<I> 
 where I: for<'a> IndexPolicy<'a> 
 {
-    pub fn new(dims: &[usize], params: GlobalParams) -> Self {
-        let grid = WorldTensor::new(dims.to_vec(), || ComputeInstance::new(params.compute_dim));
-        let indexing = I::new(dims);
+    pub fn new(params: GlobalParams) -> Self {
+        let grid = WorldTensor::new(params.grid_dim.clone(), || ComputeInstance::new(params.compute_dim));
+        let indexing = I::new(&params.grid_dim);
         Baseline { indexing, grid, params }
     }
+
+    //pub fn forward<I>(inputs: &I) -> 
 }

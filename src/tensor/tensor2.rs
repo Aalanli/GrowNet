@@ -210,8 +210,8 @@ impl<'a, T> WorldSlice<'a, T> {
         }
     }
 
-    pub fn iter(&self) -> TsIter<'_, Self> {
-        TsIter { world: self, ind: 0 , nelems: self.slice.sizes.iter().product()}
+    pub fn iter(&self) -> SliceIter<'a, T> {
+        SliceIter { slice: &self, cur_dim: (0..self.slice.g_strides.len()).map(|_| 0).collect() }
     }
 
     pub fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
@@ -238,13 +238,16 @@ impl<'a, T> MutWorldSlice<'a, T> {
         }
     }
 
-    pub fn iter(&self) -> TsIter<'_, Self> {
-        TsIter { world: self, ind: 0 , nelems: self.slice.sizes.iter().product()}
+    pub fn immutable(&self) -> WorldSlice<'_, T> {
+        WorldSlice { world: self.world, slice: self.slice }
     }
 
-    pub fn iter_mut(&mut self) -> MutTsIter<'_, Self> {
-        let nelems = self.slice.sizes.iter().product();
-        MutTsIter { world: self, ind: 0, nelems: nelems }
+    pub fn iter(&self) -> SliceIter<'a, T> {
+        SliceIter { slice: &self.immutable(), cur_dim: (0..self.slice.g_strides.len()).map(|_| 0).collect() }
+    }
+
+    pub fn iter_mut(&mut self) -> MutTsIter<'_, T> {
+        MutSliceIter { slice: &mut self, cur_dim: (0..self.slice.g_strides.len()).map(|_| 0).collect() }
     }
 
     pub fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
@@ -323,7 +326,7 @@ where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a
     fn slice(&self, slices: &TsSlices) -> WorldSlice<'_, T> {
         self.slice(&slices)
     }
-    fn iter(&self) -> TsIter<Self> {
+    fn iter(&self) -> SliceIter<'_, T> {
         self.iter()
     }
     fn nelems(&self) -> usize {
@@ -417,11 +420,11 @@ impl<'a, T> Iterator for MutTsIter<'a, WorldTensor<T>> {
 
 struct SliceIter<'a, T> {
     slice: &'a WorldSlice<'a, T>,
-    cur_dim: Vec<usize>
+    cur_dim: Vec<usize>,
 }
 
 struct MutSliceIter<'a, T> {
-    slice: &'a mut WorldSlice<'a, T>,
+    slice: &'a mut MutWorldSlice<'a, T>,
     cur_dim: Vec<usize>
 }
 
@@ -430,17 +433,67 @@ impl<'a, T> Iterator for SliceIter<'a, T> {
     fn next(&mut self) -> Option<Self::Item> {
         let idx = self.slice.slice.g_strides.iter()
                         .zip(self.cur_dim.iter()).fold(0, |acc, (stride, idx)| acc + stride * idx );
+
+                        
+        
+        // if the first dimension overflows, there are no more elements
+        if carry_over(&mut self.cur_dim, &self.slice.slice.sizes) {
+            return None;
+        }
+
         let item = unsafe {
             <WorldTensor<T> as Tensor<T, usize>>::inbounds(&self.slice.world, idx)
         };
-
         Some(item)
     }
 }
 
+impl<'a, T> Iterator for MutSliceIter<'a, T> {
+    type Item = &'a mut T;
+    fn next(&mut self) -> Option<Self::Item> {
+        let idx = self.slice.slice.g_strides.iter()
+                        .zip(self.cur_dim.iter()).fold(0, |acc, (stride, idx)| acc + stride * idx );
+
+                        
+        
+        // if the first dimension overflows, there are no more elements
+        if carry_over(&mut self.cur_dim, &self.slice.slice.sizes) {
+            return None;
+        }
+
+        let world = &*self.slice.world as *const WorldTensor<T> as *mut WorldTensor<T>;
+
+        let item = unsafe {
+            <WorldTensor<T> as MutTensor<T, usize>>::inbounds_mut(&mut *world, idx)
+        };
+        Some(item)
+    }
+}
+
+
 /////////////////////////////////////////////////////////////////////
 /// Helper functions
 /////////////////////////////////////////////////////////////////////
+
+/// Increase the index by 1, and carry over to higher dimensions if appliciable
+/// returns true if index is full, false otherwise
+fn carry_over(index: &mut [usize], dims: &[usize]) -> bool {
+    let mut carry_over = true;
+    index.iter_mut().rev()
+        .zip(dims.iter().rev())
+        .for_each(|(x, s)| {
+            if carry_over {
+                *x += 1;
+                carry_over = false;
+            }
+            if *x >= *s {
+                *x = 0;
+                carry_over = true;
+            }
+        });
+    carry_over
+}
+
 
 /// Recursive Write uses recursion to print out tensors
 fn recursive_write<T: Display>(f: &mut std::fmt::Formatter<'_>, arr: *const T, cur_dim: usize, cur_idx: usize, dim: &[usize], strides: &[usize], n_elems: usize) {
@@ -584,4 +637,16 @@ fn inbounds_get_ptr<T>(ptr: &NonNull<T>, i: usize) -> &T {
 /// This function does not check if the index is inbounds
 fn inbounds_get_ptr_mut<T>(ptr: &mut NonNull<T>, i: usize) -> &mut T {
     unsafe { ptr.as_ptr().add(i).as_mut().unwrap() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::slice::slice;
+    #[test]
+    fn slice_test() {
+        let mut ts = WorldTensor::new(vec![5, 6, 7], || 1.0f32);
+        let slice = ts.slice_mut(&slice![.., .., ..]);
+        slice.iter_mut().
+    }
 }

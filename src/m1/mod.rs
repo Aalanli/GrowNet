@@ -4,5 +4,6 @@ mod indexing;
 
 pub struct GlobalParams {
     lr: f32,
-    compute_dim: usize
+    compute_dim: usize,
+    grid_dim: Vec<usize>
 }
