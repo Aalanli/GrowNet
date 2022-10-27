@@ -20,5 +20,5 @@ where I: for<'a> IndexPolicy<'a>
         Baseline { indexing, grid, params }
     }
 
-    //pub fn forward<I>(inputs: &I) -> 
+    // pub fn forward<I>(inputs: &I) -> 
 }

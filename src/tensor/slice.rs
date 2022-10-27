@@ -39,7 +39,7 @@ pub struct Slice {
     pub lin_offset: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Slicev2 {
     pub offsets: Vec<usize>,
     pub sizes: Vec<usize>,

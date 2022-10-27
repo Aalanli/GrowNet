@@ -1,5 +1,7 @@
 
 
 fn main() {
-    println!("{}", f32::EPSILON);
+    let mut a = "a".to_string();
+    a += "1,2";
+    println!("{}", a);
 }
