@@ -43,7 +43,8 @@ impl ComputeInstance {
             act_fn: Relu{}
         }
     }
-    pub fn forward(&mut self, msg: &np::Array1<f32> ) -> np::Array1<f32> {
+    
+    pub fn forward(&mut self, msg: &np::Array1<f32>) -> np::Array1<f32> {
         // y = W*x + b
         let mut y: np::Array<f32, np::Dim<[usize; 1]>> = self.w.dot(msg);
         y += &self.b;

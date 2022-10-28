@@ -1,3 +1,5 @@
+use ndarray::prelude as np;
+
 use crate::tensor::WorldTensor;
 use super::compute::ComputeInstance;
 use super::indexing::{self as ind, IndexPolicy};
@@ -20,5 +22,7 @@ where I: for<'a> IndexPolicy<'a>
         Baseline { indexing, grid, params }
     }
 
-    // pub fn forward<I>(inputs: &I) -> 
+    // pub fn forward(inputs: &std::slice::Iter<(usize, np::Array1<f32>)>) -> &[f32] {
+    //     
+    // }
 }
