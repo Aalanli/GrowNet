@@ -143,7 +143,7 @@ impl<T> Drop for WorldTensor<T> {
 }
 
 /////////////////////////////////////////////////////////////////////
-// Indexing operations for WorldTensor, always checks inbounds and is always valid / safe
+/// Indexing operations for WorldTensor, always checks inbounds and is always valid / safe
 /////////////////////////////////////////////////////////////////////
 
 impl<'a, T, I: 'a> Index<I> for WorldTensor<T> 
@@ -183,13 +183,18 @@ where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<LinArr<'a>>
 
 
 /////////////////////////////////////////////////////////////////////
-// WorldSlice represents a view of a WorldTensor, the memory order may not be contiguous
+/// WorldSlice represents a view of a WorldTensor, the memory order may not be contiguous
 /////////////////////////////////////////////////////////////////////
+
+/// A potentially non-contiguous slice of the WorldTensor
+/// *eg.* slice!(.., 1..5, .., 2..4)
+/// in which case indexing is not straightforward and linear
 pub struct WorldSlice<'a, T> {
     world: &'a WorldTensor<T>,
     pub slice: Slicev2
 }
 
+/// The mutable version of WorldSlice
 pub struct MutWorldSlice<'a, T> {
     world: &'a mut WorldTensor<T>,
     pub slice: Slicev2
@@ -262,8 +267,8 @@ impl<'a, T> MutWorldSlice<'a, T> {
     }
 }
 
-// Indexing for Worldslice and MutWorldSlice
-// where the array param type is a slice
+/// Indexing for Worldslice and MutWorldSlice
+/// where the array param type is a slice
 impl<'a, T, I> Index<I> for WorldSlice<'a, T> 
 where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a>>
 {
@@ -282,7 +287,7 @@ where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a
     }
 }
 
-// the index function is exactly the same as the previous block
+/// the index function is exactly the same as the previous block
 impl<'a, T, I> Index<I> for MutWorldSlice<'a, T> 
 where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a>>
 {
@@ -301,7 +306,7 @@ where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a
     }
 }
 
-// this is also very similar to the previous block, copy & paste saves the day
+/// this is also very similar to the previous block, copy & paste saves the day
 impl<'a, T, I> IndexMut<I> for MutWorldSlice<'a, T> 
 where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a>>
 {
@@ -323,6 +328,9 @@ where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a
 /////////////////////////////////////////////////////////////////////
 // Iterator implementations for WorldSlice and WorldTensor
 /////////////////////////////////////////////////////////////////////
+
+/// This represents the iterator of a linear, contiguousously indexable WorldTensor
+/// kind of redudant now that .contiguous_slice is a thing
 pub struct TsIter<'a, T> {
     world: &'a T,
     ind: usize,
@@ -362,7 +370,10 @@ impl<'a, T> Iterator for MutTsIter<'a, WorldTensor<T>> {
 }
 
 /// Slice Iterators
-/// Need a special struct, to iterate through slices efficiently
+/// Need a special implementation, to iterate through slices efficiently
+/// since slices are not linear, we apply modulus and carry-over type operation
+/// for the actual linear index to be calculated
+/// TODO: Implement double ended iterators
 pub struct SliceIter<'a, T> {
     slice: &'a WorldSlice<'a, T>,
     cur_dim: Vec<usize>,
