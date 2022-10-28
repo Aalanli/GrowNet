@@ -106,7 +106,8 @@ impl<T> WorldTensor<T> {
 
 impl<T: Display> Display for WorldTensor<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        recursive_write(f, self.ptr.as_ptr(), 0, 0, &self.dims, &self.strides, self.nelems);
+        // recursive_write(f, self.ptr.as_ptr(), 0, 0, &self.dims, &self.strides, self.nelems);
+        pretty_write(f, self.contiguous_slice(0, (0, -1)), &self.dims);
         write!(f, "")
     }
 }
@@ -442,26 +443,95 @@ fn carry_over(index: &mut [usize], dims: &[usize]) -> bool {
     carry_over
 }
 
-fn factorize_matrix<T: Display>(arr: &[String], matrix_dim: (usize, usize)) -> &[String] {
-    let (m, n) = matrix_dim;
-    let m = m * n;
-    let nelems = arr.len();
-    assert!(nelems >= m, "not enough elements to factorize matrix");
-    arr
+/// The enum to facilitate the logic for labeling indicies for the pretty write function
+enum TensorDisplayType {
+    Scalar,
+    Matrix,
+    Tensor3D(usize),
+    TensorND(Vec<usize>),
 }
 
-fn comma_except_last<T: Display>(f: &mut std::fmt::Formatter<'_>, arr: &[T]) {
-    if arr.len() == 1 {
-        write!(f, "{}", arr[0]).unwrap();
-    } else if arr.len() > 1 {
-        for elem in &arr[0..arr.len() - 1] {
-            write!(f, "{},", elem).unwrap();
+impl TensorDisplayType {
+    fn new(ndim: usize) -> Self {
+        if ndim > 3 {
+            Self::TensorND(vec![0; ndim-2])
+        } else if ndim == 3 {
+            Self::Tensor3D(0)
+        } else if ndim == 2 {
+            Self::Matrix
+        } else {
+            Self::Scalar
         }
-        write!(f, "{},", arr.last().unwrap()).unwrap();
+    }
+    /// Increase the current index by 1, mod/carry over whatever dimension at that index
+    fn increment(&mut self, dim: &[usize]) {
+        match self {
+            Self::Tensor3D(i) => {*i += 1;}
+            Self::TensorND(d) => {
+                let ndim = d.len();
+                carry_over(d, &dim[0..ndim]);
+            }
+            _ => {}
+        }
+    }
+    /// Convert the index to a Sting, for pretty_print function
+    fn show(&self) -> String {
+        match self {
+            Self::Tensor3D(i) => {
+                format!("({})", i)
+            }
+            Self::TensorND(d) => {
+                std::iter::once("(".to_string()).chain(
+                    d.iter().map(|x| {
+                        format!("{},", x)
+                    }).take(d.len()-1).chain(std::iter::once(format!("{})", d[d.len() - 1])))
+                ).collect()
+            }
+            _ => "".to_string()
+        }
     }
 }
 
-fn pretty_write<T: Display>(f: &mut std::fmt::Formatter<'_>, arr: &[T], dim: &[usize], strides: &[usize], n_elems: usize) {
+/// A pretty display representation of a tensor, much better formatted than recursive write
+/// 1. Automatically pads uneven elements, so that columns are aligned
+/// 2. Partitions on the matrix level, higher order structures are labeled by index
+/// 
+/// *eg*. A rank 3 tensor of shape [2, 2, 2] is printed as
+/// (0)
+/// [x, x]
+/// [x, x]
+/// 
+/// (1)
+/// [x, x]
+/// [x, x]
+/// 
+/// while higher ranks are indexed by (a, b, c, ..., n), which is the number of dimensions
+/// minus 2
+/// 
+/// matrices and vectors do not have labeled indicies
+fn pretty_write<T: Display>(f: &mut std::fmt::Formatter<'_>, arr: &[T], dim: &[usize]) {
+    let ndim = dim.len();
+    let mat_dim = if ndim > 1 {
+        (dim[ndim - 2], dim[ndim - 1])
+    } else if ndim == 1 {
+        (1, dim[ndim - 1])
+    } else {
+        (1, 1)
+    };
+    let mat_elem = mat_dim.0 * mat_dim.1;
+
+    let mut mat_id = TensorDisplayType::new(ndim);
+
+    arr.chunks(mat_elem).for_each(|c| {
+        let str = format_pad_elem(c);
+        let str = format_matrix_str(&str, mat_dim);
+        write!(f, "{}\n{}", mat_id.show(), str[0]).unwrap();
+        mat_id.increment(&dim);
+    });
+}
+
+/// Pads each element in the arr so that every string representation has the same length
+fn format_pad_elem<T: Display>(arr: &[T]) -> Vec<String> {
     let mut max_str_len = 0;
     let mut str = arr.iter().map(|x| {
         let str = format!("{}", x);
@@ -471,45 +541,34 @@ fn pretty_write<T: Display>(f: &mut std::fmt::Formatter<'_>, arr: &[T], dim: &[u
     // pad for prettiness
     str.iter_mut().for_each(|x| {
         let pad_len = max_str_len - x.chars().count();
-        x.extend((0..pad_len).into_iter().map(|_| " "));
+        x.push_str(&" ".to_string().repeat(pad_len));
     });
+    str
+}
 
-    let vec_dim = *dim.last().unwrap();
-    let mat_dim = if dim.len() >= 2 {
-        dim[dim.len() - 2]
-    } else {
-        0
-    };
-    let mut rolling_ind = vec![0; dim.len()];
+/// Given a slice of strings, format it into blocks of matrices by inserting [] commas and newlines
+/// at appropriate locations
+fn format_matrix_str(arr: &[String], matrix_dim: (usize, usize)) -> Vec<String> {
+    let (m, n) = matrix_dim;
+    let mat_elem = m * n;
+    let nelems = arr.len();
+    assert!(nelems >= mat_elem, "not enough elements to factorize matrix");
 
-    let mut i = 0;
-    let mut j = 0;
-    for elem in str {
-        if i == 0 {
-            write!(f, "[").unwrap();
-        } else if i == vec_dim - 1 {
-            write!(f, "{elem}]\n").unwrap();
-            i = 0;
-            j += 1;
-        } else {
-            write!(f, "{elem},").unwrap();
-        }
-
-        if j == 0 {
-            if dim.len() == 3 {
-            write!(f, "{}", rolling_ind[0]).unwrap();
-            } else if dim.len() > 3 {
-                write!(f, "(").unwrap();
-                comma_except_last(f, &arr[0..arr.len()-2]);
-                write!(f, ")\n").unwrap();
+    let arr = arr.chunks(mat_elem).map(|c| {
+        let mut matrix = String::new();
+        for i in 0..m {
+            matrix += "[";
+            for j in 0..n-1 {
+                matrix.push_str(&c[i * n + j]);
+                matrix += ",";
             }
-        } else {
-            write!(f, "\n").unwrap();
-            j = 0;
+            matrix += &c[(i+1) * n - 1];
+            matrix += "]\n";
         }
-
-        carry_over(&mut rolling_ind, dim);
-    }
+        matrix += "\n";
+        matrix
+    }).collect();
+    arr
 }
 
 /// Recursive Write uses recursion to print out tensors
@@ -689,8 +748,18 @@ mod tests {
     }
 
     #[test]
-    fn print_test() {
-        let ts = WorldTensor::new(vec![2, 2, 7], || 1.0f32);
+    fn pretty_print_test() {
+        let ts = WorldTensor::new(vec![1, 2, 7, 7], || 1.0f32);
         println!("{}", ts);
+    }
+
+    #[test]
+    fn test_display_idx() {
+        let dims = vec![3, 4, 3, 4];
+        let mut idx = TensorDisplayType::new(4);
+        for _ in 0..18 {
+            idx.increment(&dims);
+            println!("{}", idx.show());
+        }
     }
 }
