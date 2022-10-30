@@ -12,6 +12,8 @@ path = "src/lib.rs"
 name = "grownet"
 path = "src/main.rs"
 
+[profile.test]
+opt-level = 3
 
 [profile.dev]
 opt-level = 1

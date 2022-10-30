@@ -26,3 +26,21 @@ where I: for<'a> IndexPolicy<'a>
     //     
     // }
 }
+
+#[cfg(test)]
+mod test {
+    use ndarray as np;
+    use std::{mem, any::Any};
+    
+
+    struct Test {
+        a: Vec<usize>
+    }
+    #[test]
+    fn size_test() {
+        println!("{}", mem::size_of::<&dyn Drop>());
+        println!("{}", mem::needs_drop::<[f32; 3]>());
+        println!("{}", mem::needs_drop::<f32>());
+        println!("{}", mem::needs_drop::<Test>());
+    }
+}
