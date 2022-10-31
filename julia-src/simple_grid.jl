@@ -80,7 +80,6 @@ function forward_kernel!(grid::Grid{T, ActFn}, x::Array{T, 3}) where {T <: Abstr
     end
 end
 
-
 function backward(grid::Grid{T, ActFn}, x::Array{T, 3}) where {T <: AbstractFloat, ActFn}
     if size(x) != size(grid.sum_buf1)
         grid.sum_buf1 = zeros(T, (size(x)[1:end-1]..., grid.grid_size[2] + 2))
@@ -99,19 +98,18 @@ function backward_kernel!(grid::Grid{T, ActFn}, x::Array{T, 3}) where {T <: Abst
     (dim, d, l) = grid.grid_size
     grid.sum_buf1[:, :, 2:end-1] .= x
     for i in 1:l
-        for j in 1:d
-            mul!(@view(grid.sum_buf2[:, :, j+1]), @view(grid.w[:, :, j, i]), @view(grid.sum_buf1[:, :, j+1]))
-            grid.sum_buf2[:, :, j+1] .= forward.(ActFn, @view(grid.b[:, j, i]) .+ @view(grid.sum_buf2[:, :, j+1]))
-        end
-        
-        #(grid.sum_buf1, grid.sum_buf2) = (grid.sum_buf2, grid.sum_buf1)
-        grid.sum_buf1 .= 0
         for j in 2:d+1
             for k in (-1, 0, 1)
                 grid.sum_buf1[:, :, j] .= @view(grid.sum_buf1[:, :, j]) .+ @view(grid.sum_buf2[:, :, j+k])
             end
             normalize!(@view(grid.sum_buf1[:, :, j]))
         end
+        
+        for j in 1:d
+            mul!(@view(grid.sum_buf2[:, :, j+1]), @view(grid.w[:, :, j, i]), @view(grid.sum_buf1[:, :, j+1]))
+            grid.sum_buf2[:, :, j+1] .= forward.(ActFn, @view(grid.b[:, j, i]) .+ @view(grid.sum_buf2[:, :, j+1]))
+        end
+        grid.sum_buf1 .= 0        
 
     end
 end
