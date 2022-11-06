@@ -1,7 +1,9 @@
 use std::f32::consts::PI;
 
 use bevy::prelude::*;
+use bevy::reflect::TypeUuid;
 use bevy::render::mesh::{self, PrimitiveTopology};
+use bevy::render::render_resource::AsBindGroup;
 
 const PI2: f32 = PI * 2.0;
 pub fn build_circle(radius: f32, vertices: usize) -> Mesh {
