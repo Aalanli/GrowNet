@@ -147,7 +147,7 @@ impl<T> Drop for WorldTensor<T> {
 /////////////////////////////////////////////////////////////////////
 
 impl<'a, T, I: 'a> Index<I> for WorldTensor<T> 
-where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<LinArr<'a>>
+where I: ConvertIndex, <I as ConvertIndex>::Result<'a>: TIndex<LinArr<'a>>
 {
     type Output = T;
     fn index(&self, ind: I) -> &T {
@@ -165,7 +165,7 @@ where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<LinArr<'a>>
 }
 
 impl<'a, T, I: 'a> IndexMut<I> for WorldTensor<T> 
-where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<LinArr<'a>>
+where I: ConvertIndex, <I as ConvertIndex>::Result<'a>: TIndex<LinArr<'a>>
 {
     fn index_mut(&mut self, ind: I) -> &mut T {
         let uindex = ind.convert();
@@ -270,7 +270,7 @@ impl<'a, T> MutWorldSlice<'a, T> {
 /// Indexing for Worldslice and MutWorldSlice
 /// where the array param type is a slice
 impl<'a, T, I> Index<I> for WorldSlice<'a, T> 
-where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a>>
+where I: ConvertIndex, <I as ConvertIndex>::Result<'a>: TIndex<ind::Slice<'a>>
 {
     type Output = T;
     fn index(&self, ind: I) -> &T {
@@ -289,7 +289,7 @@ where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a
 
 /// the index function is exactly the same as the previous block
 impl<'a, T, I> Index<I> for MutWorldSlice<'a, T> 
-where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a>>
+where I: ConvertIndex, <I as ConvertIndex>::Result<'a>: TIndex<ind::Slice<'a>>
 {
     type Output = T;
     fn index(&self, ind: I) -> &T {
@@ -308,7 +308,7 @@ where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a
 
 /// this is also very similar to the previous block, copy & paste saves the day
 impl<'a, T, I> IndexMut<I> for MutWorldSlice<'a, T> 
-where I: ConvertIndex<'a>, <I as ConvertIndex<'a>>::Result: TIndex<ind::Slice<'a>>
+where I: ConvertIndex, <I as ConvertIndex>::Result<'a>: TIndex<ind::Slice<'a>>
 {
     fn index_mut(&mut self, ind: I) -> &mut T {
         let uindex = ind.convert();

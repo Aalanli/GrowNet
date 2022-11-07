@@ -19,9 +19,9 @@
 /// and a view of contiguous memory
 use std::marker::PhantomData;
 
-pub trait ConvertIndex<'a> {
-    type Result: 'a;
-    fn convert(&self) -> Self::Result;
+pub trait ConvertIndex {
+    type Result<'a>;
+    fn convert<'a>(&self) -> Self::Result<'a>;
 }
 /////////////////////////////////////////////////
 /// Possible index types / representations
@@ -39,33 +39,33 @@ pub struct StatIndex<'a, const N: usize> {
     _marker: PhantomData<&'a usize>
 
 }
-pub struct LinIndex(usize);
+pub struct LinIndex<'a>(usize, PhantomData<&'a usize>);
 
-impl<'a> ConvertIndex<'a> for Vec<usize> {
-    type Result = DynIndex<'a>;
-    fn convert(&self) -> Self::Result {
+impl ConvertIndex for Vec<usize> {
+    type Result<'a> = DynIndex<'a>;
+    fn convert<'a>(&self) -> Self::Result<'a> {
         DynIndex{ptr: self.as_ptr(), len: self.len(), _marker: PhantomData}
     }
 }
 
-impl<'a> ConvertIndex<'a> for [usize] {
-    type Result = DynIndex<'a>;
-    fn convert(&self) -> Self::Result {
+impl ConvertIndex for [usize] {
+    type Result<'a> = DynIndex<'a>;
+    fn convert<'a>(&self) -> Self::Result<'a> {
         DynIndex{ptr: self.as_ptr(), len: self.len(), _marker: PhantomData}
     }
 }
 
-impl<'a, const N: usize> ConvertIndex<'a> for [usize; N] {
-    type Result = StatIndex<'a, N>;
-    fn convert(&self) -> Self::Result {
+impl<const N: usize> ConvertIndex for [usize; N] {
+    type Result<'a> = StatIndex<'a, N>;
+    fn convert<'a>(&self) -> Self::Result<'a> {
         StatIndex{ptr: self.as_ptr(), _marker: PhantomData}
     }
 }
 
-impl<'a> ConvertIndex<'a> for usize {
-    type Result = LinIndex;
-    fn convert(&self) -> Self::Result {
-        LinIndex(*self)
+impl ConvertIndex for usize {
+    type Result<'a> = LinIndex<'a>;
+    fn convert<'a>(&self) -> Self::Result<'a> {
+        LinIndex(*self, PhantomData)
     }
 }
 
@@ -183,7 +183,7 @@ impl<'a, const N: usize> Index<Slice<'a>> for StatIndex<'a, N> {
 // order was contiguous, which it is not. Which actually results
 // in similar or worse performance than the multidimensional index case
 // since we have to wrap around each dimension.
-impl<'a> Index<Slice<'a>> for LinIndex {
+impl<'a> Index<Slice<'a>> for LinIndex<'a> {
     #[inline]
     fn tile_cartesian(&self, arr: &Slice) -> Option<usize> {
         let mut ind = self.0;
@@ -303,13 +303,13 @@ impl<'a, const N: usize, const D: usize> Index<StatArr<'a, D>> for StatIndex<'a,
 // the simplist case, linear indexing into linear, contiguous memory
 // however, all the other ones produce inbounds indices, by nature
 // of their construction, but this one doesn't
-impl<'a> Index<LinArr<'a>> for LinIndex {
+impl<'a> Index<LinArr<'a>> for LinIndex<'a> {
     fn tile_cartesian(&self, _: &LinArr) -> Option<usize> {
         Some(self.0)
     }
 }
 
-impl<'a, const D: usize> Index<StatArr<'a, D>> for LinIndex {
+impl<'a, const D: usize> Index<StatArr<'a, D>> for LinIndex<'a> {
     fn tile_cartesian(&self, _: &StatArr<D>) -> Option<usize> {
         Some(self.0)
     }

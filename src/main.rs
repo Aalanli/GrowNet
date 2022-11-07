@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use bevy::{prelude::*, input::mouse::{MouseMotion, MouseWheel}, render::{camera::Projection, render_resource::AsBindGroup}, reflect::TypeUuid, asset::AssetServerSettings};
 use bevy_inspector_egui::WorldInspectorPlugin;
 
@@ -208,4 +210,15 @@ fn spawn_camera(mut commands: Commands) {
         radius,
         ..Default::default()
     });
+}
+
+trait Test {
+    type H<'a, T> where T: 'a;
+}
+
+struct K;
+struct A<'t, T>(PhantomData<&'t T>);
+
+impl Test for K {
+    type H<'t, T> = A<'t, T> where T: 't;
 }
