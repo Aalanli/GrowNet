@@ -1,14 +1,15 @@
+#![allow(dead_code)]
 #[macro_use]
 extern crate bencher;
-
-use std::borrow::BorrowMut;
 
 use std::{alloc};
 
 use bencher::Bencher;
 
-use nalgebra::{self as na, Matrix};
+use nalgebra::{self as na};
 use ndarray::{self as nd};
+
+const SHAPE: (usize, usize) = (128, 128);
 
 fn test() {
     let m4 = na::Matrix2x3::from_column_slice(&[
@@ -24,14 +25,16 @@ fn test() {
 }
 
 fn bench_nd(bench: &mut Bencher) {
-    let a: Vec<f32>  = (0..16).map(|x| x as f32).collect();
+    let shape = SHAPE;
+    let nelems = shape.0 * shape.1;
+    let a: Vec<f32>  = (0..nelems).map(|x| x as f32).collect();
     let b = a.clone();
     let mut c = a.clone();
 
 
-    let A: nd::ArrayBase<_, nd::Ix2> = unsafe {nd::ArrayView::from_shape_ptr((4, 4), a.as_ptr())};
-    let B: nd::ArrayBase<_, nd::Ix2>  = unsafe {nd::ArrayView::from_shape_ptr((4, 4), b.as_ptr())};
-    let mut C: nd::ArrayBase<_, nd::Ix2>  = unsafe {nd::ArrayViewMut::from_shape_ptr((4, 4), c.as_mut_ptr())};
+    let A: nd::ArrayBase<_, nd::Ix2> = unsafe {nd::ArrayView::from_shape_ptr(shape, a.as_ptr())};
+    let B: nd::ArrayBase<_, nd::Ix2>  = unsafe {nd::ArrayView::from_shape_ptr(shape, b.as_ptr())};
+    let mut C: nd::ArrayBase<_, nd::Ix2>  = unsafe {nd::ArrayViewMut::from_shape_ptr(shape, c.as_mut_ptr())};
 
     
     bench.iter(|| {
@@ -51,19 +54,20 @@ unsafe fn free<T>(s: usize, ptr: *mut T) {
 }
 
 fn bench_na(bench: &mut Bencher) {
-
-    let shape = (na::Dynamic::new(4), na::Dynamic::new(4));
-    let stride = (na::Const::<1>, na::Dynamic::new(4));
+    let shape_ = SHAPE;
+    let elems = shape_.0 * shape_.1;
+    let shape = (na::Dynamic::new(shape_.0), na::Dynamic::new(shape_.1));
+    let stride = (na::Const::<1>, na::Dynamic::new(shape_.1));
     
 
     let a = unsafe {
-        malloc::<f32>(16)
+        malloc::<f32>(elems)
     };
     let b = unsafe {
-        malloc::<f32>(16)
+        malloc::<f32>(elems)
     };
     let c = unsafe {
-        malloc::<f32>(16)
+        malloc::<f32>(elems)
     };
     let Ap = unsafe{ 
         na::SliceStorageMut::from_raw_parts(a, shape, stride) };
@@ -82,9 +86,9 @@ fn bench_na(bench: &mut Bencher) {
     });
 
     unsafe {
-        free(16, a);
-        free(16, b);
-        free(16, c);
+        free(elems, a);
+        free(elems, b);
+        free(elems, c);
     }
 }
 

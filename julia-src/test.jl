@@ -2,8 +2,6 @@ using GLMakie, Colors
 using LinearAlgebra
 using GeometryBasics: Rect3f
 GLMakie.activate!()
-include("compute.jl")
-using .compute
 
 function example_plot()
     positions = vec([Point3f(i, j, k) for i = 1:7, j = 1:7, k = 1:7]) ## note 7 > 5 [factor in each i,j,k], whichs is misleading
@@ -30,18 +28,4 @@ function example_plot()
     fig
 end
 
-struct Test
-    a::Int32
-    b::Int64
-    c::Int64
-end
-
-mutable struct TestMut
-    a::Int32
-    b::Int64
-    c::Int64
-end
-
-struct C
-    a::Vector{Int32}
-end
+example_plot()
