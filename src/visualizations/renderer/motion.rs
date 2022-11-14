@@ -3,7 +3,7 @@ use bevy::render::{camera::Projection};
 
 use bevy::prelude::*;
 
-const MOUSE_SENSIVITY: f32 = 0.1;
+const SCROLL_SENSIVITY: f32 = 0.1;
 
 /// Tags an entity as capable of panning and orbiting.
 #[derive(Component)]
@@ -54,7 +54,7 @@ pub fn pan_orbit_camera(
         }
     }
     for ev in ev_scroll.iter() {
-        scroll += ev.y * MOUSE_SENSIVITY;
+        scroll += ev.y * SCROLL_SENSIVITY;
     }
     if input_mouse.just_released(orbit_button) || input_mouse.just_pressed(orbit_button) {
         orbit_button_changed = true;

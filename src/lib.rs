@@ -2,7 +2,7 @@
 #![allow(unused_macros)]
 #![allow(unused_imports)]
 
-mod m1;
-mod m2;
-mod tensor;
-mod renderer;
+pub mod datasets;
+pub mod ui;
+pub mod models;
+pub mod visualizations;

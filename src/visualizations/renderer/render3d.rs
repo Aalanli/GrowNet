@@ -3,11 +3,18 @@ use super::motion::{pan_orbit_camera, PanOrbitCamera};
 use bevy::reflect::{TypeUuid};
 use bevy::render::render_resource::AsBindGroup;
 use bevy::core_pipeline::clear_color::ClearColorConfig;
-
+use bevy::render::camera;
+use itertools::iproduct;
 
 use bevy_egui:: {egui, EguiContext};
 const GLOBAL_SCALE: f32 = 10.0;
 
+struct SimpleViewer;
+impl Plugin for SimpleViewer {
+    fn build(&self, app: &mut App) {
+        app.add_startup_system(simple_viewer).add_system(pan_orbit_camera);
+    }
+}
 fn simple_viewer(
     mut commands: Commands
 ) {
@@ -30,7 +37,14 @@ fn simple_viewer(
     let radius = translation.length();
 
     commands.spawn_bundle(Camera3dBundle {
-        camera_3d: Camera3d { clear_color: ClearColorConfig::Custom(Color::rgb(0.9, 1.0, 1.0)), ..default() },
+        camera: Camera { viewport: Some(camera::Viewport {
+            physical_position: UVec2 { x: 0, y: 0 },
+             ..default() 
+        }), 
+            ..default()},
+        camera_3d: Camera3d { 
+            clear_color: ClearColorConfig::Custom(Color::rgb(0.9, 1.0, 1.0)), 
+            ..default() },
         transform: Transform::from_translation(translation)
             .looking_at(Vec3::ZERO, Vec3::Y),
         ..Default::default()
@@ -45,9 +59,22 @@ pub struct VectorFieldPlugin {
     field: FieldDescriptor
 }
 
+impl VectorFieldPlugin {
+    pub fn new(x: usize, y: usize, z: usize) -> Self {
+        let elems = x * y * z;
+        let positions: Vec<Vec3> = iproduct!((0..x), (0..y), (0..z)).map(|(x, y, z)| {
+            Vec3::new(x as f32, y as f32, z as f32)
+        }).collect();
+        let angles: Vec<Vec3> = (0..elems).into_iter().map(|_| Vec3::ZERO).collect();
+        let lengths: Vec<f32> = (0..elems).into_iter().map(|_| 1.0).collect();
+        VectorFieldPlugin {
+            field: FieldDescriptor { bases: positions, point: angles, length: lengths, width_scale: 1.0 }
+        }
+    }
+}
+
 impl Default for VectorFieldPlugin {
     fn default() -> Self {
-        use itertools::iproduct;
         let positions: Vec<Vec3> = iproduct!((0..8), (0..8), (0..8)).map(|(x, y, z)| {
             Vec3::new(x as f32, y as f32, z as f32)
         }).collect();
@@ -77,8 +104,9 @@ impl Plugin for VectorFieldPlugin {
         app
             .insert_resource(self.field.clone())
             .add_plugin(MaterialPlugin::<VectorMaterial>::default())
-            .add_startup_system(simple_viewer)
-            .add_startup_system(setup_field);
+            .add_plugin(SimpleViewer)
+            .add_startup_system(setup_field)
+            .add_system(test_vec);
             
     }
 }
@@ -91,7 +119,6 @@ fn setup_field(
     field: Res<FieldDescriptor>,
     asset_server: Res<AssetServer>
 ) {
-    let material = vec_material.add(VectorMaterial{} );
     let arrow = asset_server.load("arrow.stl");
 
     let min: Vec3 = field.bases.iter().fold(field.bases[0], |acc, elem| {
@@ -116,7 +143,7 @@ fn setup_field(
             ..default()
         }),
         ..default()
-    }).id();
+    }).insert(Field).id();
 
     
     for i in 0..field.bases.len() {
@@ -131,7 +158,9 @@ fn setup_field(
             transform.rotate_z(rot.z);
         let vec = commands.spawn_bundle(MaterialMeshBundle {
             mesh: arrow.clone(),
-            material: material.clone(),
+            material: vec_material.add(VectorMaterial{
+                color: Color::rgba(0.1, 0.4, 0.9, 1.0)
+            } ),
             transform,
             ..Default::default()
         }).insert(bevy::pbr::NotShadowCaster{}).insert(Vector{}).id();
@@ -165,7 +194,10 @@ fn test_vec(
 
 #[derive(AsBindGroup, Debug, Clone, TypeUuid)]
 #[uuid = "218c6a56-3cf7-44b1-bd27-37a1e4bbbe30"]
-struct VectorMaterial {}
+pub struct VectorMaterial {
+    #[uniform(0)]
+    pub color: Color
+}
 
 impl Material for VectorMaterial {
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
@@ -181,7 +213,7 @@ impl Material for VectorMaterial {
 struct Field;
 
 #[derive(Component)]
-struct Vector;
+pub struct Vector;
 
 #[derive(Clone)]
 struct FieldDescriptor {
@@ -191,3 +223,18 @@ struct FieldDescriptor {
     width_scale: f32
 }
 
+fn test_animation(mut vecs: Query<&mut Transform, With<Vector>>) {
+    for mut i in vecs.iter_mut() {
+        let x = i.rotation.x;
+        let angle = 0.1 * x;
+        i.rotate_x(-angle);
+
+        let y = i.rotation.y;
+        let angle = 0.1 * y;
+        i.rotate_y(-angle);
+
+        let z = i.rotation.z;
+        let angle = 0.1 * z;
+        i.rotate_z(-angle);
+    }
+}

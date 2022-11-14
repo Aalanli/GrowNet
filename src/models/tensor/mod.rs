@@ -14,6 +14,8 @@ mod slice;
 /// 3. cartesian indexing with a dynamically sized array
 mod index2;
 
+mod tensorctx;
+
 /// The macro which converts easy syntax, *eg.* slice![0..2, -2..-1]
 /// to the internal representation
 pub(crate) use slice::slice as slice;

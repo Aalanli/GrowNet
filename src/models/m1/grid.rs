@@ -1,6 +1,6 @@
 use ndarray::prelude as np;
 
-use crate::tensor::WorldTensor;
+use super::super::tensor::WorldTensor;
 use super::compute::ComputeInstance;
 use super::indexing::{self as ind, IndexPolicy};
 use super::GlobalParams;
@@ -38,7 +38,6 @@ mod test {
     }
     #[test]
     fn size_test() {
-        println!("{}", mem::size_of::<&dyn Drop>());
         println!("{}", mem::needs_drop::<[f32; 3]>());
         println!("{}", mem::needs_drop::<f32>());
         println!("{}", mem::needs_drop::<Test>());

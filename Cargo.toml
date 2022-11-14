@@ -39,6 +39,8 @@ rand_distr = "0.4.3"
 crossbeam = "0.8.2"
 bevy_egui = "0.16.1"
 itertools = "0.10.5"
+plotters = "0.3.4"
+image = "0.24.5"
 
 bencher = "0.1.5"
 

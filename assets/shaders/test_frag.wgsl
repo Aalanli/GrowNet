@@ -4,7 +4,15 @@ struct FragmentInput {
     #import bevy_pbr::mesh_vertex_output
 };
 
+struct VecMaterial {
+    color: vec4<f32>
+};
+
+@group(1) @binding(0)
+var<uniform> uniform_data: VecMaterial;
+
+
 @fragment
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
-    return vec4(0.1, 0.4, 0.9, 1.0);
+    return uniform_data.color;
 }

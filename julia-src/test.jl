@@ -4,6 +4,7 @@ using GeometryBasics: Rect3f
 GLMakie.activate!()
 
 function example_plot()
+    println(Threads.threadid())
     positions = vec([Point3f(i, j, k) for i = 1:7, j = 1:7, k = 1:7]) ## note 7 > 5 [factor in each i,j,k], whichs is misleading
     
     fig, ax, obj = meshscatter(positions;
@@ -28,4 +29,14 @@ function example_plot()
     fig
 end
 
-example_plot()
+import Base.Threads.@spawn
+println(Threads.nthreads(), " ", Threads.threadid())
+
+h = @spawn example_plot()
+
+function my_norm(x)
+    println(Threads.threadid())
+    s = sum(x)
+    st = (x .- s) ./ maximum(x)
+    st
+end

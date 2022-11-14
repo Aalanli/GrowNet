@@ -3,7 +3,7 @@ use std::f32::consts::PI;
 use ndarray::prelude as np;
 use rand_distr::Distribution;
 
-use crate::tensor as ts;
+use super::super::tensor as ts;
 use super::{ComputeNode, GlobalParams, Message, NodeMessage, NodeResult};
 use NodeResult::NoResult;
 use NodeResult::Msg;
