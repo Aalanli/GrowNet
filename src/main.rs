@@ -5,7 +5,7 @@ use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_stl;
 use bevy_egui::EguiPlugin;
 use grownet_lib::ui;
-
+use grownet_lib::visualizations::renderer::render3d::SimpleViewer;
 fn main() {
     App::new()
         .insert_resource(DefaultTaskPoolOptions {

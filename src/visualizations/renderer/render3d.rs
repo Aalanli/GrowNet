@@ -9,7 +9,7 @@ use itertools::iproduct;
 use bevy_egui:: {egui, EguiContext};
 const GLOBAL_SCALE: f32 = 10.0;
 
-struct SimpleViewer;
+pub struct SimpleViewer;
 impl Plugin for SimpleViewer {
     fn build(&self, app: &mut App) {
         app.add_startup_system(simple_viewer).add_system(pan_orbit_camera);
@@ -37,11 +37,11 @@ fn simple_viewer(
     let radius = translation.length();
 
     commands.spawn_bundle(Camera3dBundle {
-        camera: Camera { viewport: Some(camera::Viewport {
-            physical_position: UVec2 { x: 0, y: 0 },
-             ..default() 
-        }), 
-            ..default()},
+        //camera: Camera { viewport: Some(camera::Viewport {
+        //    physical_position: UVec2 { x: 0, y: 0 },
+        //     ..default() 
+        //}), 
+        //    ..default()},
         camera_3d: Camera3d { 
             clear_color: ClearColorConfig::Custom(Color::rgb(0.9, 1.0, 1.0)), 
             ..default() },
