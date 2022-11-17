@@ -4,8 +4,8 @@ use bevy::{prelude::*, asset::AssetServerSettings};
 use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_stl;
 use bevy_egui::EguiPlugin;
-use grownet_lib::ui;
-use grownet_lib::visualizations::renderer::render3d::SimpleViewer;
+use grownet_lib::{ui, datasets::DatasetPlugin};
+
 fn main() {
     App::new()
         .insert_resource(DefaultTaskPoolOptions {
@@ -20,6 +20,7 @@ fn main() {
         .add_plugin(EguiPlugin)
         .add_plugin(WorldInspectorPlugin::new())
         .add_plugin(bevy_stl::StlPlugin)
+        .add_plugin(DatasetPlugin)
         .add_plugin(ui::UI)
         .run();
 }

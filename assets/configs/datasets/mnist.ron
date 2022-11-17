@@ -1,0 +1,5 @@
+MnistParams (
+    path: "assets/ml_datasets/mnist_png",
+    batch_size: 4,
+    transforms: []
+)

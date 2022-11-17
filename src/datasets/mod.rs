@@ -1,144 +1,140 @@
-use ndarray::prelude::*;
 use std::fs;
-use std::io::{Cursor};
-use std::path::PathBuf;
-use image::io::Reader as ImageReader;
+use std::path;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+
+use bevy::prelude::*;
+use bevy::app::AppExit;
+use ndarray::prelude::*;
+use serde::{Serialize, Deserialize};
+use strum::{IntoEnumIterator, EnumIter};
+
+pub mod mnist;
+pub mod transforms;
 
 
-pub trait Dataset {
-    type Data: Iterator;
-    fn train_iter(&self) -> Self::Data;
-    fn test_iter(&self) -> Option<Self::Data>;
-    fn shuffle(&mut self);
-    fn nsamples(&self);
+#[derive(Clone, Copy, Debug, EnumIter, PartialEq, Eq, Hash)]
+pub enum PossibleDatasets {
+    MNIST
 }
 
-struct ImClassifyDataPoint {
+impl PossibleDatasets {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::MNIST => "mnist"
+        }
+    }
+    fn user_config_path(&self) -> &str {
+        match self {
+            Self::MNIST => "assets/user_configs/datasets/mnist.ron"
+        }
+    }
+    fn default_config_path(&self) -> &str {
+        match self {
+            Self::MNIST => "assets/configs/datasets/mnist.ron"
+        }
+    }
+}
+
+/// The data point associated with the image detection task, this is the type which
+/// gets fed into the model
+pub struct ImClassifyDataPoint {
     pub image: Array4<f32>,
     pub label: Vec<u16>
 }
 
-struct ImClassifyData {
-    pub data: Vec<Array3<f32>>,
-    pub labels: Vec<u32>,
+// pub struct ObjDetectionDataPoint;
+// pub struct TextGenerationDataPoint;
+// pub struct ImageModelingDataPoint;
+
+
+/// The enumeration of every dataset parameter
+pub struct DatasetParams {
+    pub mnist: mnist::MnistParams
 }
 
-struct ImClassifyIter<'a> {
-    batch_size: usize,
-    data: &'a ImClassifyData
-}
 
-impl ImClassifyData {
-    fn new() -> Self {
-        ImClassifyData { data: Vec::new(), labels: Vec::new() }
+
+///////////////////////////////////////////////////////////////////////////////////
+pub struct DatasetPlugin;
+impl Plugin for DatasetPlugin {
+    fn build(&self, app: &mut App) {
+        app
+            .add_startup_system(setup_datasets)
+            .add_system(save_dataset_params);
+
     }
+}
 
-    fn push_raw<It>(&mut self, it: It)
-    where It: Iterator<Item = (u32, std::path::PathBuf)> 
-    {
-        for (l, path) in it {
-            let img = ImageReader::open(path).unwrap().decode().unwrap();
-            let img = img.into_rgb8();
-            let arr = Array3::from_shape_vec((3, img.width() as usize, img.height() as usize), img.to_vec()).unwrap();
-            let arr = arr.mapv(|x| f32::from(x) / 255.0);
-            self.data.push(arr);
-            self.labels.push(l);
+/// A hash map containing serialized versions of dataset parameters on app startup
+/// so that upon app shutdown, if the serialized string of the possibly altered
+/// dataset parameters are different from startup, then save the new params into a
+/// a new file, for future persistence
+struct DatasetConfigs(HashMap<PossibleDatasets, String>);
+
+/// Bevy startup system for setting up all dataset parameters
+fn setup_datasets(mut commands: Commands) {
+    let d_enum: Vec<_> = PossibleDatasets::iter().collect();
+    let mut serial_params = HashMap::<PossibleDatasets, String>::new();
+
+    for s in d_enum {
+        if path::Path::new(s.user_config_path()).exists() {
+            serial_params.insert(s, fs::read_to_string(s.user_config_path()).unwrap());
+        } else {
+            serial_params.insert(s, fs::read_to_string(s.default_config_path()).unwrap());
         }
     }
+    
+    let mnist: mnist::MnistParams = ron::from_str(&serial_params[&PossibleDatasets::MNIST]).unwrap();
 
-    fn shuffle() {
+    let all_params = DatasetParams { mnist };
+    let configs = DatasetConfigs(serial_params);
 
-    }
-
-    fn iter(batch: usize) {
-
-    }
-
+    commands.insert_resource(all_params);
+    commands.insert_resource(configs);
 }
 
-
-
-struct Mnist {
-    train: ImClassifyData,
-    test: ImClassifyData,
-}
-
-impl Mnist {
-    fn new(dir: PathBuf) -> Mnist {
-        let mut trainset = dir.clone();
-        trainset.push("/training");
-
-        let train_paths = trainset.read_dir().unwrap().map(|path| {
-            let a = path.unwrap();
-            let label = a.file_name().into_string().unwrap().parse::<u32>().unwrap();
-            let subiter = a.path().read_dir().unwrap().map(move |im_file| (label, im_file.unwrap().path()));
-            subiter
-        }).flatten();
-
-        trainset.pop();
-        trainset.push("/testing");
-        let test_paths = trainset.read_dir().unwrap().map(|path| {
-            let a = path.unwrap();
-            let label = a.file_name().into_string().unwrap().parse::<u32>().unwrap();
-            let subiter = a.path().read_dir().unwrap().map(move |im_file| (label, im_file.unwrap().path()));
-            subiter
-        }).flatten();
-
-        let mut train = ImClassifyData::new();
-        train.push_raw(train_paths);
-
-        let mut test = ImClassifyData::new();
-        test.push_raw(test_paths);
-
-        Mnist { train, test }
+/// Bevy shutdown system for saving changes to dataset parameters
+/// TODO: Save every n seconds? 
+fn save_dataset_params(
+    mut exit: EventReader<AppExit>,
+    config: Res<DatasetConfigs>,
+    params: Res<DatasetParams>
+) {
+    let save_if_neq = |d: PossibleDatasets, a| {
+        if a != config.0[&d] {
+            let dir = path::Path::new(d.user_config_path()).parent().unwrap();
+            if !dir.exists() {
+                fs::create_dir_all(dir).unwrap();
+            }
+            fs::write(d.user_config_path(), a).unwrap();
+        }
+    };
+    let mut exited = false;
+    for _ in exit.iter() {
+        exited = true;
+    }
+    if exited {
+        save_if_neq(PossibleDatasets::MNIST, ron::to_string(&params.mnist).unwrap());    
     }
 }
 
+
 #[test]
-fn read_files() {
-    let paths = fs::read_dir("assets/ml_datasets/mnist_png/testing").unwrap();
-    let im_paths = paths.map(|path| {
-        let a = path.unwrap();
-        let label = a.file_name().into_string().unwrap().parse::<u32>().unwrap();
-        let subiter = a.path().read_dir().unwrap().map(move |im_file| (label, im_file.unwrap().path()));
-        subiter
-    }).flatten();
-
-    let mut rawdata = ImClassifyData::new();
-    rawdata.push_raw(im_paths);
-
-    println!("{}", rawdata.data.len());
-
+fn serialize_test() {
+    let param: mnist::MnistParams = ron::from_str(&fs::read_to_string("assets/configs/datasets/mnist.ron").unwrap()).unwrap();
+    println!("{:?}", param);
+    let str_repr = ron::to_string(&param).unwrap();
+    println!("{}", str_repr);
 }
 
 #[test]
-fn permute_axes() {
-    use ndarray_rand::{RandomExt, rand_distr::Normal, rand_distr::Uniform};
-
-    use rand::{thread_rng};
-    use rand_distr::Distribution;
-
-    let h: Array<f32, _> = Array::random((3, 4, 4), Normal::new(0.0, 1.0).unwrap());
-    let p = h.clone().permuted_axes((1, 2, 0));
-    let p = p.as_standard_layout();
-
-    let k = h.as_slice().unwrap().iter().zip(p.as_slice().unwrap().iter())
-        .all(|(a, b)| a == b);
-    println!("{}", k);
-    let hp = h.permuted_axes((1, 2, 0));
-    let r = hp.iter().zip(p.as_slice().unwrap().iter())
-    .all(|(a, b)| a == b);
-    println!("{}", r);
-}
-
-#[test]
-fn draw() {
-    use plotters::prelude::*;
-    let mut backend = BitMapBackend::new("examples/outputs/2.png", (300, 200));
-    // And if we want SVG backend
-    // let backend = SVGBackend::new("output.svg", (800, 600));
-    //backend.open().unwrap();
-    backend.draw_rect((50,50), (200, 150), &RGBColor(255,0,0), true).unwrap();
-    //backend.close().unwarp();
-    backend.present().unwrap();
+fn write_test() {
+    let test_file = "test_folder/test.ron";
+    let msg = "hello";
+    let dir = path::Path::new(test_file).parent().unwrap();
+    if !dir.exists() {
+        fs::create_dir_all(dir).unwrap();
+    }
+    fs::write(test_file, msg).unwrap();
 }
