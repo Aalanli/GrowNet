@@ -8,6 +8,7 @@ use rand::seq::SliceRandom;
 use serde::{Serialize, Deserialize};
 
 use super::transforms::{ClassificationTransforms};
+use super::{DatasetUI, ImClassification, ImClassifyDataPoint};
 
 struct ImClassifyData {
     pub data: Vec<Array3<f32>>,
@@ -72,10 +73,22 @@ impl MnistParams {
     }
 }
 
+impl DatasetUI for MnistParams {
+    fn build(&self) -> super::DatasetTypes {
+        
+    }
+}
+
 pub struct Mnist {
     train: ImClassifyData,
     test: ImClassifyData,
     transforms: Vec<ClassificationTransforms>
+}
+
+impl ImClassification for Mnist {
+    fn next(&mut self) -> super::ImClassifyDataPoint {
+        
+    }
 }
 
 

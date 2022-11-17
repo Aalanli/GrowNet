@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 use bevy::app::AppExit;
+use bevy_egui::{egui, EguiContext};
 use ndarray::prelude::*;
 use serde::{Serialize, Deserialize};
 use strum::{IntoEnumIterator, EnumIter};
@@ -12,7 +13,32 @@ use strum::{IntoEnumIterator, EnumIter};
 pub mod mnist;
 pub mod transforms;
 
+/// The universal Dataset trait, which is the final object
+/// passed to the model for training
+pub trait Dataset: Sync + Send {
+    type DataPoint;
+    fn next(&mut self) -> Self::DataPoint;
+}
 
+/// Each Dataset has two structs, that of the parameters it holds
+/// and the data that it holds, this trait is implemented on the parameters for the dataset
+/// this separation is made as the parameters are usually light and copyible, while
+/// the data is not light, and require some non-negliable compute for the setup.
+/// This trait adjusts the parameters, and builds the dataset on the parameters it holds.
+pub trait DatasetUI {
+    fn ui(&mut self, ui: &mut egui::Ui);
+    fn build(&self) -> DatasetTypes;
+}
+
+/// This is the unification of possible Datasets behaviors, constructed from DatasetUI, or
+/// some other parameter-adjusting setup trait.
+pub enum DatasetTypes {
+    Classification(Box<dyn Dataset<DataPoint = ImClassifyDataPoint>>),
+    // Detection(Box<dyn ImDetection>),
+    // Generation(Box<dyn ImGeneration),
+}
+
+/// The unification of every possible Dataset supported in a single type.
 #[derive(Clone, Copy, Debug, EnumIter, PartialEq, Eq, Hash)]
 pub enum PossibleDatasets {
     MNIST
@@ -36,6 +62,12 @@ impl PossibleDatasets {
     }
 }
 
+
+/// The Data types that the datasets output and transforms input.
+pub struct ImageDataPoint {
+    pub image: Array4<f32>
+}
+
 /// The data point associated with the image detection task, this is the type which
 /// gets fed into the model
 pub struct ImClassifyDataPoint {
@@ -48,14 +80,8 @@ pub struct ImClassifyDataPoint {
 // pub struct ImageModelingDataPoint;
 
 
-/// The enumeration of every dataset parameter
-pub struct DatasetParams {
-    pub mnist: mnist::MnistParams
-}
-
-
-
 ///////////////////////////////////////////////////////////////////////////////////
+/// Integrating and setting up the relevant setup with bevy.
 pub struct DatasetPlugin;
 impl Plugin for DatasetPlugin {
     fn build(&self, app: &mut App) {
