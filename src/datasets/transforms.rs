@@ -13,7 +13,7 @@ pub trait Transform: Send + Sync {
 }
 
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Normalize {
     mu: f32,
     range: f32,

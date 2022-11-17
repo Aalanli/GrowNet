@@ -13,10 +13,9 @@ use strum::{IntoEnumIterator, EnumIter};
 pub mod mnist;
 pub mod transforms;
 
-pub trait Config {
-    fn config(&self) -> String;
-    fn load_config(&mut self, config: &str);
-}
+
+const DEFAULT_CONFIG_PATH: &str = "/assets/configs/datasets/";
+const USER_CONFIG_PATH: &str = "/assets/user_configs/datasets/";
 
 /// The universal Dataset trait, which is the final object
 /// passed to the model for training
@@ -53,21 +52,13 @@ pub enum PossibleDatasets {
 }
 
 impl PossibleDatasets {
+    /// the name used for the config paths
     pub fn name(&self) -> &str {
         match self {
             Self::MNIST => "mnist"
         }
     }
-    fn user_config_path(&self) -> &str {
-        match self {
-            Self::MNIST => "assets/user_configs/datasets/mnist.ron"
-        }
-    }
-    fn default_config_path(&self) -> &str {
-        match self {
-            Self::MNIST => "assets/configs/datasets/mnist.ron"
-        }
-    }
+    
     pub fn get_param(&self) -> Box<dyn DatasetUI> {
         match self {
             Self::MNIST => Box::new(mnist::MnistParams::default())
@@ -104,29 +95,46 @@ impl Plugin for DatasetPlugin {
     }
 }
 
+
+
 /// A hash map containing serialized versions of dataset parameters on app startup
 /// so that upon app shutdown, if the serialized string of the possibly altered
 /// dataset parameters are different from startup, then save the new params into a
 /// a new file, for future persistence
 struct DatasetConfigs(HashMap<PossibleDatasets, String>);
 
+/// A hash map containing the parameter states of the dataset params for the dataset viewer
+/// and from the parameter states, constructs the actual dataset
 pub struct DatasetParams(HashMap<PossibleDatasets, Box<dyn DatasetUI>>);
 
-/// Bevy startup system for setting up all dataset parameters
+/// Bevy startup system for setting up the dataset viewer datasets
 fn setup_datasets(mut commands: Commands) {
     let d_enum: Vec<_> = PossibleDatasets::iter().collect();
     let mut serial_params = HashMap::<PossibleDatasets, String>::new();
     let mut data_params = HashMap::<PossibleDatasets, Box<dyn DatasetUI>>::new();
 
     for s in d_enum {
+        // getting the config paths, specialized on the name of the dataset
+        let mut user_path = USER_CONFIG_PATH.to_string();
+        user_path.push_str(s.name());
+        user_path.push_str(".ron");
+        let mut default_path = DEFAULT_CONFIG_PATH.to_string();
+        default_path.push_str(s.name());
+        default_path.push_str(".ron");
+
+        // if the user path exists, then load config from the user path
+        // else use the default path.
         let serialized: String;
-        if path::Path::new(s.user_config_path()).exists() {
-            serialized = fs::read_to_string(s.user_config_path()).unwrap();
+        if path::Path::new(&user_path).exists() {
+            serialized = fs::read_to_string(&user_path).unwrap();
         } else {
-            serialized = fs::read_to_string(s.default_config_path()).unwrap();
+            serialized = fs::read_to_string(&default_path).unwrap();
         }
         serial_params.insert(s, serialized.clone());
         let mut param = s.get_param();
+        // Each configuration should store two maps, ones which contains the 
+        // original state, and one which contains the mutable state
+        // subject to change throughout the app
         param.load_config(&serialized);
         data_params.insert(s, param);
     }
@@ -149,19 +157,28 @@ fn save_dataset_params(
     for _ in exit.iter() {
         exited = true;
     }
+    // needs this to check if there was actually an exit event sent
     if exited {
         for (dataset, param) in params.0.iter() {
+            // if the config has changed throughout the app, then save the new config
+            // in the user store.
             if config.0.contains_key(dataset) && config.0[dataset] != param.config() {
-                let dir = path::Path::new(dataset.user_config_path()).parent().unwrap();
+                let mut user_path = USER_CONFIG_PATH.to_string();
+                user_path.push_str(dataset.name());
+                user_path.push_str(".ron");
+
+                let dir = path::Path::new(&user_path).parent().unwrap();
                 if !dir.exists() {
                     fs::create_dir_all(dir).unwrap();
                 }
-                fs::write(dataset.user_config_path(), param.config()).unwrap();
+                fs::write(&user_path, param.config()).unwrap();
             }
         }  
     }
 }
 
+/// Assumes that all the 3d arrays have the same size, this function
+/// stacks all the images in the first dimension. [W, H, C] -> [B, W, H, C]
 pub fn concat_im_size_eq(imgs: &[&Array3<f32>]) -> ImageDataPoint {
     let whc = imgs[0].dim();
     let b = imgs.len();
@@ -192,4 +209,4 @@ fn write_test() {
         fs::create_dir_all(dir).unwrap();
     }
     fs::write(test_file, msg).unwrap();
-}
+} 

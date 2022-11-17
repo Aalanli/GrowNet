@@ -41,7 +41,7 @@ impl ImClassifyData {
 pub struct MnistParams {
     pub path: String,
     pub batch_size: usize,
-    pub transform: transforms::Normalize
+    pub transform: MnistTransform
 }
 
 impl MnistParams {
@@ -71,12 +71,8 @@ impl MnistParams {
         let mut test = ImClassifyData::new();
         test.push_raw(test_paths);
         let order = 0..train.labels.len();
-        let transform = move |mut x: ImClassifyDataPoint| {
-            x.image = self.transform.transform(x.image);
-            x
-        };
 
-        Mnist { train, test, transform: Box::new(transform), order: order.collect_vec(), idx: 0 }
+        Mnist { train, test, transform: Box::new(self.transform.clone()), order: order.collect_vec(), idx: 0 }
     }
 }
 
@@ -87,7 +83,10 @@ impl Default for MnistParams {
         MnistParams { 
             path: "".to_string(), 
             batch_size: 1, 
-            transform: transforms::Normalize::default() }
+            transform: MnistTransform {
+                transform: transforms::Normalize::default()
+            }
+        }
     }
 }
 
@@ -117,9 +116,25 @@ impl DatasetUI for MnistParams {
 pub struct Mnist {
     train: ImClassifyData,
     test: ImClassifyData,
-    transform: Box<dyn Fn(ImClassifyDataPoint) -> ImClassifyDataPoint + Send + Sync>,
+    transform: Box<dyn Transform<DataPoint = ImClassifyDataPoint>>,
     order: Vec<usize>,
     idx: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MnistTransform {
+    pub transform: transforms::Normalize
+}
+
+impl Transform for MnistTransform {
+    type DataPoint = ImClassifyDataPoint;
+    fn ui_setup(&mut self, ui: &mut egui::Ui) {
+        self.transform.ui_setup(ui);
+    }
+    fn transform(&self, mut data: Self::DataPoint) -> Self::DataPoint {
+        data.image = self.transform.transform(data.image);
+        data
+    }
 }
 
 impl Dataset for Mnist {
