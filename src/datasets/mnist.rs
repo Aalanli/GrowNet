@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use ndarray::prelude::*;
 use std::fs;
 use std::io::{Cursor};
@@ -6,9 +7,10 @@ use image::io::Reader as ImageReader;
 use rand::thread_rng;
 use rand::seq::SliceRandom;
 use serde::{Serialize, Deserialize};
+use bevy_egui::egui;
 
-use super::transforms::{ClassificationTransforms};
-use super::{DatasetUI, ImClassification, ImClassifyDataPoint};
+use super::transforms::{self, Transform};
+use super::{DatasetUI, ImClassifyDataPoint, DatasetTypes, Dataset};
 
 struct ImClassifyData {
     pub data: Vec<Array3<f32>>,
@@ -39,7 +41,7 @@ impl ImClassifyData {
 pub struct MnistParams {
     pub path: String,
     pub batch_size: usize,
-    pub transforms: Vec<ClassificationTransforms>
+    pub transform: transforms::Normalize
 }
 
 impl MnistParams {
@@ -68,29 +70,68 @@ impl MnistParams {
 
         let mut test = ImClassifyData::new();
         test.push_raw(test_paths);
+        let order = 0..train.labels.len();
+        let transform = move |mut x: ImClassifyDataPoint| {
+            x.image = self.transform.transform(x.image);
+            x
+        };
 
-        Mnist { train, test, transforms: Vec::new() }
+        Mnist { train, test, transform: Box::new(transform), order: order.collect_vec(), idx: 0 }
+    }
+}
+
+
+
+impl Default for MnistParams {
+    fn default() -> Self {
+        MnistParams { 
+            path: "".to_string(), 
+            batch_size: 1, 
+            transform: transforms::Normalize::default() }
     }
 }
 
 impl DatasetUI for MnistParams {
-    fn build(&self) -> super::DatasetTypes {
-        
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.vertical(|ui| {
+                ui.label("batch size");
+                ui.add(egui::DragValue::new(&mut self.batch_size));
+                
+            });
+        });
     }
+    fn build(&self) -> DatasetTypes {
+        DatasetTypes::Classification(Box::new(self.new()))
+    }
+    fn config(&self) -> String {
+        ron::to_string(&self).unwrap()
+    }
+    fn load_config(&mut self, config: &str) {
+        let new_self: Self = ron::from_str(config).unwrap();
+        std::mem::replace(self, new_self);
+    }
+
 }
 
 pub struct Mnist {
     train: ImClassifyData,
     test: ImClassifyData,
-    transforms: Vec<ClassificationTransforms>
+    transform: Box<dyn Fn(ImClassifyDataPoint) -> ImClassifyDataPoint + Send + Sync>,
+    order: Vec<usize>,
+    idx: usize,
 }
 
-impl ImClassification for Mnist {
-    fn next(&mut self) -> super::ImClassifyDataPoint {
-        
+impl Dataset for Mnist {
+    type DataPoint = ImClassifyDataPoint;
+    fn next(&mut self) -> Self::DataPoint {
+        ImClassifyDataPoint { image: super::concat_im_size_eq(&[&self.train.data[self.idx]])
+            , label: self.train.labels[self.idx..self.idx + 1].to_vec() }
+    }
+    fn shuffle(&mut self) {
+        self.order.shuffle(&mut rand::thread_rng());
     }
 }
-
 
 #[test]
 fn read_files() {

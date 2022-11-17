@@ -4,7 +4,7 @@ use strum::IntoEnumIterator;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 
-use crate::datasets::{DatasetParams, PossibleDatasets, mnist::{MnistParams, Mnist}};
+use crate::datasets::{DatasetParams, PossibleDatasets, DatasetTypes, mnist::{MnistParams, Mnist}};
 
 /// The state for the entire app, which characterizes the two main modes of operation
 /// Menu involves only light ui tasks, while Trainer may involve some heavy compute, 
@@ -67,26 +67,10 @@ fn update_dataset(dataset: &mut DatasetState, dataset_params: &mut DatasetParams
             });
         });
 
-        match dataset.cur_data {
-            PossibleDatasets::MNIST => update_mnist(dataset, &mut dataset_params.mnist, ui)
-        }
-
     });
 }
 
-fn update_mnist(dataset: &mut DatasetState, params: &mut MnistParams, ui: &mut egui::Ui) {
-    ui.group(|ui| {
-        ui.vertical(|ui| {
-            ui.label("batch size");
-            ui.add(egui::DragValue::new(&mut params.batch_size));
-            
-        });
-    });
-}
 
-fn get_transform() {
-
-}
 
 fn update_misc(misc: &mut Misc, ui: &mut egui::Ui) {
     let mut local_font_delta = misc.font_delta;
@@ -134,12 +118,12 @@ impl Default for Misc {
 
 struct DatasetState {
     pub cur_data: PossibleDatasets,
-    pub mnist: Option<Mnist>
+    pub active_dataset: Option<DatasetTypes>
 }
 
 impl Default for DatasetState {
     fn default() -> Self {
-        DatasetState { cur_data: PossibleDatasets::MNIST, mnist: None }
+        DatasetState { cur_data: PossibleDatasets::MNIST, active_dataset: None }
     }
 }
 
