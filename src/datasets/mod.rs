@@ -14,14 +14,15 @@ pub mod mnist;
 pub mod transforms;
 
 
-const DEFAULT_CONFIG_PATH: &str = "/assets/configs/datasets/";
-const USER_CONFIG_PATH: &str = "/assets/user_configs/datasets/";
+const DEFAULT_CONFIG_PATH: &str = "assets/configs/datasets/";
+const USER_CONFIG_PATH: &str = "assets/user_configs/datasets/";
 
 /// The universal Dataset trait, which is the final object
 /// passed to the model for training
 pub trait Dataset: Sync + Send {
     type DataPoint;
-    fn next(&mut self) -> Self::DataPoint;
+    fn next(&mut self) -> Option<Self::DataPoint>;
+    fn reset(&mut self);
     fn shuffle(&mut self);
 }
 
@@ -39,19 +40,20 @@ pub trait DatasetUI: Sync + Send {
 
 /// This is the unification of possible Datasets behaviors, constructed from DatasetUI, or
 /// some other parameter-adjusting setup trait.
+pub type ClassificationType = Box<dyn Dataset<DataPoint = ImClassifyDataPoint>>;
 pub enum DatasetTypes {
-    Classification(Box<dyn Dataset<DataPoint = ImClassifyDataPoint>>),
+    Classification(ClassificationType),
     // Detection(Box<dyn ImDetection>),
     // Generation(Box<dyn ImGeneration),
 }
 
 /// The unification of every possible Dataset supported in a single type.
 #[derive(Clone, Copy, Debug, EnumIter, PartialEq, Eq, Hash)]
-pub enum PossibleDatasets {
+pub enum DatasetEnum {
     MNIST
 }
 
-impl PossibleDatasets {
+impl DatasetEnum {
     /// the name used for the config paths
     pub fn name(&self) -> &str {
         match self {
@@ -82,6 +84,12 @@ pub struct ImClassifyDataPoint {
 // pub struct TextGenerationDataPoint;
 // pub struct ImageModelingDataPoint;
 
+impl ImageDataPoint {
+    pub fn size(&self) -> [usize; 2] {
+        let shape = self.image.dim();
+        [shape.1, shape.2]
+    }
+}
 
 ///////////////////////////////////////////////////////////////////////////////////
 /// Integrating and setting up the relevant setup with bevy.
@@ -96,22 +104,21 @@ impl Plugin for DatasetPlugin {
 }
 
 
-
 /// A hash map containing serialized versions of dataset parameters on app startup
 /// so that upon app shutdown, if the serialized string of the possibly altered
 /// dataset parameters are different from startup, then save the new params into a
 /// a new file, for future persistence
-struct DatasetConfigs(HashMap<PossibleDatasets, String>);
+struct DatasetConfigs(HashMap<DatasetEnum, String>);
 
 /// A hash map containing the parameter states of the dataset params for the dataset viewer
 /// and from the parameter states, constructs the actual dataset
-pub struct DatasetParams(HashMap<PossibleDatasets, Box<dyn DatasetUI>>);
+pub struct DatasetParams(pub HashMap<DatasetEnum, Box<dyn DatasetUI>>);
 
 /// Bevy startup system for setting up the dataset viewer datasets
 fn setup_datasets(mut commands: Commands) {
-    let d_enum: Vec<_> = PossibleDatasets::iter().collect();
-    let mut serial_params = HashMap::<PossibleDatasets, String>::new();
-    let mut data_params = HashMap::<PossibleDatasets, Box<dyn DatasetUI>>::new();
+    let d_enum: Vec<_> = DatasetEnum::iter().collect();
+    let mut serial_params = HashMap::<DatasetEnum, String>::new();
+    let mut data_params = HashMap::<DatasetEnum, Box<dyn DatasetUI>>::new();
 
     for s in d_enum {
         // getting the config paths, specialized on the name of the dataset
@@ -130,6 +137,7 @@ fn setup_datasets(mut commands: Commands) {
         } else {
             serialized = fs::read_to_string(&default_path).unwrap();
         }
+        eprintln!("{}", serialized);
         serial_params.insert(s, serialized.clone());
         let mut param = s.get_param();
         // Each configuration should store two maps, ones which contains the 
@@ -179,7 +187,7 @@ fn save_dataset_params(
 
 /// Assumes that all the 3d arrays have the same size, this function
 /// stacks all the images in the first dimension. [W, H, C] -> [B, W, H, C]
-pub fn concat_im_size_eq(imgs: &[&Array3<f32>]) -> ImageDataPoint {
+fn concat_im_size_eq(imgs: &[&Array3<f32>]) -> ImageDataPoint {
     let whc = imgs[0].dim();
     let b = imgs.len();
     let mut img = Array4::<f32>::zeros((b, whc.0, whc.1, whc.2));
@@ -192,21 +200,26 @@ pub fn concat_im_size_eq(imgs: &[&Array3<f32>]) -> ImageDataPoint {
     ImageDataPoint { image: img }
 }
 
-#[test]
-fn serialize_test() {
-    let param: mnist::MnistParams = ron::from_str(&fs::read_to_string("assets/configs/datasets/mnist.ron").unwrap()).unwrap();
-    println!("{:?}", param);
-    let str_repr = ron::to_string(&param).unwrap();
-    println!("{}", str_repr);
-}
 
-#[test]
-fn write_test() {
-    let test_file = "test_folder/test.ron";
-    let msg = "hello";
-    let dir = path::Path::new(test_file).parent().unwrap();
-    if !dir.exists() {
-        fs::create_dir_all(dir).unwrap();
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn serialize_test() {
+        let param: mnist::MnistParams = ron::from_str(&fs::read_to_string("assets/configs/datasets/mnist.ron").unwrap()).unwrap();
+        println!("{:?}", param);
+        let str_repr = ron::to_string(&param).unwrap();
+        println!("{}", str_repr);
     }
-    fs::write(test_file, msg).unwrap();
-} 
+    
+    #[test]
+    fn write_test() {
+        let test_file = "test_folder/test.ron";
+        let msg = "hello";
+        let dir = path::Path::new(test_file).parent().unwrap();
+        if !dir.exists() {
+            fs::create_dir_all(dir).unwrap();
+        }
+        fs::write(test_file, msg).unwrap();
+    } 
+}

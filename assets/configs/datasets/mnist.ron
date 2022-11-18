@@ -1,5 +1,10 @@
 MnistParams (
     path: "assets/ml_datasets/mnist_png",
     batch_size: 4,
-    transforms: []
+    transform: MnistTransform (
+        transform: Normalize(
+            mu: 0.0,
+            range: 1.0,
+        )
+    ),
 )

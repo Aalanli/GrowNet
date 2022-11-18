@@ -1,10 +1,11 @@
 use std::{borrow::Cow, mem::MaybeUninit};
 
+use ndarray::{s, Axis};
 use strum::IntoEnumIterator;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 
-use crate::datasets::{DatasetParams, PossibleDatasets, DatasetTypes, mnist::{MnistParams, Mnist}};
+use crate::datasets::{DatasetParams, DatasetEnum, DatasetTypes, mnist::{MnistParams, Mnist}, self};
 
 /// The state for the entire app, which characterizes the two main modes of operation
 /// Menu involves only light ui tasks, while Trainer may involve some heavy compute, 
@@ -57,19 +58,73 @@ fn menu_ui(
 }
 
 fn update_dataset(dataset: &mut DatasetState, dataset_params: &mut DatasetParams, ui: &mut egui::Ui) {
+    let past_data = dataset.cur_data;
     ui.horizontal(|ui| {
         ui.group(|ui| {
             ui.vertical(|ui| {
                 ui.label("Datasets");
-                for opt in PossibleDatasets::iter() {
+                for opt in DatasetEnum::iter() {
                     ui.selectable_value(&mut dataset.cur_data, opt, opt.name());
                 }
             });
         });
+        dataset_params.0.get_mut(&dataset.cur_data).unwrap().ui(ui);
+        if dataset.cur_data != past_data || dataset.viewer.is_none() {
+            eprintln!("built {}", dataset_params.0.get(&dataset.cur_data).unwrap().config());
+            let built = dataset_params.0.get(&dataset.cur_data).unwrap().build();
+            match built {
+                DatasetTypes::Classification(a) => {
+                    dataset.viewer = Some(Box::new(ClassificationViewer { data: a, texture: None }));
+                }
+            }
+        }
+
+        if let Some(viewer) = &mut dataset.viewer {
+            viewer.ui(ui);
+        }
 
     });
 }
 
+trait ViewerUI: Send + Sync {
+    fn ui(&mut self, ui: &mut egui::Ui);
+}
+
+struct ClassificationViewer {
+    data: datasets::ClassificationType,
+    texture: Option<egui::TextureHandle>
+}
+
+impl ViewerUI for ClassificationViewer {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            let texture = self.texture.get_or_insert_with(|| {
+                let mut data_point = self.data.next();
+                let data_point = data_point.get_or_insert_with(|| {
+                    self.data.reset();
+                    self.data.next().unwrap()
+                });
+                let pixels: Vec<_> = data_point.image.image
+                    .index_axis(Axis(0), 0)
+                    .as_slice()
+                    .unwrap()
+                    .chunks_exact(3)
+                    .map(|x| {
+                        egui::Color32::from_rgb((x[0] * 255.0) as u8, (x[0] * 255.0) as u8, (x[0] * 255.0) as u8)
+                    }).collect();
+                let size = data_point.image.size();
+                let color_image = egui::ColorImage { size, pixels };
+
+                ui.ctx().load_texture("im sample", color_image, egui::TextureFilter::Nearest)
+            });
+            let size = texture.size_vec2();
+            ui.image(texture, size);
+            if ui.button("next").clicked() {
+                self.texture = None;
+            }
+        });
+    }
+}
 
 
 fn update_misc(misc: &mut Misc, ui: &mut egui::Ui) {
@@ -117,13 +172,13 @@ impl Default for Misc {
 }
 
 struct DatasetState {
-    pub cur_data: PossibleDatasets,
-    pub active_dataset: Option<DatasetTypes>
+    pub cur_data: DatasetEnum,
+    pub viewer: Option<Box<dyn ViewerUI>>
 }
 
 impl Default for DatasetState {
     fn default() -> Self {
-        DatasetState { cur_data: PossibleDatasets::MNIST, active_dataset: None }
+        DatasetState { cur_data: DatasetEnum::MNIST, viewer: None }
     }
 }
 

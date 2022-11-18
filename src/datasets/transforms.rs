@@ -38,7 +38,18 @@ impl Transform for Normalize {
         });
     }
 
-    fn transform(&self, data: Self::DataPoint) -> Self::DataPoint {
+    fn transform(&self, mut data: Self::DataPoint) -> Self::DataPoint {
+        let mut min = data.image[[0, 0, 0, 0]];
+        let mut max = data.image[[0, 0, 0, 0]];
+        data.image.for_each(|x| {
+            min = min.min(*x);
+            max = max.max(*x);
+        });
+        let width = self.range * 2.0 / (max - min);
+        let center = (max + min) / 2.0;
+        data.image.mapv_inplace(|x| {
+            (x - center + self.mu) / width
+        });
         data
     }
 }
