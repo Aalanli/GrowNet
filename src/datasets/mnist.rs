@@ -1,16 +1,19 @@
-use itertools::Itertools;
-use ndarray::prelude::*;
 use std::fs;
 use std::io::{Cursor};
+use std::num::ParseIntError;
 use std::path::PathBuf;
-use image::io::Reader as ImageReader;
 use rand::thread_rng;
 use rand::seq::SliceRandom;
-use serde::{Serialize, Deserialize};
+
 use bevy_egui::egui;
+use ndarray::prelude::*;
+use itertools::Itertools;
+use serde::{Serialize, Deserialize};
+use image::io::Reader as ImageReader;
 
 use super::transforms::{self, Transform};
 use super::{DatasetUI, ImClassifyDataPoint, DatasetTypes, Dataset};
+use anyhow::{Context, Result};
 
 /// Main configuration parameters for Mnist
 #[derive(Debug, Serialize, Deserialize)]
@@ -22,35 +25,44 @@ pub struct MnistParams {
 
 impl MnistParams {
     /// Builds a Mnist dataset instance from supplied parameters
-    pub fn new(&self) -> Mnist {
+    pub fn new(&self) -> Result<Mnist> {
         let mut trainset: PathBuf = self.path.clone().into();
         trainset.push("training");
-        eprint!("{}", trainset.to_str().unwrap());
 
-        let train_paths = trainset.read_dir().unwrap().map(|path| {
-            let a = path.unwrap();
-            let label = a.file_name().into_string().unwrap().parse::<u32>().unwrap();
-            let subiter = a.path().read_dir().unwrap().map(move |im_file| (label, im_file.unwrap().path()));
-            subiter
-        }).flatten();
+        // Reads from a subdirectory expected to be structured in a particular manner
+        // returns error otherwise
+        let read_subdirs = |dir: &PathBuf| -> Result<_, anyhow::Error> {
+            let mut correct_paths = Vec::<(u32, PathBuf)>::new();
+
+            for path in dir.read_dir()? {
+                let a = path?;
+                let label = a.file_name().into_string().unwrap().parse::<u32>()
+                    .with_context(|| format!("Dir {} is not a numeral", a.path().to_str().unwrap()))?;
+                let subpaths = a.path().read_dir().with_context(|| format!("No dir {} exists mnist", dir.to_str().unwrap()))?;
+                for im_file in subpaths {
+                    if let Ok(file) = im_file {
+                        correct_paths.push((label, file.path()));
+                    }
+                }
+            }
+            Ok(correct_paths)
+        };
+
+        let train_paths = read_subdirs(&trainset)?;
 
         trainset.pop();
         trainset.push("testing");
-        let test_paths = trainset.read_dir().unwrap().map(|path| {
-            let a = path.unwrap();
-            let label = a.file_name().into_string().unwrap().parse::<u32>().unwrap();
-            let subiter = a.path().read_dir().unwrap().map(move |im_file| (label, im_file.unwrap().path()));
-            subiter
-        }).flatten();
+        let test_paths = read_subdirs(&trainset)?;
 
         let mut train = ImClassifyData::new();
-        train.push_raw(train_paths);
+        train.push_raw(train_paths.iter().cloned());
 
         let mut test = ImClassifyData::new();
-        test.push_raw(test_paths);
+        test.push_raw(test_paths.iter().cloned());
         let order = 0..train.labels.len();
 
-        Mnist { train, test, transform: Box::new(self.transform.clone()), order: order.collect_vec(), idx: 0, batch_size: self.batch_size }
+        let x = Mnist { train, test, transform: Box::new(self.transform.clone()), order: order.collect_vec(), idx: 0, batch_size: self.batch_size };
+        Ok(x)
     }
 }
 
@@ -80,8 +92,8 @@ impl DatasetUI for MnistParams {
             });
         });
     }
-    fn build(&self) -> DatasetTypes {
-        DatasetTypes::Classification(Box::new(self.new()))
+    fn build(&self) -> Result<DatasetTypes> {
+        Ok(DatasetTypes::Classification(Box::new(self.new()?)))
     }
     fn config(&self) -> String {
         ron::to_string(&self).unwrap()
@@ -211,7 +223,7 @@ mod test {
     #[test]
     fn slice() {
         let h = Array4::<f32>::ones((4, 3, 512, 512));
-        let p = h.index_axis(Axis(0), 1);
+        let _p = h.slice(s![0, .., .., ..]);
     }
     
     #[test]

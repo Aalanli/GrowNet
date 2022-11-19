@@ -2115,6 +2115,7 @@ dependencies = [
 name = "grownet-src"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bencher",
  "bevy",
  "bevy-inspector-egui",

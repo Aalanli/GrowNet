@@ -3,6 +3,8 @@ use std::path;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 
+use anyhow::{Context, Result};
+
 use bevy::prelude::*;
 use bevy::app::AppExit;
 use bevy_egui::{egui, EguiContext};
@@ -13,9 +15,6 @@ use strum::{IntoEnumIterator, EnumIter};
 pub mod mnist;
 pub mod transforms;
 
-
-const DEFAULT_CONFIG_PATH: &str = "assets/configs/datasets/";
-const USER_CONFIG_PATH: &str = "assets/user_configs/datasets/";
 
 /// The universal Dataset trait, which is the final object
 /// passed to the model for training
@@ -33,7 +32,7 @@ pub trait Dataset: Sync + Send {
 /// This trait adjusts the parameters, and builds the dataset on the parameters it holds.
 pub trait DatasetUI: Sync + Send {
     fn ui(&mut self, ui: &mut egui::Ui);
-    fn build(&self) -> DatasetTypes;
+    fn build(&self) -> Result<DatasetTypes>;
     fn config(&self) -> String;
     fn load_config(&mut self, config: &str);
 }
@@ -91,99 +90,7 @@ impl ImageDataPoint {
     }
 }
 
-///////////////////////////////////////////////////////////////////////////////////
-/// Integrating and setting up the relevant setup with bevy.
-pub struct DatasetPlugin;
-impl Plugin for DatasetPlugin {
-    fn build(&self, app: &mut App) {
-        app
-            .add_startup_system(setup_datasets)
-            .add_system(save_dataset_params);
 
-    }
-}
-
-
-/// A hash map containing serialized versions of dataset parameters on app startup
-/// so that upon app shutdown, if the serialized string of the possibly altered
-/// dataset parameters are different from startup, then save the new params into a
-/// a new file, for future persistence
-struct DatasetConfigs(HashMap<DatasetEnum, String>);
-
-/// A hash map containing the parameter states of the dataset params for the dataset viewer
-/// and from the parameter states, constructs the actual dataset
-pub struct DatasetParams(pub HashMap<DatasetEnum, Box<dyn DatasetUI>>);
-
-/// Bevy startup system for setting up the dataset viewer datasets
-fn setup_datasets(mut commands: Commands) {
-    let d_enum: Vec<_> = DatasetEnum::iter().collect();
-    let mut serial_params = HashMap::<DatasetEnum, String>::new();
-    let mut data_params = HashMap::<DatasetEnum, Box<dyn DatasetUI>>::new();
-
-    for s in d_enum {
-        // getting the config paths, specialized on the name of the dataset
-        let mut user_path = USER_CONFIG_PATH.to_string();
-        user_path.push_str(s.name());
-        user_path.push_str(".ron");
-        let mut default_path = DEFAULT_CONFIG_PATH.to_string();
-        default_path.push_str(s.name());
-        default_path.push_str(".ron");
-
-        // if the user path exists, then load config from the user path
-        // else use the default path.
-        let serialized: String;
-        if path::Path::new(&user_path).exists() {
-            serialized = fs::read_to_string(&user_path).unwrap();
-        } else {
-            serialized = fs::read_to_string(&default_path).unwrap();
-        }
-        eprintln!("{}", serialized);
-        serial_params.insert(s, serialized.clone());
-        let mut param = s.get_param();
-        // Each configuration should store two maps, ones which contains the 
-        // original state, and one which contains the mutable state
-        // subject to change throughout the app
-        param.load_config(&serialized);
-        data_params.insert(s, param);
-    }
-    
-    let configs = DatasetConfigs(serial_params);
-    let params = DatasetParams(data_params);
-
-    commands.insert_resource(params);
-    commands.insert_resource(configs);
-}
-
-/// Bevy shutdown system for saving changes to dataset parameters
-/// TODO: Save every n seconds? 
-fn save_dataset_params(
-    mut exit: EventReader<AppExit>,
-    config: Res<DatasetConfigs>,
-    params: Res<DatasetParams>
-) {
-    let mut exited = false;
-    for _ in exit.iter() {
-        exited = true;
-    }
-    // needs this to check if there was actually an exit event sent
-    if exited {
-        for (dataset, param) in params.0.iter() {
-            // if the config has changed throughout the app, then save the new config
-            // in the user store.
-            if config.0.contains_key(dataset) && config.0[dataset] != param.config() {
-                let mut user_path = USER_CONFIG_PATH.to_string();
-                user_path.push_str(dataset.name());
-                user_path.push_str(".ron");
-
-                let dir = path::Path::new(&user_path).parent().unwrap();
-                if !dir.exists() {
-                    fs::create_dir_all(dir).unwrap();
-                }
-                fs::write(&user_path, param.config()).unwrap();
-            }
-        }  
-    }
-}
 
 /// Assumes that all the 3d arrays have the same size, this function
 /// stacks all the images in the first dimension. [W, H, C] -> [B, W, H, C]

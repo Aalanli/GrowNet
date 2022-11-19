@@ -44,6 +44,7 @@ image = "0.24.5"
 serde = "1.0.147"
 ron = "0.8.0"
 strum = {version = "0.24", features = ["derive"]}
+anyhow = "1.0"
 
 bencher = "0.1.5"
 
