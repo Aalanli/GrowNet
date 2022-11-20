@@ -14,6 +14,7 @@ use strum::{IntoEnumIterator, EnumIter};
 
 use crate::ui::Config;
 pub mod mnist;
+pub mod cifar;
 pub mod transforms;
 
 
@@ -49,20 +50,23 @@ pub enum DatasetTypes {
 /// The unification of every possible Dataset supported in a single type.
 #[derive(Clone, Copy, Debug, EnumIter, PartialEq, Eq, Hash)]
 pub enum DatasetEnum {
-    MNIST
+    MNIST,
+    CIFAR10,
 }
 
 impl DatasetEnum {
     /// the name used for the config paths
     pub fn name(&self) -> &str {
         match self {
-            Self::MNIST => "mnist"
+            Self::MNIST => "mnist",
+            Self::CIFAR10 => "cifar10"
         }
     }
     
     pub fn get_param(&self) -> Box<dyn DatasetUI> {
         match self {
-            Self::MNIST => Box::new(mnist::MnistParams::default())
+            Self::MNIST => Box::new(mnist::MnistParams::default()),
+            Self::CIFAR10 => Box::new(cifar::Cifar10Params::default())
         }
     }
 }

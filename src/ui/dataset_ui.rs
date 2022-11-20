@@ -115,9 +115,6 @@ impl DatasetState {
                     self.viewer_is_active = false;
                 }
             });
-
-
-    
         });
     }
 
@@ -186,7 +183,25 @@ impl DatasetState {
                 fs::write(&viewer_path, viewer.config()).unwrap();
             }
         }
-    
+    }
+}
+
+struct EmptyViewer {}
+
+impl Config for EmptyViewer {
+    fn config(&self) -> String {
+        "".to_string()
+    }
+    fn load_config(&mut self, _config: &str) {}
+}
+
+impl ViewerUI for EmptyViewer {
+    fn load_dataset(&mut self, _dataset: DatasetTypes) -> Result<()> {
+        Ok(())
+    }
+    fn ui(&mut self, ui: &mut egui::Ui) -> Result<()> {
+        ui.label("No viewer implemented for this dataset.");
+        Ok(())
     }
 }
 
@@ -271,6 +286,7 @@ impl Default for ClassificationViewer {
 
 fn match_viewers(dataset: &DatasetEnum) -> Box<dyn ViewerUI> {
     match dataset {
-        DatasetEnum::MNIST => Box::new(ClassificationViewer::default())
+        DatasetEnum::MNIST => Box::new(ClassificationViewer::default()),
+        DatasetEnum::CIFAR10 => Box::new(ClassificationViewer::default())
     }
 }
