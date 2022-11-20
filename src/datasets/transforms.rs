@@ -21,7 +21,7 @@ pub struct Normalize {
 
 impl Default for Normalize {
     fn default() -> Self {
-        Normalize { mu: 0.0, range: 1.0 }
+        Normalize { mu: 0.0, range: 2.0 }
     }
 }
 
@@ -29,11 +29,12 @@ impl Transform for Normalize {
     type DataPoint = ImageDataPoint;
     fn ui_setup(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
+            ui.label("Normalize transform params");
             ui.vertical(|ui| {
                 ui.label("mu");
-                ui.add(egui::DragValue::new(&mut self.mu));
+                ui.add(egui::DragValue::new(&mut self.mu).speed(0.01));
                 ui.label("range");
-                ui.add(egui::DragValue::new(&mut self.range));
+                ui.add(egui::DragValue::new(&mut self.range).speed(0.01));
             });
         });
     }
@@ -45,7 +46,7 @@ impl Transform for Normalize {
             min = min.min(*x);
             max = max.max(*x);
         });
-        let width = self.range * 2.0 / (max - min);
+        let width = self.range / (max - min);
         let center = (max + min) / 2.0;
         data.image.mapv_inplace(|x| {
             (x - center + self.mu) / width

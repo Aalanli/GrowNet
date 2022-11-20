@@ -10,9 +10,10 @@ use bevy_egui::{egui, EguiContext};
 
 use ndarray::{s, Axis};
 use strum::IntoEnumIterator;
-use anyhow::{Result, Error};
+use anyhow::{Result, Error, Context};
 use serde::{Serialize, Deserialize};
 
+use core::hash::Hash;
 
 mod dataset_ui;
 use dataset_ui::DatasetState;
@@ -21,9 +22,28 @@ use crate::datasets::{DatasetEnum, DatasetTypes, DatasetUI, mnist};
 /// the path at which the user config files are stored
 const ROOT_PATH: &str = "assets/config";
 
+pub trait Config {
+    fn config(&self) -> String;
+    fn load_config(&mut self, config: &str);
+}
 
-pub trait ViewerUI: Send + Sync {
-    fn ui(&mut self, ui: &mut egui::Ui);
+fn load_hashmap<'de, T, K: Config + Default>(a: &'de str) -> Result<HashMap<T, K>>
+where T: Deserialize<'de> + std::cmp::Eq + std::hash::Hash + Clone 
+{
+    let temp: HashMap<T, String> = ron::from_str(a).with_context(|| {"failed to deserialize hashmap"})?;
+    let t = temp.iter().map(|(x, y)| {
+        let mut h = K::default();
+        h.load_config(&y);
+        (x.clone(), h)
+    }).collect();
+    Ok(t)
+}
+
+fn save_hashmap<T, K: Config>(map: HashMap<T, K>) -> Result<String> 
+where T: Serialize + std::cmp::Eq + std::hash::Hash + Clone 
+{
+    let temp: HashMap<T, String> = map.iter().map(|(x, y)| {(x.clone(), y.config())}).collect();
+    ron::to_string(&temp).with_context(|| "failed to serialize hashmap")
 }
 
 /// The ui plugin, the entry point for the entire ui
@@ -43,7 +63,7 @@ enum State {
 #[derive(Debug, Serialize, Deserialize)]
 struct UIParams {
     open_panel: OpenPanel,
-    misc: Misc
+    font_delta: f32,
 }
 
 /// State for panel opened in the ui
@@ -54,13 +74,6 @@ enum OpenPanel {
     Misc,
     Train
 }
-
-/// state for the various miscellaneous configuration settings for the ui
-#[derive(Debug, Serialize, Deserialize)]
-struct Misc {
-    font_delta: f32, // the amount to increase or decrease font size 
-}
-
 
 impl Plugin for UI {
     fn build(&self, app: &mut App) {
@@ -93,13 +106,13 @@ fn menu_ui(
         match params.open_panel {
             OpenPanel::Models => {},
             OpenPanel::Datasets => {dataset_state.update(ui)},
-            OpenPanel::Misc     => {params.misc.update_misc(ui)},
+            OpenPanel::Misc     => {params.update_misc(ui)},
             OpenPanel::Train => {},
         }
     });
 }
 
-fn setup_ui(mut commands: Commands,) {
+fn setup_ui(mut commands: Commands, mut egui_context: ResMut<EguiContext>) {
     let mut params = UIParams::default();
     let mut dataset_state = DatasetState::default();
 
@@ -107,8 +120,12 @@ fn setup_ui(mut commands: Commands,) {
     params.setup(&root_path);
     dataset_state.setup(&root_path);
 
+    // startup tasks that one must do to update the ui
+    change_font_size(params.font_delta, egui_context.ctx_mut());
+
     commands.insert_resource(params);
     commands.insert_resource(dataset_state);
+
 }
 
 fn save_ui(
@@ -155,15 +172,7 @@ impl UIParams {
         fs::write(&ui_path, config_str).unwrap();
         
     }
-}
 
-impl Default for UIParams {
-    fn default() -> Self {
-        UIParams { misc: Misc::default(), open_panel: OpenPanel::Models }
-    }
-}
-
-impl Misc {
     pub fn update_misc(&mut self, ui: &mut egui::Ui) {
         let mut local_font_delta = self.font_delta;
         // stylistic changes
@@ -179,13 +188,12 @@ impl Misc {
     }
 }
 
-impl Default for Misc {
+impl Default for UIParams {
     fn default() -> Self {
-        Misc { 
-            font_delta: 4.0 
-        }
+        UIParams { open_panel: OpenPanel::Models, font_delta: 4.0 }
     }
 }
+
 
 fn change_font_size(font_delta: f32, ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();

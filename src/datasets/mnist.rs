@@ -11,6 +11,7 @@ use itertools::Itertools;
 use serde::{Serialize, Deserialize};
 use image::io::Reader as ImageReader;
 
+use crate::ui::Config;
 use super::transforms::{self, Transform};
 use super::{DatasetUI, ImClassifyDataPoint, DatasetTypes, Dataset};
 use anyhow::{Context, Result};
@@ -85,6 +86,7 @@ impl DatasetUI for MnistParams {
     fn ui(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.vertical(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.path).hint_text("dataset path"));
                 ui.label("batch size");
                 ui.add(egui::DragValue::new(&mut self.batch_size));
 
@@ -95,6 +97,10 @@ impl DatasetUI for MnistParams {
     fn build(&self) -> Result<DatasetTypes> {
         Ok(DatasetTypes::Classification(Box::new(self.new()?)))
     }
+    
+}
+
+impl Config for MnistParams {
     fn config(&self) -> String {
         ron::to_string(&self).unwrap()
     }
@@ -137,13 +143,16 @@ impl Dataset for Mnist {
         if self.idx + self.batch_size >= self.order.len() {
             return None;
         }
-        let img_slice: Vec<_> = (self.idx..self.batch_size).map(|x| {
+        let img_slice: Vec<_> = (self.idx..self.batch_size + self.idx).map(|x| {
             &self.train.data[self.order[x]]
         }).collect();
         let img = super::concat_im_size_eq(&img_slice);
-        let labels = (self.idx..self.batch_size).map(|x| self.train.labels[self.order[x]]).collect();
+        let labels = (self.idx..self.batch_size + self.idx).map(|x| self.train.labels[self.order[x]]).collect();
+        self.idx += self.batch_size;
 
-        Some(ImClassifyDataPoint { image: img, label: labels })
+        let img = ImClassifyDataPoint { image: img, label: labels };
+        let img = (*self.transform).transform(img);
+        Some(img)
     }
     fn shuffle(&mut self) {
         self.order.shuffle(&mut rand::thread_rng());
@@ -171,7 +180,7 @@ impl ImClassifyData {
         for (l, path) in it {
             let img = ImageReader::open(path).unwrap().decode().unwrap();
             let img = img.into_rgb8();
-            let arr = Array3::from_shape_vec((3, img.width() as usize, img.height() as usize), img.to_vec()).unwrap();
+            let arr = Array3::from_shape_vec((img.width() as usize, img.height() as usize, 3), img.to_vec()).unwrap();
             let arr = arr.mapv(|x| f32::from(x) / 255.0);
             self.data.push(arr);
             self.labels.push(l);
