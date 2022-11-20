@@ -12,9 +12,9 @@ use ndarray::prelude::*;
 use serde::{Serialize, Deserialize};
 use strum::{IntoEnumIterator, EnumIter};
 
-use crate::ui::Config;
+use crate::ui::Param;
 pub mod mnist;
-pub mod cifar;
+//pub mod cifar;
 pub mod transforms;
 
 
@@ -27,13 +27,13 @@ pub trait Dataset: Sync + Send {
     fn shuffle(&mut self);
 }
 
+
 /// Each Dataset has two structs, that of the parameters it holds
 /// and the data that it holds, this trait is implemented on the parameters for the dataset
 /// this separation is made as the parameters are usually light and copyible, while
 /// the data is not light, and require some non-negliable compute for the setup.
 /// This trait adjusts the parameters, and builds the dataset on the parameters it holds.
-pub trait DatasetUI: Sync + Send + Config {
-    fn ui(&mut self, ui: &mut egui::Ui);
+pub trait DatasetBuilder: Sync + Send + Param {
     fn build(&self) -> Result<DatasetTypes>;
 }
 
@@ -48,25 +48,17 @@ pub enum DatasetTypes {
 }
 
 /// The unification of every possible Dataset supported in a single type.
-#[derive(Clone, Copy, Debug, EnumIter, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, EnumIter, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DatasetEnum {
     MNIST,
-    CIFAR10,
+    //CIFAR10,
 }
 
-impl DatasetEnum {
-    /// the name used for the config paths
-    pub fn name(&self) -> &str {
-        match self {
-            Self::MNIST => "mnist",
-            Self::CIFAR10 => "cifar10"
-        }
-    }
-    
-    pub fn get_param(&self) -> Box<dyn DatasetUI> {
+impl DatasetEnum {    
+    pub fn get_param(&self) -> Box<dyn DatasetBuilder> {
         match self {
             Self::MNIST => Box::new(mnist::MnistParams::default()),
-            Self::CIFAR10 => Box::new(cifar::Cifar10Params::default())
+            //Self::CIFAR10 => Box::new(cifar::Cifar10Params::default())
         }
     }
 }

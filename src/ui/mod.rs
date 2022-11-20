@@ -17,17 +17,18 @@ use core::hash::Hash;
 
 mod dataset_ui;
 use dataset_ui::DatasetState;
-use crate::datasets::{DatasetEnum, DatasetTypes, DatasetUI, mnist};
+use crate::datasets::{DatasetEnum, DatasetTypes, DatasetBuilder, mnist};
 
 /// the path at which the user config files are stored
 const ROOT_PATH: &str = "assets/config";
 
-pub trait Config {
+pub trait Param {
+    fn ui(&mut self, ui: &mut egui::Ui);
     fn config(&self) -> String;
     fn load_config(&mut self, config: &str);
 }
 
-fn load_hashmap<'de, T, K: Config + Default>(a: &'de str) -> Result<HashMap<T, K>>
+fn deserialize_hashmap<'de, T, K: Param + Default>(a: &'de str) -> Result<HashMap<T, K>>
 where T: Deserialize<'de> + std::cmp::Eq + std::hash::Hash + Clone 
 {
     let temp: HashMap<T, String> = ron::from_str(a).with_context(|| {"failed to deserialize hashmap"})?;
@@ -39,12 +40,13 @@ where T: Deserialize<'de> + std::cmp::Eq + std::hash::Hash + Clone
     Ok(t)
 }
 
-fn save_hashmap<T, K: Config>(map: HashMap<T, K>) -> Result<String> 
+fn serialize_hashmap<T, K: Param>(map: &HashMap<T, K>) -> Result<String> 
 where T: Serialize + std::cmp::Eq + std::hash::Hash + Clone 
 {
     let temp: HashMap<T, String> = map.iter().map(|(x, y)| {(x.clone(), y.config())}).collect();
     ron::to_string(&temp).with_context(|| "failed to serialize hashmap")
 }
+
 
 /// The ui plugin, the entry point for the entire ui
 pub struct UI;
@@ -105,7 +107,7 @@ fn menu_ui(
 
         match params.open_panel {
             OpenPanel::Models => {},
-            OpenPanel::Datasets => {dataset_state.update(ui)},
+            OpenPanel::Datasets => {dataset_state.ui(ui)},
             OpenPanel::Misc     => {params.update_misc(ui)},
             OpenPanel::Train => {},
         }
@@ -117,15 +119,18 @@ fn setup_ui(mut commands: Commands, mut egui_context: ResMut<EguiContext>) {
     let mut dataset_state = DatasetState::default();
 
     let root_path: path::PathBuf = ROOT_PATH.into();
-    params.setup(&root_path);
-    dataset_state.setup(&root_path);
+    let config_file = root_path.join("ui_config").with_extension("ron");
+    if config_file.exists() {
+        let config: (String, String) = ron::from_str(&fs::read_to_string(&config_file).unwrap()).unwrap();
+        params.load_config(&config.0);
+        dataset_state.load_config(&config.1);
+    }
 
     // startup tasks that one must do to update the ui
     change_font_size(params.font_delta, egui_context.ctx_mut());
 
     commands.insert_resource(params);
     commands.insert_resource(dataset_state);
-
 }
 
 fn save_ui(
@@ -147,30 +152,27 @@ fn save_ui(
     }
     
     if exited {
-        eprintln!("saving config");
         let root_path: path::PathBuf = ROOT_PATH.into();
-        params.save_params(&root_path);
-        dataset_state.save_params(&root_path);
+        if !root_path.exists() {
+            fs::create_dir_all(&root_path).unwrap();
+        }
+
+        eprintln!("saving config");
+        let config_file = root_path.join("ui_config").with_extension("ron");
+        let main_ui_config = params.config();
+        let data_ui_config = dataset_state.config();
+        let serialized = ron::to_string(&(main_ui_config, data_ui_config)).unwrap();
+        fs::write(&config_file, serialized).unwrap();
     }
 }
 
 impl UIParams {
-    fn setup(&mut self, root_path: &path::Path) {
-        let ui_path = root_path.join("ui_config").with_extension("ron");
-        if ui_path.exists() {
-            let config = fs::read_to_string(&ui_path).unwrap();
-            *self = ron::from_str(&config).unwrap()
-        }
+    fn load_config(&mut self, config: &str) {
+        *self = ron::from_str(config).unwrap()
     }
 
-    fn save_params(&self, root_path: &path::Path) {
-        let ui_path = root_path.join("ui_config").with_extension("ron");
-        let config_str = ron::to_string(self).unwrap();
-        if !ui_path.parent().unwrap().exists() {
-            fs::create_dir_all(&ui_path.parent().unwrap()).unwrap();
-        }
-        fs::write(&ui_path, config_str).unwrap();
-        
+    fn config(&self) -> String {
+        ron::to_string(self).unwrap()
     }
 
     pub fn update_misc(&mut self, ui: &mut egui::Ui) {

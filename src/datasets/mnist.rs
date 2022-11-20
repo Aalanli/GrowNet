@@ -11,9 +11,9 @@ use itertools::Itertools;
 use serde::{Serialize, Deserialize};
 use image::io::Reader as ImageReader;
 
-use crate::ui::Config;
+use crate::ui::Param;
 use super::transforms::{self, Transform};
-use super::{DatasetUI, ImClassifyDataPoint, DatasetTypes, Dataset};
+use super::{DatasetBuilder, ImClassifyDataPoint, DatasetTypes, Dataset};
 use anyhow::{Context, Result};
 
 /// Main configuration parameters for Mnist
@@ -21,7 +21,6 @@ use anyhow::{Context, Result};
 pub struct MnistParams {
     pub path: String,
     pub batch_size: usize,
-    pub transform: MnistTransform
 }
 
 impl MnistParams {
@@ -62,7 +61,7 @@ impl MnistParams {
         test.push_raw(test_paths.iter().cloned());
         let order = 0..train.labels.len();
 
-        let x = Mnist { train, test, transform: Box::new(self.transform.clone()), order: order.collect_vec(), idx: 0, batch_size: self.batch_size };
+        let x = Mnist { train, test, order: order.collect_vec(), idx: 0, batch_size: self.batch_size };
         Ok(x)
     }
 }
@@ -73,34 +72,21 @@ impl Default for MnistParams {
     fn default() -> Self {
         MnistParams { 
             path: "".to_string(), 
-            batch_size: 1, 
-            transform: MnistTransform {
-                transform: transforms::Normalize::default()
-            }
+            batch_size: 1
         }
     }
 }
 
-/// Each dataset supplies its own setup method through its parameters, through egui.
-impl DatasetUI for MnistParams {
+impl Param for MnistParams {
     fn ui(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.vertical(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut self.path).hint_text("dataset path"));
                 ui.label("batch size");
                 ui.add(egui::DragValue::new(&mut self.batch_size));
-
-                self.transform.ui_setup(ui);
             });
         });
     }
-    fn build(&self) -> Result<DatasetTypes> {
-        Ok(DatasetTypes::Classification(Box::new(self.new()?)))
-    }
-    
-}
-
-impl Config for MnistParams {
     fn config(&self) -> String {
         ron::to_string(&self).unwrap()
     }
@@ -110,10 +96,16 @@ impl Config for MnistParams {
     }
 }
 
+/// Each dataset supplies its own setup method through its parameters, through egui.
+impl DatasetBuilder for MnistParams {
+    fn build(&self) -> Result<DatasetTypes> {
+        Ok(DatasetTypes::Classification(Box::new(self.new()?)))
+    }
+}
+
 pub struct Mnist {
     train: ImClassifyData,
     test: ImClassifyData,
-    transform: Box<dyn Transform<DataPoint = ImClassifyDataPoint>>,
     order: Vec<usize>,
     idx: usize,
     batch_size: usize
@@ -151,7 +143,6 @@ impl Dataset for Mnist {
         self.idx += self.batch_size;
 
         let img = ImClassifyDataPoint { image: img, label: labels };
-        let img = (*self.transform).transform(img);
         Some(img)
     }
     fn shuffle(&mut self) {

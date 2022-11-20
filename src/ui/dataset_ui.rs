@@ -13,13 +13,12 @@ use anyhow::{Result, Error};
 
 use image::{ImageBuffer, RgbImage};
 
-use super::Config;
-use crate::datasets::{DatasetEnum, DatasetTypes, DatasetUI, mnist, self};
+use super::{Param, serialize_hashmap, deserialize_hashmap};
+use crate::datasets::{DatasetEnum, DatasetTypes, DatasetBuilder, mnist, self};
 
 
-pub trait ViewerUI: Send + Sync + Config {
+pub trait ViewerUI: Send + Sync + Param {
     fn load_dataset(&mut self, dataset: DatasetTypes) -> Result<()>;
-    fn ui(&mut self, ui: &mut egui::Ui) -> Result<()>;
 }
 
 
@@ -38,28 +37,24 @@ pub trait ViewerUI: Send + Sync + Config {
 ///     through the ui
 pub struct DatasetState {
     pub cur_data: DatasetEnum,
-    pub viewers: HashMap<DatasetEnum, Box<dyn ViewerUI>>,
     viewer_is_active: bool,
-    dataset_configs: HashMap<DatasetEnum, String>,
-    viewer_configs: HashMap<DatasetEnum, String>,
-    dataset_ui: HashMap<DatasetEnum, Box<dyn DatasetUI>>
+    viewers: HashMap<DatasetEnum, Box<dyn ViewerUI>>,
+    dataset_ui: HashMap<DatasetEnum, Box<dyn DatasetBuilder>>
 }
 
 impl Default for DatasetState {
     fn default() -> Self {
         DatasetState { 
             cur_data: DatasetEnum::MNIST,
-            viewers: HashMap::new(),
             viewer_is_active: false,
-            dataset_configs: HashMap::new(),
-            viewer_configs: HashMap::new(),
-            dataset_ui: HashMap::new() 
+            viewers: DatasetEnum::iter().map(|k| (k, match_viewers(&k))).collect(),
+            dataset_ui: DatasetEnum::iter().map(|k| (k, k.get_param())).collect() 
         }
     }
 }
 
-impl DatasetState {
-    pub fn update(&mut self, ui: &mut egui::Ui) {
+impl Param for DatasetState {
+    fn ui(&mut self, ui: &mut egui::Ui) {
         let past_data = self.cur_data;
         ui.horizontal(|ui| {
             // Select which dataset to use
@@ -67,7 +62,7 @@ impl DatasetState {
                 ui.vertical(|ui| {
                     ui.label("Datasets");
                     for opt in DatasetEnum::iter() {
-                        ui.selectable_value(&mut self.cur_data, opt, opt.name());
+                        ui.selectable_value(&mut self.cur_data, opt, ron::to_string(&opt).unwrap());
                     }
                 });
             });
@@ -99,16 +94,7 @@ impl DatasetState {
             ui.vertical(|ui| {
                 if self.viewer_is_active {
                     let viewer = self.viewers.get_mut(&self.cur_data).unwrap();
-                    match viewer.ui(ui) {
-                        Err(err) => {
-                            ui.group(|ui| {
-                                let label = egui::RichText::new(err.to_string()).underline();
-                                ui.label("could not load dataset:");
-                                ui.label(label);
-                            });
-                        }
-                        _ => {}
-                    }
+                    viewer.ui(ui);
                 }
 
                 if ui.button("reset viewer").clicked() {
@@ -118,77 +104,38 @@ impl DatasetState {
         });
     }
 
-    /// Bevy startup system for setting up the dataset viewer datasets
-    pub fn setup(&mut self, root_path: &path::Path) {
-        let data_subdir = root_path.join("datasets");
-        let d_enum: Vec<_> = DatasetEnum::iter().collect();
+    fn config(&self) -> String {
+        let data_ui_configs: HashMap<DatasetEnum, String> = self.dataset_ui
+            .iter().map(|(k, v)| (k.clone(), v.config())).collect();
 
-        for s in d_enum {
-            // getting the config path, specialized on the name of the dataset
-            let user_path = data_subdir.join(s.name()).with_extension("ron");
-            let mut viewer_config_name = s.name().to_string();
-            viewer_config_name.push_str("config");
-            let viewer_path = data_subdir.join(viewer_config_name).with_extension("ron");
+        let viewer_configs: HashMap<DatasetEnum, String> = self.viewers
+            .iter().map(|(k, v)| (k.clone(), v.config())).collect();
 
-            // if the user path exists, then load config from the user path
-            // else use the default
-            let mut param = s.get_param();
-            let mut viewer_param = match_viewers(&s);
-            let serialized: String;
-            let serialized_viewer: String;
-            if user_path.exists() {
-                serialized = fs::read_to_string(&user_path).unwrap();
-            } else {
-                serialized = param.config();
-            }
-            if viewer_path.exists() {
-                serialized_viewer = fs::read_to_string(&viewer_path).unwrap();
-            } else {
-                serialized_viewer = viewer_param.config();
-            }
-            // Each configuration should store two maps, ones which contains the 
-            // original state, and one which contains the mutable state
-            // subject to change throughout the app
-            param.load_config(&serialized);
-            viewer_param.load_config(&serialized_viewer);
-
-            self.dataset_configs.insert(s, serialized);
-            self.viewer_configs.insert(s, serialized_viewer);
-            self.dataset_ui.insert(s, param);
-            self.viewers.insert(s, viewer_param);
-        }
-        
+        let configs = (data_ui_configs, viewer_configs);
+        ron::to_string(&configs).unwrap()
     }
 
-    pub fn save_params(&self, root_path: &path::Path) {
-        let data_subdir = root_path.join("datasets");
-        if !data_subdir.exists() {
-            fs::create_dir_all(&data_subdir).unwrap();
+    fn load_config(&mut self, config: &str) {
+        type PartialConfig = HashMap<DatasetEnum, String>;
+        let configs: (PartialConfig, PartialConfig) = ron::from_str(config).unwrap();
+        let keys: Vec<_> = self.dataset_ui.keys().cloned().collect();
+        for k in &keys {
+            self.dataset_ui.get_mut(k).unwrap().load_config(&configs.0[k]);
         }
-
-        for (dataset, param) in self.dataset_ui.iter() {
-            // if the config has changed throughout the app, then save the new config
-            // in the user store.
-            if self.dataset_configs.contains_key(dataset) && self.dataset_configs[dataset] != param.config() {
-                let user_path = data_subdir.join(dataset.name()).with_extension("ron");                
-                fs::write(&user_path, param.config()).unwrap();
-            }
-        }
-
-        for (dataset, viewer) in self.viewers.iter() {
-            if self.viewer_configs.contains_key(&dataset) && self.viewer_configs[dataset] != viewer.config() {
-                let mut viewer_config_name = dataset.name().to_string();
-                viewer_config_name.push_str("config");
-                let viewer_path = data_subdir.join(viewer_config_name).with_extension("ron");
-                fs::write(&viewer_path, viewer.config()).unwrap();
-            }
+        let keys: Vec<_> = self.viewers.keys().cloned().collect();
+        for k in &keys {
+            self.viewers.get_mut(k).unwrap().load_config(&configs.1[k]);
         }
     }
 }
 
+
 struct EmptyViewer {}
 
-impl Config for EmptyViewer {
+impl Param for EmptyViewer {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.label("No viewer implemented for this dataset.");
+    }
     fn config(&self) -> String {
         "".to_string()
     }
@@ -197,10 +144,6 @@ impl Config for EmptyViewer {
 
 impl ViewerUI for EmptyViewer {
     fn load_dataset(&mut self, _dataset: DatasetTypes) -> Result<()> {
-        Ok(())
-    }
-    fn ui(&mut self, ui: &mut egui::Ui) -> Result<()> {
-        ui.label("No viewer implemented for this dataset.");
         Ok(())
     }
 }
@@ -218,8 +161,10 @@ impl ViewerUI for ClassificationViewer {
         self.data = Some(d);
         Ok(())
     }
+}
 
-    fn ui(&mut self, ui: &mut egui::Ui) -> Result<()> {
+impl Param for ClassificationViewer {
+    fn ui(&mut self, ui: &mut egui::Ui) {
         if let Some(data) = &mut self.data {
             ui.group(|ui| {
                 let texture = self.texture.get_or_insert_with(|| {
@@ -262,12 +207,7 @@ impl ViewerUI for ClassificationViewer {
         } else {
             ui.label("No dataset loaded");
         }
-
-        Ok(())
     }
-}
-
-impl Config for ClassificationViewer {
     fn config(&self) -> String {
         ron::to_string(&self.im_scale).unwrap()
     }
@@ -284,9 +224,10 @@ impl Default for ClassificationViewer {
     }
 }
 
+
 fn match_viewers(dataset: &DatasetEnum) -> Box<dyn ViewerUI> {
     match dataset {
         DatasetEnum::MNIST => Box::new(ClassificationViewer::default()),
-        DatasetEnum::CIFAR10 => Box::new(ClassificationViewer::default())
+        //DatasetEnum::CIFAR10 => Box::new(ClassificationViewer::default())
     }
 }
