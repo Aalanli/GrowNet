@@ -3,7 +3,6 @@ use super::motion::{pan_orbit_camera, PanOrbitCamera};
 use bevy::reflect::{TypeUuid};
 use bevy::render::render_resource::AsBindGroup;
 use bevy::core_pipeline::clear_color::ClearColorConfig;
-use bevy::render::camera;
 use itertools::iproduct;
 
 use bevy_egui:: {egui, EguiContext};

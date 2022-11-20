@@ -1,5 +1,5 @@
+use core::hash::Hash;
 use std::fmt::Display;
-use std::{borrow::Cow, mem::MaybeUninit};
 use std::collections::HashMap;
 use std::path;
 use std::fs;
@@ -9,17 +9,11 @@ use bevy::app::AppExit;
 use bevy::window::{WindowClosed, WindowCloseRequested};
 use bevy_egui::{egui, EguiContext};
 
-use itertools::Itertools;
-use ndarray::{s, Axis};
-use strum::IntoEnumIterator;
-use anyhow::{Result, Error, Context};
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
-use core::hash::Hash;
-
+/// Defines everything that gets the dataset viewer to work
 pub mod data_ui;
 use data_ui::DatasetState;
-use crate::datasets::DatasetTypes;
 
 /// the path at which the user config files are stored
 const ROOT_PATH: &str = "assets/config";

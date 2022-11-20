@@ -1,17 +1,10 @@
-use std::fs;
-use std::path;
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
+/// This module only defines the dataset logic for loading and processing datasets
+/// This is separate from the data_ui module, which deals with integrating with the ui
+/// for visualizations, etc.
+/// 
+/// Separating the logic can enable headlessmode which will be for future work
 
-use anyhow::{Context, Result};
-
-use bevy::prelude::*;
-use bevy::app::AppExit;
-use bevy_egui::{egui, EguiContext};
 use ndarray::prelude::*;
-use serde::{Serialize, Deserialize};
-use strum::Display;
-use strum::{IntoEnumIterator, EnumIter};
 
 pub mod transforms;
 
@@ -37,6 +30,8 @@ pub enum DatasetTypes {
     // Generation(Box<dyn ImGeneration>),
 }
 
+/// Transform type enum, reflective of the DatasetTypes enum, which only depends
+/// on the type of the output data point
 pub enum TransformTypes {
     Classification(Box<dyn transforms::Transform<DataPoint = ImClassifyDataPoint>>)
 }
@@ -80,26 +75,3 @@ fn concat_im_size_eq(imgs: &[&Array3<f32>]) -> ImageDataPoint {
     ImageDataPoint { image: img }
 }
 
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    #[test]
-    fn serialize_test() {
-        let param: mnist::MnistParams = ron::from_str(&fs::read_to_string("assets/configs/datasets/mnist.ron").unwrap()).unwrap();
-        println!("{:?}", param);
-        let str_repr = ron::to_string(&param).unwrap();
-        println!("{}", str_repr);
-    }
-    
-    #[test]
-    fn write_test() {
-        let test_file = "test_folder/test.ron";
-        let msg = "hello";
-        let dir = path::Path::new(test_file).parent().unwrap();
-        if !dir.exists() {
-            fs::create_dir_all(dir).unwrap();
-        }
-        fs::write(test_file, msg).unwrap();
-    } 
-}

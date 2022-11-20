@@ -1,13 +1,11 @@
 
 use std::marker::PhantomData;
 
-use bevy::utils::HashMap;
 use serde::{Serialize, de::DeserializeOwned, Deserialize};
-use strum::{IntoEnumIterator, EnumIter};
 use bevy_egui::egui;
 
 use crate::ui::Param;
-use super::{ImClassifyDataPoint, ImageDataPoint};
+use super::ImageDataPoint;
 
 
 pub trait Transform: Param {

@@ -1,9 +1,9 @@
-use bevy_egui::{egui, EguiContext};
-use anyhow::{Result, Error};
+use bevy_egui::egui;
+use anyhow::Result;
 
 use crate::datasets::{MnistParams, DatasetTypes};
 use super::super::data_ui;
-use super::{Param, DatasetSetup, DatasetBuilder, ClassificationViewer};
+use super::{Param, DatasetSetup, DatasetBuilder, viewers::ClassificationViewer};
 
 
 pub struct MNIST;

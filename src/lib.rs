@@ -1,6 +1,6 @@
 #![allow(dead_code)]
-#![allow(unused_macros)]
 #![allow(unused_imports)]
+#![allow(unused_macros)]
 
 pub mod datasets;
 pub mod ui;

@@ -1,18 +1,11 @@
-use std::fs;
-use std::io::{Cursor};
-use std::num::ParseIntError;
 use std::path::PathBuf;
-use rand::thread_rng;
 use rand::seq::SliceRandom;
 
-use bevy_egui::egui;
 use ndarray::prelude::*;
 use itertools::Itertools;
 use serde::{Serialize, Deserialize};
 use image::io::Reader as ImageReader;
 
-use crate::ui::Param;
-use super::transforms::{self, Transform};
 use super::{ImClassifyDataPoint, DatasetTypes, Dataset};
 use anyhow::{Context, Result};
 
@@ -139,6 +132,7 @@ impl ImClassifyData {
 
 #[cfg(test)]
 mod test {
+    use std::fs;
     use super::*;
     #[test]
     fn read_files() {
