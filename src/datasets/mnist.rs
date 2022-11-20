@@ -11,29 +11,11 @@ use itertools::Itertools;
 use serde::{Serialize, Deserialize};
 use image::io::Reader as ImageReader;
 
-use crate::ui::{Param, DatasetSetup, dataset_ui::ClassificationViewer};
+use crate::ui::Param;
 use super::transforms::{self, Transform};
-use super::{DatasetBuilder, ImClassifyDataPoint, DatasetTypes, Dataset};
+use super::{ImClassifyDataPoint, DatasetTypes, Dataset};
 use anyhow::{Context, Result};
 
-pub struct MNIST;
-impl DatasetSetup for MNIST {
-    fn parameters() -> Box<dyn DatasetBuilder> {
-        Box::new(MnistParams::default())
-    }
-
-    fn viewer() -> Box<dyn crate::ui::dataset_ui::ViewerUI> {
-        Box::new(ClassificationViewer::default())
-    }
-
-    fn transforms() -> Vec<super::TransformTypes> {
-        vec![]
-    }
-
-    fn name() -> &'static str {
-        "mnist"
-    }
-}
 
 /// Main configuration parameters for Mnist
 #[derive(Debug, Serialize, Deserialize)]
@@ -53,28 +35,8 @@ impl Default for MnistParams {
     }
 }
 
-impl Param for MnistParams {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.group(|ui| {
-            ui.vertical(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.path).hint_text("dataset path"));
-                ui.label("batch size");
-                ui.add(egui::DragValue::new(&mut self.batch_size));
-            });
-        });
-    }
-    fn config(&self) -> String {
-        ron::to_string(&self).unwrap()
-    }
-    fn load_config(&mut self, config: &str) {
-        let new_self: Self = ron::from_str(config).unwrap();
-        *self = new_self;
-    }
-}
-
-/// Each dataset supplies its own setup method through its parameters, through egui.
-impl DatasetBuilder for MnistParams {
-    fn build(&self) -> Result<DatasetTypes> {
+impl MnistParams {
+    pub fn build(&self) -> Result<DatasetTypes> {
         let mut trainset: PathBuf = self.path.clone().into();
         trainset.push("training");
 

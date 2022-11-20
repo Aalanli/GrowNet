@@ -13,10 +13,11 @@ use serde::{Serialize, Deserialize};
 use strum::Display;
 use strum::{IntoEnumIterator, EnumIter};
 
-use crate::ui::{Param, };
-mod mnist;
-//pub mod cifar;
 pub mod transforms;
+
+mod mnist;
+pub use mnist::MnistParams;
+//pub mod cifar;
 
 /// The universal Dataset trait, which is the final object
 /// passed to the model for training
@@ -26,17 +27,6 @@ pub trait Dataset: Sync + Send {
     fn reset(&mut self);
     fn shuffle(&mut self);
 }
-
-
-/// Each Dataset has two structs, that of the parameters it holds
-/// and the data that it holds, this trait is implemented on the parameters for the dataset
-/// this separation is made as the parameters are usually light and copyible, while
-/// the data is not light, and require some non-negliable compute for the setup.
-/// This trait adjusts the parameters, and builds the dataset on the parameters it holds.
-pub trait DatasetBuilder: Param {
-    fn build(&self) -> Result<DatasetTypes>;
-}
-
 
 /// This is the unification of possible Datasets behaviors, constructed from DatasetUI, or
 /// some other parameter-adjusting setup trait.

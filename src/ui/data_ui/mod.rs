@@ -13,8 +13,11 @@ use anyhow::{Result, Error};
 
 use image::{ImageBuffer, RgbImage};
 
-use super::{Param};
-use crate::datasets::{DatasetTypes, TransformTypes, DatasetBuilder, self};
+mod mnist;
+pub use mnist::MNIST;
+
+use super::Param;
+use crate::datasets::{DatasetTypes, TransformTypes, self};
 
 pub trait DatasetSetup {
     fn parameters() -> Box<dyn DatasetBuilder>;
@@ -23,6 +26,14 @@ pub trait DatasetSetup {
     fn name() -> &'static str;
 }
 
+/// Each Dataset has two structs, that of the parameters it holds
+/// and the data that it holds, this trait is implemented on the parameters for the dataset
+/// this separation is made as the parameters are usually light and copyible, while
+/// the data is not light, and require some non-negliable compute for the setup.
+/// This trait adjusts the parameters, and builds the dataset on the parameters it holds.
+pub trait DatasetBuilder: Param {
+    fn build(&self) -> Result<DatasetTypes>;
+}
 
 /// Main state for the dataset section of the ui
 /// 

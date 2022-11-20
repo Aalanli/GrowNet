@@ -17,10 +17,9 @@ use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
 use core::hash::Hash;
 
-pub mod dataset_ui;
-use dataset_ui::DatasetState;
-pub use dataset_ui::DatasetSetup;
-use crate::datasets::{DatasetTypes, DatasetBuilder};
+pub mod data_ui;
+use data_ui::DatasetState;
+use crate::datasets::DatasetTypes;
 
 /// the path at which the user config files are stored
 const ROOT_PATH: &str = "assets/config";
@@ -103,6 +102,7 @@ fn menu_ui(
 fn setup_ui(mut commands: Commands, mut egui_context: ResMut<EguiContext>) {
     let mut params = UIParams::default();
     let mut dataset_state = DatasetState::new();
+    dataset_state.insert_dataset::<data_ui::MNIST>();
 
     let root_path: path::PathBuf = ROOT_PATH.into();
     let config_file = root_path.join("ui_config").with_extension("ron");
