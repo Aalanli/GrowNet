@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::{borrow::Cow, mem::MaybeUninit};
 use std::collections::HashMap;
 use std::path;
@@ -8,43 +9,28 @@ use bevy::app::AppExit;
 use bevy::window::{WindowClosed, WindowCloseRequested};
 use bevy_egui::{egui, EguiContext};
 
+use itertools::Itertools;
 use ndarray::{s, Axis};
 use strum::IntoEnumIterator;
 use anyhow::{Result, Error, Context};
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
 use core::hash::Hash;
 
-mod dataset_ui;
+pub mod dataset_ui;
 use dataset_ui::DatasetState;
-use crate::datasets::{DatasetEnum, DatasetTypes, DatasetBuilder, mnist};
+pub use dataset_ui::DatasetSetup;
+use crate::datasets::{DatasetTypes, DatasetBuilder};
 
 /// the path at which the user config files are stored
 const ROOT_PATH: &str = "assets/config";
 
-pub trait Param {
+/// Param trait captures the various parameters settings that needs to be saved
+/// to disk and modified through the ui
+pub trait Param: Send + Sync {
     fn ui(&mut self, ui: &mut egui::Ui);
     fn config(&self) -> String;
     fn load_config(&mut self, config: &str);
-}
-
-fn deserialize_hashmap<'de, T, K: Param + Default>(a: &'de str) -> Result<HashMap<T, K>>
-where T: Deserialize<'de> + std::cmp::Eq + std::hash::Hash + Clone 
-{
-    let temp: HashMap<T, String> = ron::from_str(a).with_context(|| {"failed to deserialize hashmap"})?;
-    let t = temp.iter().map(|(x, y)| {
-        let mut h = K::default();
-        h.load_config(&y);
-        (x.clone(), h)
-    }).collect();
-    Ok(t)
-}
-
-fn serialize_hashmap<T, K: Param>(map: &HashMap<T, K>) -> Result<String> 
-where T: Serialize + std::cmp::Eq + std::hash::Hash + Clone 
-{
-    let temp: HashMap<T, String> = map.iter().map(|(x, y)| {(x.clone(), y.config())}).collect();
-    ron::to_string(&temp).with_context(|| "failed to serialize hashmap")
 }
 
 
@@ -116,7 +102,7 @@ fn menu_ui(
 
 fn setup_ui(mut commands: Commands, mut egui_context: ResMut<EguiContext>) {
     let mut params = UIParams::default();
-    let mut dataset_state = DatasetState::default();
+    let mut dataset_state = DatasetState::new();
 
     let root_path: path::PathBuf = ROOT_PATH.into();
     let config_file = root_path.join("ui_config").with_extension("ron");
@@ -197,6 +183,65 @@ impl Default for UIParams {
 }
 
 
+impl<T: Param> Param for Vec<T> {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        for (i, transform) in (0..self.len()).zip(self.iter_mut()) {
+            ui.label(format!("transform {}", i));
+            ui.end_row();
+            transform.ui(ui);
+        }
+    }
+
+    fn config(&self) -> String {
+        let temp: Vec<String> = self.iter().map(|x| x.config()).collect();
+        ron::to_string(&temp).unwrap()
+    }
+
+    fn load_config(&mut self, config: &str) {
+        let temp: Vec<String> = ron::from_str(config).unwrap();
+        self.iter_mut().zip(temp.iter()).for_each(|(x, y)| x.load_config(y));
+    }
+}
+
+
+impl<K, V> Param for HashMap<K, V> 
+where K: Serialize + DeserializeOwned + Hash + Eq + Send + Sync + Display + Clone, V: Param {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        for (k, v) in self.iter_mut() {
+            ui.label(format!("id {}", k));
+            v.ui(ui);
+            ui.end_row();
+        }
+    }
+
+    fn config(&self) -> String {
+        let temp: HashMap<K, String>  = self.iter().map(|(k, v)| (k.clone(), v.config())).collect();
+        ron::to_string(&temp).unwrap()
+    }
+
+    fn load_config(&mut self, config: &str) {
+        let temp: HashMap<K, String> = ron::from_str(config).unwrap();
+        self.iter_mut().for_each(|(k, v)| {
+            if let Some(s) = temp.get(k) {
+                v.load_config(s);
+            }
+        });
+    }
+}
+
+impl <T: Param> Param for Box<T> {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        <T as Param>::ui(self, ui);
+    }
+    fn config(&self) -> String {
+        <T as Param>::config(self)
+    }
+    fn load_config(&mut self, config: &str) {
+        <T as Param>::load_config(self, config);
+    }
+}
+
+
 fn change_font_size(font_delta: f32, ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();
     style.text_styles.insert(egui::TextStyle::Body, egui::FontId::new(18.0 + font_delta, egui::FontFamily::Proportional));
@@ -205,4 +250,3 @@ fn change_font_size(font_delta: f32, ctx: &egui::Context) {
     style.text_styles.insert(egui::TextStyle::Small, egui::FontId::new(10.0 + font_delta, egui::FontFamily::Proportional));
     ctx.set_style(style);
 }
-

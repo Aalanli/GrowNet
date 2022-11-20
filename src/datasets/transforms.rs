@@ -1,16 +1,73 @@
 
-use serde::{Serialize, Deserialize};
+use std::marker::PhantomData;
+
+use bevy::utils::HashMap;
+use serde::{Serialize, de::DeserializeOwned, Deserialize};
 use strum::{IntoEnumIterator, EnumIter};
 use bevy_egui::egui;
 
+use crate::ui::Param;
 use super::{ImClassifyDataPoint, ImageDataPoint};
 
 
-pub trait Transform: Send + Sync {
+pub trait Transform: Param {
     type DataPoint;
-    fn ui_setup(&mut self, ui: &mut egui::Ui);
     fn transform(&self, data: Self::DataPoint) -> Self::DataPoint;
 }
+
+/// Simple generic transform implementation, to avoid implementing
+/// the necessary traits for each possible state
+#[derive(Clone)]
+pub struct SimpleTransform<DataPoint: Send + Sync, T: Serialize + DeserializeOwned + Send + Sync + Clone> {
+    pub state: T,
+    pub transform_fn: fn(&T, DataPoint) -> DataPoint,
+    pub ui_fn: fn(&mut T, &mut egui::Ui),
+}
+
+impl<D: Send + Sync, T: Serialize + DeserializeOwned + Send + Sync + Clone> Param for SimpleTransform<D, T> {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        let ui_fn = self.ui_fn;
+        ui_fn(&mut self.state, ui);
+    }
+    fn config(&self) -> String {
+        ron::to_string(&self.state).unwrap()
+    }
+    fn load_config(&mut self, config: &str) {
+        self.state = ron::from_str(config).unwrap();
+    }
+}
+
+impl<D: Send + Sync, T: Serialize + DeserializeOwned + Send + Sync + Clone> Transform for SimpleTransform<D, T> {
+    type DataPoint = D;
+    fn transform(&self, data: Self::DataPoint) -> Self::DataPoint {
+        let t_fn = self.transform_fn;
+        t_fn(&self.state, data)
+    }
+}
+
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct Identity<D: Sync + Send>(PhantomData<D>);
+
+impl<D: Sync + Send> Param for Identity<D> {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.label("Identity");
+    }
+
+    fn config(&self) -> String {
+        "".to_string()
+    }
+
+    fn load_config(&mut self, _config: &str) {}
+}
+
+impl<D: Sync + Send> Transform for Identity<D> {
+    type DataPoint = D;
+    fn transform(&self, data: Self::DataPoint) -> Self::DataPoint {
+        data
+    }
+}
+
 
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -25,9 +82,8 @@ impl Default for Normalize {
     }
 }
 
-impl Transform for Normalize {
-    type DataPoint = ImageDataPoint;
-    fn ui_setup(&mut self, ui: &mut egui::Ui) {
+impl Param for Normalize {
+    fn ui(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.label("Normalize transform params");
             ui.vertical(|ui| {
@@ -38,7 +94,16 @@ impl Transform for Normalize {
             });
         });
     }
+    fn config(&self) -> String {
+        ron::to_string(self).unwrap()
+    }
+    fn load_config(&mut self, config: &str) {
+        *self = ron::from_str(config).unwrap();
+    }
+}
 
+impl Transform for Normalize {
+    type DataPoint = ImageDataPoint;
     fn transform(&self, mut data: Self::DataPoint) -> Self::DataPoint {
         let mut min = data.image[[0, 0, 0, 0]];
         let mut max = data.image[[0, 0, 0, 0]];

@@ -10,13 +10,13 @@ use bevy::app::AppExit;
 use bevy_egui::{egui, EguiContext};
 use ndarray::prelude::*;
 use serde::{Serialize, Deserialize};
+use strum::Display;
 use strum::{IntoEnumIterator, EnumIter};
 
-use crate::ui::Param;
-pub mod mnist;
+use crate::ui::{Param, };
+mod mnist;
 //pub mod cifar;
 pub mod transforms;
-
 
 /// The universal Dataset trait, which is the final object
 /// passed to the model for training
@@ -33,7 +33,7 @@ pub trait Dataset: Sync + Send {
 /// this separation is made as the parameters are usually light and copyible, while
 /// the data is not light, and require some non-negliable compute for the setup.
 /// This trait adjusts the parameters, and builds the dataset on the parameters it holds.
-pub trait DatasetBuilder: Sync + Send + Param {
+pub trait DatasetBuilder: Param {
     fn build(&self) -> Result<DatasetTypes>;
 }
 
@@ -47,20 +47,8 @@ pub enum DatasetTypes {
     // Generation(Box<dyn ImGeneration>),
 }
 
-/// The unification of every possible Dataset supported in a single type.
-#[derive(Clone, Copy, Debug, EnumIter, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum DatasetEnum {
-    MNIST,
-    //CIFAR10,
-}
-
-impl DatasetEnum {    
-    pub fn get_param(&self) -> Box<dyn DatasetBuilder> {
-        match self {
-            Self::MNIST => Box::new(mnist::MnistParams::default()),
-            //Self::CIFAR10 => Box::new(cifar::Cifar10Params::default())
-        }
-    }
+pub enum TransformTypes {
+    Classification(Box<dyn transforms::Transform<DataPoint = ImClassifyDataPoint>>)
 }
 
 /// The Data types that the datasets output and transforms input.
@@ -85,7 +73,6 @@ impl ImageDataPoint {
         [shape.1, shape.2]
     }
 }
-
 
 
 /// Assumes that all the 3d arrays have the same size, this function

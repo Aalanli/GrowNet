@@ -11,10 +11,29 @@ use itertools::Itertools;
 use serde::{Serialize, Deserialize};
 use image::io::Reader as ImageReader;
 
-use crate::ui::Param;
+use crate::ui::{Param, DatasetSetup, dataset_ui::ClassificationViewer};
 use super::transforms::{self, Transform};
 use super::{DatasetBuilder, ImClassifyDataPoint, DatasetTypes, Dataset};
 use anyhow::{Context, Result};
+
+pub struct MNIST;
+impl DatasetSetup for MNIST {
+    fn parameters() -> Box<dyn DatasetBuilder> {
+        Box::new(MnistParams::default())
+    }
+
+    fn viewer() -> Box<dyn crate::ui::dataset_ui::ViewerUI> {
+        Box::new(ClassificationViewer::default())
+    }
+
+    fn transforms() -> Vec<super::TransformTypes> {
+        vec![]
+    }
+
+    fn name() -> &'static str {
+        "mnist"
+    }
+}
 
 /// Main configuration parameters for Mnist
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,9 +42,39 @@ pub struct MnistParams {
     pub batch_size: usize,
 }
 
-impl MnistParams {
-    /// Builds a Mnist dataset instance from supplied parameters
-    pub fn new(&self) -> Result<Mnist> {
+/// Default is probably not necessary any more, since configuration files exist
+/// but we keep them nontheless since there is no default canonical config file
+impl Default for MnistParams {
+    fn default() -> Self {
+        MnistParams { 
+            path: "".to_string(), 
+            batch_size: 1
+        }
+    }
+}
+
+impl Param for MnistParams {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.vertical(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.path).hint_text("dataset path"));
+                ui.label("batch size");
+                ui.add(egui::DragValue::new(&mut self.batch_size));
+            });
+        });
+    }
+    fn config(&self) -> String {
+        ron::to_string(&self).unwrap()
+    }
+    fn load_config(&mut self, config: &str) {
+        let new_self: Self = ron::from_str(config).unwrap();
+        *self = new_self;
+    }
+}
+
+/// Each dataset supplies its own setup method through its parameters, through egui.
+impl DatasetBuilder for MnistParams {
+    fn build(&self) -> Result<DatasetTypes> {
         let mut trainset: PathBuf = self.path.clone().into();
         trainset.push("training");
 
@@ -62,44 +111,7 @@ impl MnistParams {
         let order = 0..train.labels.len();
 
         let x = Mnist { train, test, order: order.collect_vec(), idx: 0, batch_size: self.batch_size };
-        Ok(x)
-    }
-}
-
-/// Default is probably not necessary any more, since configuration files exist
-/// but we keep them nontheless since there is no default canonical config file
-impl Default for MnistParams {
-    fn default() -> Self {
-        MnistParams { 
-            path: "".to_string(), 
-            batch_size: 1
-        }
-    }
-}
-
-impl Param for MnistParams {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.group(|ui| {
-            ui.vertical(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.path).hint_text("dataset path"));
-                ui.label("batch size");
-                ui.add(egui::DragValue::new(&mut self.batch_size));
-            });
-        });
-    }
-    fn config(&self) -> String {
-        ron::to_string(&self).unwrap()
-    }
-    fn load_config(&mut self, config: &str) {
-        let new_self: Self = ron::from_str(config).unwrap();
-        *self = new_self;
-    }
-}
-
-/// Each dataset supplies its own setup method through its parameters, through egui.
-impl DatasetBuilder for MnistParams {
-    fn build(&self) -> Result<DatasetTypes> {
-        Ok(DatasetTypes::Classification(Box::new(self.new()?)))
+        Ok(DatasetTypes::Classification(Box::new(x)))
     }
 }
 
@@ -109,23 +121,6 @@ pub struct Mnist {
     order: Vec<usize>,
     idx: usize,
     batch_size: usize
-}
-
-/// Just a wrapper for transforms::Normalize, which operates on ImageDataPoints alone
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct MnistTransform {
-    pub transform: transforms::Normalize
-}
-
-impl Transform for MnistTransform {
-    type DataPoint = ImClassifyDataPoint;
-    fn ui_setup(&mut self, ui: &mut egui::Ui) {
-        self.transform.ui_setup(ui);
-    }
-    fn transform(&self, mut data: Self::DataPoint) -> Self::DataPoint {
-        data.image = self.transform.transform(data.image);
-        data
-    }
 }
 
 impl Dataset for Mnist {

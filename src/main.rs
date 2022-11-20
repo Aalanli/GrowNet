@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use bevy::{prelude::*, asset::AssetServerSettings};
-use bevy_inspector_egui::WorldInspectorPlugin;
+//use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_stl;
 use bevy_egui::EguiPlugin;
 use grownet_lib::ui;

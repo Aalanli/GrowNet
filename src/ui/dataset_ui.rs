@@ -13,43 +13,51 @@ use anyhow::{Result, Error};
 
 use image::{ImageBuffer, RgbImage};
 
-use super::{Param, serialize_hashmap, deserialize_hashmap};
-use crate::datasets::{DatasetEnum, DatasetTypes, DatasetBuilder, mnist, self};
+use super::{Param};
+use crate::datasets::{DatasetTypes, TransformTypes, DatasetBuilder, self};
 
-
-pub trait ViewerUI: Send + Sync + Param {
-    fn load_dataset(&mut self, dataset: DatasetTypes) -> Result<()>;
+pub trait DatasetSetup {
+    fn parameters() -> Box<dyn DatasetBuilder>;
+    fn viewer() -> Box<dyn ViewerUI>;
+    fn transforms() -> Vec<TransformTypes>;
+    fn name() -> &'static str;
 }
 
 
 /// Main state for the dataset section of the ui
 /// 
 /// cur_data: The current active dataset in the viewer
-/// viewer: The current active viewer, err if no viewer is active
+/// viewer_is_active: If there is a currently active viewer, useful for reloading logic
 /// 
-/// dataset_configs: 
-///     A hash map containing serialized versions of dataset parameters (captured by dataset_ui) 
-///     on app startup, so that upon app shutdown, if the serializations differ, then save the new
-///     serialization
+/// viewers: 
+///     A hash map containing the ViewerUI object for each variant of the dataset, each viewer
+///     handles dataset visualization, as characterized by the DatasetType
 /// 
 /// dataset_ui:
 ///     A hash map containing the DatasetUI object for each variant of the dataset, which gets set
 ///     through the ui
 pub struct DatasetState {
-    pub cur_data: DatasetEnum,
+    pub cur_data: &'static str,
     viewer_is_active: bool,
-    viewers: HashMap<DatasetEnum, Box<dyn ViewerUI>>,
-    dataset_ui: HashMap<DatasetEnum, Box<dyn DatasetBuilder>>
+    viewers: HashMap<&'static str, Box<dyn ViewerUI>>,
+    dataset_ui: HashMap<&'static str, Box<dyn DatasetBuilder>>,
+    transforms: HashMap<&'static str, Vec<TransformTypes>>
 }
 
-impl Default for DatasetState {
-    fn default() -> Self {
+impl DatasetState {
+    pub fn new() -> Self {
         DatasetState { 
-            cur_data: DatasetEnum::MNIST,
+            cur_data: "mnist",
             viewer_is_active: false,
-            viewers: DatasetEnum::iter().map(|k| (k, match_viewers(&k))).collect(),
-            dataset_ui: DatasetEnum::iter().map(|k| (k, k.get_param())).collect() 
+            viewers: HashMap::new(),
+            dataset_ui: HashMap::new(),
+            transforms: HashMap::new()
         }
+    }
+    pub fn insert_dataset<D: DatasetSetup>(&mut self) {
+        self.dataset_ui.insert(D::name(), D::parameters());
+        self.viewers.insert(D::name(), D::viewer());
+        self.transforms.insert(D::name(), D::transforms());
     }
 }
 
@@ -61,8 +69,8 @@ impl Param for DatasetState {
             ui.group(|ui| {
                 ui.vertical(|ui| {
                     ui.label("Datasets");
-                    for opt in DatasetEnum::iter() {
-                        ui.selectable_value(&mut self.cur_data, opt, ron::to_string(&opt).unwrap());
+                    for opt in self.dataset_ui.keys() {
+                        ui.selectable_value(&mut self.cur_data, opt, *opt);
                     }
                 });
             });
@@ -105,32 +113,56 @@ impl Param for DatasetState {
     }
 
     fn config(&self) -> String {
-        let data_ui_configs: HashMap<DatasetEnum, String> = self.dataset_ui
-            .iter().map(|(k, v)| (k.clone(), v.config())).collect();
+        let data_ui_configs: HashMap<String, String> = self.dataset_ui
+            .iter().map(|(k, v)| (k.to_string(), v.config())).collect();
 
-        let viewer_configs: HashMap<DatasetEnum, String> = self.viewers
-            .iter().map(|(k, v)| (k.clone(), v.config())).collect();
+        let viewer_configs: HashMap<String, String> = self.viewers
+            .iter().map(|(k, v)| (k.to_string(), v.config())).collect();
 
-        let configs = (data_ui_configs, viewer_configs);
+        let transform_configs: HashMap<String, String> = self.transforms
+            .iter().map(|(k, v)| {
+                let temp: Vec<String> = v.iter().map(|x| {
+                    match x {
+                        TransformTypes::Classification(x) => x.config()
+                    }
+                }).collect();
+                (k.to_string(), ron::to_string(&temp).unwrap())
+            }).collect();
+
+        let configs = (data_ui_configs, viewer_configs, transform_configs);
         ron::to_string(&configs).unwrap()
     }
 
     fn load_config(&mut self, config: &str) {
-        type PartialConfig = HashMap<DatasetEnum, String>;
-        let configs: (PartialConfig, PartialConfig) = ron::from_str(config).unwrap();
+        type PartialConfig = HashMap<String, String>;
+        let configs: (PartialConfig, PartialConfig, PartialConfig) = ron::from_str(config).unwrap();
         let keys: Vec<_> = self.dataset_ui.keys().cloned().collect();
         for k in &keys {
-            self.dataset_ui.get_mut(k).unwrap().load_config(&configs.0[k]);
+            self.dataset_ui.get_mut(k).unwrap().load_config(&configs.0[*k]);
         }
         let keys: Vec<_> = self.viewers.keys().cloned().collect();
         for k in &keys {
-            self.viewers.get_mut(k).unwrap().load_config(&configs.1[k]);
+            self.viewers.get_mut(k).unwrap().load_config(&configs.1[*k]);
+        }
+        let keys: Vec<_> = self.transforms.keys().cloned().collect();
+        for k in &keys {
+            let temp: Vec<String> = ron::from_str(&configs.2[*k]).unwrap();
+            self.transforms.get_mut(k).unwrap().iter_mut().zip(temp.iter()).for_each(|(x, st)| match x {
+                TransformTypes::Classification(x) => x.load_config(st)
+            });
         }
     }
 }
 
 
-struct EmptyViewer {}
+/// Each viewer maintains its own internal state, and manipulates the dataset
+/// fed to it
+pub trait ViewerUI: Param {
+    fn load_dataset(&mut self, dataset: DatasetTypes) -> Result<()>;
+}
+
+
+pub struct EmptyViewer {}
 
 impl Param for EmptyViewer {
     fn ui(&mut self, ui: &mut egui::Ui) {
@@ -149,7 +181,7 @@ impl ViewerUI for EmptyViewer {
 }
 
 /// Viewer for the Classification dataset type
-struct ClassificationViewer {
+pub struct ClassificationViewer {
     data: Option<datasets::ClassificationType>,
     texture: Option<egui::TextureHandle>,
     im_scale: f32
@@ -221,13 +253,5 @@ impl Param for ClassificationViewer {
 impl Default for ClassificationViewer {
     fn default() -> Self {
         ClassificationViewer { data: None, texture: None, im_scale: 1.0 }
-    }
-}
-
-
-fn match_viewers(dataset: &DatasetEnum) -> Box<dyn ViewerUI> {
-    match dataset {
-        DatasetEnum::MNIST => Box::new(ClassificationViewer::default()),
-        //DatasetEnum::CIFAR10 => Box::new(ClassificationViewer::default())
     }
 }
