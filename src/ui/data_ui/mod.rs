@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bevy_egui::egui;
-use anyhow::Result;
+use anyhow::{Result, Context};
 
 mod viewers;
 use viewers::ViewerUI;
@@ -46,7 +46,8 @@ pub struct DatasetState {
     viewer_is_active: bool,
     viewers: HashMap<&'static str, Box<dyn ViewerUI>>,
     dataset_ui: HashMap<&'static str, Box<dyn DatasetBuilder>>,
-    transforms: HashMap<&'static str, Vec<TransformTypes>>
+    transforms: HashMap<&'static str, Vec<TransformTypes>>,
+    selected_transform: HashMap<&'static str, (usize, bool)>
 }
 
 impl DatasetState {
@@ -56,13 +57,17 @@ impl DatasetState {
             viewer_is_active: false,
             viewers: HashMap::new(),
             dataset_ui: HashMap::new(),
-            transforms: HashMap::new()
+            transforms: HashMap::new(),
+            selected_transform: HashMap::new(),
         }
     }
     pub fn insert_dataset<D: DatasetSetup>(&mut self) {
         self.dataset_ui.insert(D::name(), D::parameters());
         self.viewers.insert(D::name(), D::viewer());
-        self.transforms.insert(D::name(), D::transforms());
+        let mut transforms = D::transforms();
+        transforms.push(TransformTypes::Identity);
+        self.transforms.insert(D::name(), transforms);
+        self.selected_transform.insert(D::name(), (0, false));
     }
 }
 
@@ -79,8 +84,36 @@ impl Param for DatasetState {
                     }
                 });
             });
+            // get the past transform value, for later comparison
+            let cur_transform = self.selected_transform.get(self.cur_data).unwrap().0;
             // display the ui for the selected dataset
-            self.dataset_ui.get_mut(&self.cur_data).unwrap().ui(ui);
+            ui.vertical(|ui| {
+                self.dataset_ui.get_mut(&self.cur_data).map(|x| {x.ui(ui);});
+                // display any potential transforms
+                let t = self.transforms.get_mut(self.cur_data).unwrap();
+                // get the transform index, which points at the position in the list of transforms to load
+                let transform_idx = &mut self.selected_transform.get_mut(self.cur_data).unwrap().0;
+                for (i, h) in (0..t.len()).zip(t.iter_mut()) {
+                    ui.group(|ui| {
+                        let mut checked = i == *transform_idx;
+                        ui.checkbox(&mut checked, format!("transform {}", i));
+                        // update the index to the selected transform
+                        if checked {
+                            *transform_idx = i;
+                        }
+
+                        match h {
+                            TransformTypes::Classification(h) => h.ui(ui),
+                            TransformTypes::Identity => {
+                                ui.label("identity transform");
+                            }
+                        };
+                    });
+                    ui.end_row();
+                }
+            });
+
+            ui.separator();
             // if dataset changed, then load the new dataset into the viewer
             if self.cur_data != past_data || !self.viewer_is_active {
                 ui.label(format!("building {}", self.dataset_ui.get(&self.cur_data).unwrap().config()));
@@ -92,7 +125,8 @@ impl Param for DatasetState {
                                 if !self.viewers.contains_key(&self.cur_data) {
                                     self.viewers.insert(self.cur_data, Box::new(viewers::ClassificationViewer::default()));
                                 }
-                                self.viewers.get_mut(&self.cur_data).unwrap().load_dataset(DatasetTypes::Classification(a)).unwrap();
+                                let cur_viewer = self.viewers.get_mut(&self.cur_data).unwrap();
+                                cur_viewer.load_dataset(DatasetTypes::Classification(a)).unwrap();
                             }
                         }
                     }
@@ -103,6 +137,19 @@ impl Param for DatasetState {
                 self.viewer_is_active = true;
             }
 
+            // if the transform changed, then load the new transform into the viewer
+            let (new_transform_idx, is_loaded) = self.selected_transform.get_mut(self.cur_data).unwrap();
+            if *new_transform_idx != cur_transform || !*is_loaded {
+                *is_loaded = true;
+                // get and clone transform
+                let transform = &self.transforms.get(self.cur_data).unwrap()[*new_transform_idx];
+                let transform = transform.clone();
+                // then load into viewer
+                eprintln!("loading transform");
+                self.viewers.get_mut(&self.cur_data).unwrap().load_transform(transform).unwrap();
+            }
+            
+
             // display the current active viewer
             ui.vertical(|ui| {
                 if self.viewer_is_active {
@@ -110,9 +157,14 @@ impl Param for DatasetState {
                     viewer.ui(ui);
                 }
 
-                if ui.button("reset viewer").clicked() {
-                    self.viewer_is_active = false;
-                }
+                ui.horizontal(|ui| {
+                    if ui.button("reset viewer").clicked() {
+                        self.viewer_is_active = false;
+                    }
+                    if ui.button("reset transform").clicked() {
+                        *is_loaded = false;
+                    }
+                });
             });
         });
     }
@@ -128,34 +180,45 @@ impl Param for DatasetState {
             .iter().map(|(k, v)| {
                 let temp: Vec<String> = v.iter().map(|x| {
                     match x {
-                        TransformTypes::Classification(x) => x.config()
+                        TransformTypes::Classification(x) => x.config(),
+                        _ => "".to_string()
                     }
                 }).collect();
                 (k.to_string(), ron::to_string(&temp).unwrap())
             }).collect();
-
-        let configs = (data_ui_configs, viewer_configs, transform_configs);
+        
+        let configs = (data_ui_configs, viewer_configs, transform_configs, self.selected_transform.clone());
         ron::to_string(&configs).unwrap()
     }
 
-    fn load_config(&mut self, config: &str) {
+    fn load_config(&mut self, config: &str) -> Result<()> {
         type PartialConfig = HashMap<String, String>;
-        let configs: (PartialConfig, PartialConfig, PartialConfig) = ron::from_str(config).unwrap();
+        let configs: (PartialConfig, PartialConfig, PartialConfig, HashMap<String, (usize, bool)>) = ron::from_str(config).context("Dataset State")?;
         let keys: Vec<_> = self.dataset_ui.keys().cloned().collect();
         for k in &keys {
-            self.dataset_ui.get_mut(k).unwrap().load_config(&configs.0[*k]);
+            self.dataset_ui.get_mut(k).unwrap().load_config(&configs.0[*k])?;
         }
         let keys: Vec<_> = self.viewers.keys().cloned().collect();
         for k in &keys {
-            self.viewers.get_mut(k).unwrap().load_config(&configs.1[*k]);
+            self.viewers.get_mut(k).unwrap().load_config(&configs.1[*k])?;
         }
         let keys: Vec<_> = self.transforms.keys().cloned().collect();
         for k in &keys {
             let temp: Vec<String> = ron::from_str(&configs.2[*k]).unwrap();
-            self.transforms.get_mut(k).unwrap().iter_mut().zip(temp.iter()).for_each(|(x, st)| match x {
-                TransformTypes::Classification(x) => x.load_config(st)
-            });
+            for (x, st) in self.transforms.get_mut(k).unwrap().iter_mut().zip(temp.iter()) {
+                match x {
+                    TransformTypes::Classification(x) => {x.load_config(st)?;},
+                    _ => {}
+                }
+            }
         }
+
+        self.selected_transform.iter_mut().for_each(|(k, v)| {
+            if let Some(s) = configs.3.get(*k) {
+                *v = *s;
+            }
+        });
+        Ok(())
     }
 }
 

@@ -1,14 +1,17 @@
 
 use std::marker::PhantomData;
 
-use serde::{Serialize, de::DeserializeOwned, Deserialize};
 use bevy_egui::egui;
+
+use serde::{Serialize, de::DeserializeOwned, Deserialize};
+use dyn_clone::DynClone;
+use anyhow::{Result, Context};
 
 use crate::ui::Param;
 use super::ImageDataPoint;
 
 
-pub trait Transform: Param {
+pub trait Transform: Param + DynClone {
     type DataPoint;
     fn transform(&self, data: Self::DataPoint) -> Self::DataPoint;
 }
@@ -16,13 +19,13 @@ pub trait Transform: Param {
 /// Simple generic transform implementation, to avoid implementing
 /// the necessary traits for each possible state
 #[derive(Clone)]
-pub struct SimpleTransform<DataPoint: Send + Sync, T: Serialize + DeserializeOwned + Send + Sync + Clone> {
+pub struct SimpleTransform<DataPoint: Send + Sync + Clone, T: Serialize + DeserializeOwned + Send + Sync + Clone> {
     pub state: T,
     pub transform_fn: fn(&T, DataPoint) -> DataPoint,
     pub ui_fn: fn(&mut T, &mut egui::Ui),
 }
 
-impl<D: Send + Sync, T: Serialize + DeserializeOwned + Send + Sync + Clone> Param for SimpleTransform<D, T> {
+impl<D: Send + Sync + Clone, T: Serialize + DeserializeOwned + Send + Sync + Clone> Param for SimpleTransform<D, T> {
     fn ui(&mut self, ui: &mut egui::Ui) {
         let ui_fn = self.ui_fn;
         ui_fn(&mut self.state, ui);
@@ -30,42 +33,19 @@ impl<D: Send + Sync, T: Serialize + DeserializeOwned + Send + Sync + Clone> Para
     fn config(&self) -> String {
         ron::to_string(&self.state).unwrap()
     }
-    fn load_config(&mut self, config: &str) {
-        self.state = ron::from_str(config).unwrap();
+    fn load_config(&mut self, config: &str) -> Result<()> {
+        self.state = ron::from_str(config).context("Simple Transform")?;
+        Ok(())
     }
 }
 
-impl<D: Send + Sync, T: Serialize + DeserializeOwned + Send + Sync + Clone> Transform for SimpleTransform<D, T> {
+impl<D: Send + Sync + Clone, T: Serialize + DeserializeOwned + Send + Sync + Clone> Transform for SimpleTransform<D, T> {
     type DataPoint = D;
     fn transform(&self, data: Self::DataPoint) -> Self::DataPoint {
         let t_fn = self.transform_fn;
         t_fn(&self.state, data)
     }
 }
-
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct Identity<D: Sync + Send>(PhantomData<D>);
-
-impl<D: Sync + Send> Param for Identity<D> {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.label("Identity");
-    }
-
-    fn config(&self) -> String {
-        "".to_string()
-    }
-
-    fn load_config(&mut self, _config: &str) {}
-}
-
-impl<D: Sync + Send> Transform for Identity<D> {
-    type DataPoint = D;
-    fn transform(&self, data: Self::DataPoint) -> Self::DataPoint {
-        data
-    }
-}
-
 
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -95,8 +75,9 @@ impl Param for Normalize {
     fn config(&self) -> String {
         ron::to_string(self).unwrap()
     }
-    fn load_config(&mut self, config: &str) {
-        *self = ron::from_str(config).unwrap();
+    fn load_config(&mut self, config: &str) -> Result<()> {
+        *self = ron::from_str(config).context("Normalize Transform")?;
+        Ok(())
     }
 }
 

@@ -4,11 +4,13 @@ use std::collections::HashMap;
 use std::path;
 use std::fs;
 
+use anyhow::Context;
 use bevy::prelude::*;
 use bevy::app::AppExit;
 use bevy::window::{WindowClosed, WindowCloseRequested};
 use bevy_egui::{egui, EguiContext};
 
+use anyhow::Result;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
 /// Defines everything that gets the dataset viewer to work
@@ -23,7 +25,7 @@ const ROOT_PATH: &str = "assets/config";
 pub trait Param: Send + Sync {
     fn ui(&mut self, ui: &mut egui::Ui);
     fn config(&self) -> String;
-    fn load_config(&mut self, config: &str);
+    fn load_config(&mut self, config: &str) -> Result<()>;
 }
 
 
@@ -103,7 +105,9 @@ fn setup_ui(mut commands: Commands, mut egui_context: ResMut<EguiContext>) {
     if config_file.exists() {
         let config: (String, String) = ron::from_str(&fs::read_to_string(&config_file).unwrap()).unwrap();
         params.load_config(&config.0);
-        dataset_state.load_config(&config.1);
+        if dataset_state.load_config(&config.1).is_err() {
+            eprintln!("failed to load config for dataset");
+        }
     }
 
     // startup tasks that one must do to update the ui
@@ -191,9 +195,12 @@ impl<T: Param> Param for Vec<T> {
         ron::to_string(&temp).unwrap()
     }
 
-    fn load_config(&mut self, config: &str) {
-        let temp: Vec<String> = ron::from_str(config).unwrap();
-        self.iter_mut().zip(temp.iter()).for_each(|(x, y)| x.load_config(y));
+    fn load_config(&mut self, config: &str) -> Result<()> {
+        let temp: Vec<String> = ron::from_str(config).context("Param Trait: unable to serialize from vec")?;
+        for (x, y) in self.iter_mut().zip(temp.iter()) {
+            x.load_config(y)?;
+        }
+        Ok(())
     }
 }
 
@@ -213,25 +220,14 @@ where K: Serialize + DeserializeOwned + Hash + Eq + Send + Sync + Display + Clon
         ron::to_string(&temp).unwrap()
     }
 
-    fn load_config(&mut self, config: &str) {
-        let temp: HashMap<K, String> = ron::from_str(config).unwrap();
-        self.iter_mut().for_each(|(k, v)| {
+    fn load_config(&mut self, config: &str) -> Result<()> {
+        let temp: HashMap<K, String> = ron::from_str(config).context("Param Trait: unable to load from HashMap")?;
+        for (k, v) in self.iter_mut() {
             if let Some(s) = temp.get(k) {
-                v.load_config(s);
+                v.load_config(s)?;
             }
-        });
-    }
-}
-
-impl <T: Param> Param for Box<T> {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        <T as Param>::ui(self, ui);
-    }
-    fn config(&self) -> String {
-        <T as Param>::config(self)
-    }
-    fn load_config(&mut self, config: &str) {
-        <T as Param>::load_config(self, config);
+        }
+        Ok(())
     }
 }
 

@@ -10,6 +10,8 @@ pub mod transforms;
 
 mod mnist;
 pub use mnist::MnistParams;
+
+use self::transforms::Transform;
 //pub mod cifar;
 
 /// The universal Dataset trait, which is the final object
@@ -32,17 +34,51 @@ pub enum DatasetTypes {
 
 /// Transform type enum, reflective of the DatasetTypes enum, which only depends
 /// on the type of the output data point
+pub type ClassificationTransform = Box<dyn transforms::Transform<DataPoint = ImClassifyDataPoint>>;
+
 pub enum TransformTypes {
-    Classification(Box<dyn transforms::Transform<DataPoint = ImClassifyDataPoint>>)
+    Identity,
+    Classification(ClassificationTransform)
 }
 
+impl Clone for TransformTypes {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Identity => Self::Identity,
+            Self::Classification(arg0) => Self::Classification(dyn_clone::clone_box(&**arg0)),
+        }
+    }
+}
+
+pub struct DataWrapper<D> {
+    dataset: Box<dyn Dataset<DataPoint = D>>,
+    transform: Box<dyn Transform<DataPoint= D>>
+}
+
+impl<D> DataWrapper<D> {
+    pub fn new(dataset: Box<dyn Dataset<DataPoint = D>>, transform: Box<dyn Transform<DataPoint= D>>) -> Self {
+        DataWrapper { dataset, transform }
+    }
+}
+
+impl<D> Iterator for DataWrapper<D> {
+    type Item = D;
+    fn next(&mut self) -> Option<Self::Item> {
+        let x = self.dataset.next()?;
+        Some(self.transform.transform(x))
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
 /// The Data types that the datasets output and transforms input.
+#[derive(Clone)]
 pub struct ImageDataPoint {
     pub image: Array4<f32>
 }
 
 /// The data point associated with the image detection task, this is the type which
 /// gets fed into the model
+#[derive(Clone)]
 pub struct ImClassifyDataPoint {
     pub image: ImageDataPoint,
     pub label: Vec<u32>

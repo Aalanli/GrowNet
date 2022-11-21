@@ -1,10 +1,10 @@
 use bevy_egui::egui;
-use anyhow::Result;
+use anyhow::{Result, Context};
 
-use crate::datasets::{MnistParams, DatasetTypes};
+use crate::datasets::transforms::{Transform, SimpleTransform};
+use crate::datasets::{MnistParams, DatasetTypes, TransformTypes, transforms, ImClassifyDataPoint};
 use super::super::data_ui;
 use super::{Param, DatasetSetup, DatasetBuilder, viewers::ClassificationViewer};
-
 
 pub struct MNIST;
 impl DatasetSetup for MNIST {
@@ -17,7 +17,20 @@ impl DatasetSetup for MNIST {
     }
 
     fn transforms() -> Vec<super::TransformTypes> {
-        vec![]
+        let ts: SimpleTransform<ImClassifyDataPoint, _> = transforms::SimpleTransform {
+            state: transforms::Normalize::default(),
+            transform_fn: |t, mut x| {
+                x.image = t.transform(x.image);
+                x
+            },
+            ui_fn: |t, ui| {
+                t.ui(ui);
+            }
+        };
+
+        vec![
+            TransformTypes::Classification(Box::new(ts))
+        ]
     }
 
     fn name() -> &'static str {
@@ -38,9 +51,10 @@ impl Param for MnistParams {
     fn config(&self) -> String {
         ron::to_string(&self).unwrap()
     }
-    fn load_config(&mut self, config: &str) {
-        let new_self: Self = ron::from_str(config).unwrap();
+    fn load_config(&mut self, config: &str) -> Result<()> {
+        let new_self: Self = ron::from_str(config).context("Mnist Param")?;
         *self = new_self;
+        Ok(())
     }
 }
 
