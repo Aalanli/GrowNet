@@ -51,7 +51,32 @@ fn menu_ui(
         ui.separator();
 
         match params.open_panel {
-            OpenPanel::Models => {},
+            OpenPanel::Models => {
+                ui.label(format!("rect space {:?}", ui.available_size()));
+                
+                ui.spacing_mut().interact_size.y = ui.available_size().y;
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.group(|ui| {
+                            let text_style = egui::TextStyle::Body;
+                                let row_height = ui.text_style_height(&text_style);
+                                let num_rows = 10_000;
+                                egui::ScrollArea::vertical().auto_shrink([true; 2]).id_source("test").show_rows(
+                                    ui,
+                                    row_height,
+                                    num_rows,
+                                    |ui, row_range| {
+                                        for row in row_range {
+                                            let text = format!("This is row {}/{}", row + 1, num_rows);
+                                            ui.label(text);
+                                        }
+                                    },
+                                );
+
+                        }); });
+
+                });
+            },
             OpenPanel::Datasets => {dataset_state.ui(ui)},
             OpenPanel::Misc     => {params.update_misc(ui)},
             OpenPanel::Train => {},

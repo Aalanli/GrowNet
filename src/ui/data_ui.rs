@@ -23,6 +23,7 @@ impl DatasetUI {
 
 impl UI for DatasetUI {
     fn ui(&mut self, ui: &mut egui::Ui) {
+        //ui.spacing_mut().interact_size.y = ui.available_size().y;
         ui.horizontal(|ui| {
             // Select which dataset to use
             let last_active = self.cur_active;
@@ -58,7 +59,6 @@ impl Config for DatasetUI {
         Ok(())
     }
 }
-
 
 pub trait Viewer: Config + UI {
     fn drop_dataset(&mut self);
@@ -98,7 +98,7 @@ where D: Dataset<DataPoint = ImClassifyDataPoint>, B: DatasetBuilder<Dataset = D
             .unwrap()
             .chunks_exact(3)
             .map(|x| {
-                egui::Color32::from_rgb((x[0] * 255.0) as u8, (x[0] * 255.0) as u8, (x[0] * 255.0) as u8)
+                egui::Color32::from_rgb((x[0] * 255.0) as u8, (x[1] * 255.0) as u8, (x[2] * 255.0) as u8)
             }).collect() 
         }).collect();
 
@@ -109,116 +109,130 @@ where D: Dataset<DataPoint = ImClassifyDataPoint>, B: DatasetBuilder<Dataset = D
         }).collect();
         handles
     }
+
+    fn loading_logic(&mut self, ui: &mut egui::Ui) {
+        let err_ui = |err: Error, ui: &mut egui::Ui| -> Option<D> {
+            ui.label(format!("Error loading dataset {}", err.to_string())); 
+            None
+        };
+        // load the datasets if not loaded already
+        if let None = self.train_data {
+            self.train_data = self.params.build_train().map_or_else(|e| err_ui(e, ui), |x| Some(x));
+        }
+        if let None = self.test_data {
+            if let Some(x) = self.params.build_test() {
+                self.test_data = x.map_or_else(|e| err_ui(e, ui), |x| Some(x));
+            }
+        }
+
+        // load a data point if not loaded already
+        if let Some(data) = &mut self.train_data {
+            if let None = self.train_texture {
+                self.train_texture = Some(Self::load_texture(data, ui));
+            }
+        }
+        if let Some(data) = &mut self.test_data {
+            if let None = self.test_texture {
+                self.test_texture = Some(Self::load_texture(data, ui));
+            }
+        }
+    }
+
+    fn display_im_if_any(&self, textures: &Option<Vec<egui::TextureHandle>>, ui: &mut egui::Ui) {
+        let im_scale = self.im_scale;
+        if let Some(images) = &textures {
+            for im in images {
+                let mut size = im.size_vec2();
+                size *= im_scale;
+                ui.image(im, size);
+            } 
+        }
+    }
 }
 
 impl<D, B> UI for ClassificationViewer<B>
 where D: Dataset<DataPoint = ImClassifyDataPoint>, B: DatasetBuilder<Dataset = D> {
     fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.group(|ui| {
-            ui.horizontal(|ui| {
-                self.params.ui(ui);
-                let err_ui = |err: Error, ui: &mut egui::Ui| -> Option<D> {
-                    ui.label(format!("Error loading dataset {}", err.to_string())); 
-                    None
-                };
-                // load the datasets if not loaded already
-                if let None = self.train_data {
-                    self.train_data = self.params.build_train().map_or_else(|e| err_ui(e, ui), |x| Some(x));
-                }
-                if let None = self.test_data {
-                    if let Some(x) = self.params.build_test() {
-                        self.test_data = x.map_or_else(|e| err_ui(e, ui), |x| Some(x));
-                    }
-                }
-        
-                // load a data point if not loaded already
-                if let Some(data) = &mut self.train_data {
-                    if let None = self.train_texture {
-                        self.train_texture = Some(Self::load_texture(data, ui));
-                    }
-                }
-                if let Some(data) = &mut self.test_data {
-                    if let None = self.test_texture {
-                        self.test_texture = Some(Self::load_texture(data, ui));
-                    }
-                }
-
-                ui.vertical(|ui| {
-                    
-                    // display the texture if there is any
-                    let display_im = |textures: &Option<Vec<egui::TextureHandle>>, ui: &mut egui::Ui| {
-                        if let Some(images) = &textures {
-                            ui.vertical(|ui| {
-                                for im in images {
-                                    let mut size = im.size_vec2();
-                                    size *= self.im_scale;
-                                    ui.image(im, size);
-                                } 
-                            });
-                        }
-                    };
-
-
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.collapsing("train images", |ui| {
-                                display_im(&self.train_texture, ui);
-                            });
-                            ui.collapsing("test images", |ui| {
-                                display_im(&self.test_texture, ui);
-                            });
-                        });
-                    });
-
-                    ui.vertical(|ui| {
-                        ui.horizontal(|ui| {
-                            if let Some(_) = &self.train_texture {
-                                if ui.button("next train").clicked() {
-                                    self.train_texture = None;
-                                }
-                            }
-                            if let Some(_) = &self.test_texture {
-                                if ui.button("next test").clicked() {
-                                    self.test_texture = None;
-                                }
-                            }
-                        });
-
-                        ui.horizontal(|ui| {
-                            if let Some(data) = &mut self.train_data {
-                                if ui.button("shuffle train").clicked() {
-                                    data.shuffle();
-                                }
-                            }
-        
-                            if let Some(data) = &mut self.test_data {
-                                if ui.button("shuffle train").clicked() {
-                                    data.shuffle();
-                                }
-                            }
-                        });
-
-                        ui.horizontal(|ui| {
-                            if ui.button("reset train").clicked() {
-                                self.train_data = None;
-                                self.train_texture = None;
-                            }
-                            if ui.button("reset test").clicked() {
-                                self.test_data = None;
-                                self.test_texture = None;
-                            }
-                        });
-
-                        ui.label("image scale");
-                        ui.add(egui::Slider::new(&mut self.im_scale, 0.1..=10.0));
-
-                    });
-                    
-    
-                });
-            });
+        ui.vertical(|ui| {
+            self.params.ui(ui);
+            self.loading_logic(ui);
         });
 
+        ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    //ui.allocate_space(egui::Vec2::new(100.0, 200.0));
+                    //ui.label(format!("available space {:?}", ui.available_size()));
+                    //ui.label(format!("available space {:?}", ui.spacing().interact_size));
+                    //ui.spacing_mut().interact_size.y = 60.0;
+                    //egui::containers::ScrollArea::vertical()
+                    //    .id_source("train images")
+                    //    .show(ui, |ui| {
+                    //        ui.label(format!("available space {:?}", ui.available_size()));
+                    //        self.display_im_if_any(&self.train_texture, ui);
+                    //    });
+    
+                    egui::CollapsingHeader::new("train images")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                        self.display_im_if_any(&self.train_texture, ui);
+                    });
+
+                    if let Some(_) = &self.train_texture {
+                        if ui.button("next train").clicked() {
+                            self.train_texture = None;
+                        }
+                    }
+                    if let Some(data) = &mut self.train_data {
+                        if ui.button("shuffle train").clicked() {
+                            data.shuffle();
+                        }
+                    }
+                    if ui.button("reset train").clicked() {
+                        self.train_data = None;
+                        self.train_texture = None;
+                    }
+                });
+
+                ui.vertical(|ui| {
+                    //egui::containers::ScrollArea::vertical()
+                    //    .id_source("test images")
+                    //    .max_height(f32::INFINITY)
+                    //    .show(ui, |ui| {
+                    //        //display_im(&self.test_texture, ui);
+                    //        ui.collapsing("test images", |ui| {
+                    //            self.display_im_if_any(&self.test_texture, ui);
+                    //        });
+                    //    });
+                    egui::CollapsingHeader::new("test images")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                        self.display_im_if_any(&self.test_texture, ui);
+                    });
+                    
+                    if let Some(_) = &self.test_texture {
+                        if ui.button("next test").clicked() {
+                            self.test_texture = None;
+                        }
+                    }
+                    if let Some(data) = &mut self.test_data {
+                        if ui.button("shuffle test").clicked() {
+                            data.shuffle();
+                        }
+                    }
+                    if ui.button("reset test").clicked() {
+                        self.test_data = None;
+                        self.test_texture = None;
+                    }
+                });
+            });
+
+            ui.label("image scale");
+            ui.add(
+                egui::Slider::new(&mut self.im_scale, 0.1..=10.0)
+            );
+        });
+        
     }
 }
 
