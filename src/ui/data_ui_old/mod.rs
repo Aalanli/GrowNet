@@ -9,7 +9,7 @@ use viewers::ViewerUI;
 mod mnist;
 pub use mnist::MNIST;
 
-use super::Param;
+use super::{Param, Config, UI};
 use crate::datasets::{DatasetTypes, TransformTypes};
 
 /// To integrate with the ui, each dataset defines this trait
@@ -25,7 +25,7 @@ pub trait DatasetSetup {
 /// this separation is made as the parameters are usually light and copyible, while
 /// the data is not light, and require some non-negliable compute for the setup.
 /// This trait adjusts the parameters, and builds the dataset on the parameters it holds.
-pub trait DatasetBuilder: Param {
+pub trait DatasetBuilder: Config + UI {
     fn build(&self) -> Result<DatasetTypes>;
 }
 
@@ -71,7 +71,8 @@ impl DatasetState {
     }
 }
 
-impl Param for DatasetState {
+
+impl UI for DatasetState {
     fn ui(&mut self, ui: &mut egui::Ui) {
         let past_data = self.cur_data;
         ui.horizontal(|ui| {
@@ -168,7 +169,9 @@ impl Param for DatasetState {
             });
         });
     }
+}
 
+impl Config for DatasetState {
     fn config(&self) -> String {
         let data_ui_configs: HashMap<String, String> = self.dataset_ui
             .iter().map(|(k, v)| (k.to_string(), v.config())).collect();

@@ -5,6 +5,8 @@
 /// Separating the logic can enable headlessmode which will be for future work
 
 use ndarray::prelude::*;
+use anyhow::Result;
+use crate::Param;
 
 pub mod transforms;
 
@@ -22,6 +24,17 @@ pub trait Dataset: Sync + Send {
     fn next(&mut self) -> Option<Self::DataPoint>;
     fn reset(&mut self);
     fn shuffle(&mut self);
+}
+
+pub trait DatasetBuilder: Param {
+    type Dataset: Dataset;
+    fn build_train(&self) -> Result<Self::Dataset>;
+    fn build_test(&self) -> Option<Result<Self::Dataset>>;
+}
+
+pub trait DataTransforms: Param {
+    type DataPoint;
+    fn transform(&self, data: Self::DataPoint) -> Self::DataPoint;
 }
 
 /// This is the unification of possible Datasets behaviors, constructed from DatasetUI, or
@@ -122,4 +135,3 @@ fn concat_im_size_eq(imgs: &[&Array3<f32>]) -> ImageDataPoint {
     }
     ImageDataPoint { image: img }
 }
-

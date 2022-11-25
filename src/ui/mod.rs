@@ -13,55 +13,19 @@ use bevy_egui::{egui, EguiContext};
 use anyhow::Result;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
+use crate::{Param, Config, UI};
+
 /// Defines everything that gets the dataset viewer to work
 pub mod data_ui;
-use data_ui::DatasetState;
+pub use data_ui::DatasetUI;
 
-/// the path at which the user config files are stored
-const ROOT_PATH: &str = "assets/config";
+/// The ui plugin, the entry point for the ui
+pub struct UIPlugin;
 
-/// Param trait captures the various parameters settings that needs to be saved
-/// to disk and modified through the ui
-pub trait Param: Send + Sync {
-    fn ui(&mut self, ui: &mut egui::Ui);
-    fn config(&self) -> String;
-    fn load_config(&mut self, config: &str) -> Result<()>;
-}
-
-
-/// The ui plugin, the entry point for the entire ui
-pub struct UI;
-
-/// The state for the entire app, which characterizes the two main modes of operation
-/// Menu involves only light ui tasks, while Trainer may involve some heavy compute, 
-/// (which may run on another thread), and rendering.
-#[derive(Clone, Eq, PartialEq, Debug, Hash)]
-enum State {
-    Menu,
-    Trainer
-}
-
-/// Main configuration state for the entire ui
-/// as in, the ui can be constructed solely from these parameters
-#[derive(Debug, Serialize, Deserialize)]
-struct UIParams {
-    open_panel: OpenPanel,
-    font_delta: f32,
-}
-
-/// State for panel opened in the ui
-#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
-enum OpenPanel {
-    Models,
-    Datasets,
-    Misc,
-    Train
-}
-
-impl Plugin for UI {
+impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app
-            .add_startup_system(setup_ui)
+            .add_startup_system_to_stage(StartupStage::Startup, setup_ui)
             .add_system(save_ui)
             .add_system(menu_ui);
     }
@@ -70,7 +34,7 @@ impl Plugin for UI {
 fn menu_ui(
     mut egui_context: ResMut<EguiContext>,
     mut params: ResMut<UIParams>,
-    mut dataset_state: ResMut<DatasetState>,
+    mut dataset_state: ResMut<DatasetUI>,
 ) {
     
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
@@ -95,34 +59,36 @@ fn menu_ui(
     });
 }
 
-fn setup_ui(mut commands: Commands, mut egui_context: ResMut<EguiContext>) {
-    let mut params = UIParams::default();
-    let mut dataset_state = DatasetState::new();
-    dataset_state.insert_dataset::<data_ui::MNIST>();
 
-    let root_path: path::PathBuf = ROOT_PATH.into();
+fn setup_ui(
+    mut params: ResMut<UIParams>,
+    mut data_param: ResMut<DatasetUI>,
+    mut egui_context: ResMut<EguiContext>
+) {        
+    let root_path: path::PathBuf = params.root_path.clone().into();
     let config_file = root_path.join("ui_config").with_extension("ron");
+    // loading configurations of main ui components
     if config_file.exists() {
+        eprintln!("loading from config file {}", config_file.to_str().unwrap());
         let config: (String, String) = ron::from_str(&fs::read_to_string(&config_file).unwrap()).unwrap();
         params.load_config(&config.0);
-        if dataset_state.load_config(&config.1).is_err() {
-            eprintln!("failed to load config for dataset");
+
+        if let Err(e) = data_param.load_config(&config.1) {
+            eprintln!("Unable to load dataset parameters due to {}", e.to_string());
         }
     }
 
     // startup tasks that one must do to update the ui
     change_font_size(params.font_delta, egui_context.ctx_mut());
-
-    commands.insert_resource(params);
-    commands.insert_resource(dataset_state);
 }
+
 
 fn save_ui(
     mut exit: EventReader<AppExit>, 
     mut closed: EventReader<WindowClosed>, 
     mut closed2: EventReader<WindowCloseRequested>,
     params: Res<UIParams>,
-    dataset_state: Res<DatasetState>
+    dataset_params: Res<DatasetUI>
 ) {
     let mut exited = false;
     for _ in exit.iter() {
@@ -136,18 +102,50 @@ fn save_ui(
     }
     
     if exited {
-        let root_path: path::PathBuf = ROOT_PATH.into();
+        let root_path: path::PathBuf = params.root_path.clone().into();
         if !root_path.exists() {
             fs::create_dir_all(&root_path).unwrap();
         }
 
         eprintln!("saving config");
         let config_file = root_path.join("ui_config").with_extension("ron");
+
+        // getting configurations of main ui components
         let main_ui_config = params.config();
-        let data_ui_config = dataset_state.config();
+        let data_ui_config = dataset_params.config();
+        eprintln!("data ui params {}", data_ui_config);
+
         let serialized = ron::to_string(&(main_ui_config, data_ui_config)).unwrap();
         fs::write(&config_file, serialized).unwrap();
     }
+}
+
+
+/// Main configuration state for the entire ui
+/// as in, the ui can be constructed solely from these parameters
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UIParams {
+    pub root_path: String,
+    pub font_delta: f32,
+    open_panel: OpenPanel,
+}
+
+/// The state for the entire app, which characterizes the two main modes of operation
+/// Menu involves only light ui tasks, while Trainer may involve some heavy compute, 
+/// (which may run on another thread), and rendering.
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+enum State {
+    Menu,
+    Trainer
+}
+
+/// State for panel opened in the ui
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+enum OpenPanel {
+    Models,
+    Datasets,
+    Misc,
+    Train
 }
 
 impl UIParams {
@@ -176,11 +174,11 @@ impl UIParams {
 
 impl Default for UIParams {
     fn default() -> Self {
-        UIParams { open_panel: OpenPanel::Models, font_delta: 4.0 }
+        UIParams { open_panel: OpenPanel::Models, font_delta: 4.0, root_path: "".to_string() }
     }
 }
 
-
+/*
 impl<T: Param> Param for Vec<T> {
     fn ui(&mut self, ui: &mut egui::Ui) {
         for (i, transform) in (0..self.len()).zip(self.iter_mut()) {
@@ -230,7 +228,7 @@ where K: Serialize + DeserializeOwned + Hash + Eq + Send + Sync + Display + Clon
         Ok(())
     }
 }
-
+*/
 
 fn change_font_size(font_delta: f32, ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();

@@ -7,7 +7,7 @@ use serde::{Serialize, de::DeserializeOwned, Deserialize};
 use dyn_clone::DynClone;
 use anyhow::{Result, Context};
 
-use crate::ui::Param;
+use crate::{Param, Config, UI};
 use super::ImageDataPoint;
 
 
@@ -25,11 +25,14 @@ pub struct SimpleTransform<DataPoint: Send + Sync + Clone, T: Serialize + Deseri
     pub ui_fn: fn(&mut T, &mut egui::Ui),
 }
 
-impl<D: Send + Sync + Clone, T: Serialize + DeserializeOwned + Send + Sync + Clone> Param for SimpleTransform<D, T> {
+impl<D: Send + Sync + Clone, T: Serialize + DeserializeOwned + Send + Sync + Clone> UI for SimpleTransform<D, T> {
     fn ui(&mut self, ui: &mut egui::Ui) {
         let ui_fn = self.ui_fn;
         ui_fn(&mut self.state, ui);
     }
+}
+
+impl<D: Send + Sync + Clone, T: Serialize + DeserializeOwned + Send + Sync + Clone> Config for SimpleTransform<D, T> {
     fn config(&self) -> String {
         ron::to_string(&self.state).unwrap()
     }
@@ -60,7 +63,7 @@ impl Default for Normalize {
     }
 }
 
-impl Param for Normalize {
+impl UI for Normalize {
     fn ui(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.label("Normalize transform params");
@@ -71,13 +74,6 @@ impl Param for Normalize {
                 ui.add(egui::DragValue::new(&mut self.range).speed(0.01));
             });
         });
-    }
-    fn config(&self) -> String {
-        ron::to_string(self).unwrap()
-    }
-    fn load_config(&mut self, config: &str) -> Result<()> {
-        *self = ron::from_str(config).context("Normalize Transform")?;
-        Ok(())
     }
 }
 

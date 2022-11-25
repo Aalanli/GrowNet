@@ -1,10 +1,12 @@
 use bevy_egui::egui;
 use anyhow::{Result, Context};
 
+use crate::{Param, Config, UI};
 use crate::datasets::transforms::{Transform, SimpleTransform};
 use crate::datasets::{MnistParams, DatasetTypes, TransformTypes, transforms, ImClassifyDataPoint};
 use super::super::data_ui;
-use super::{Param, DatasetSetup, DatasetBuilder, viewers::ClassificationViewer};
+use super::{DatasetSetup, DatasetBuilder, viewers::ClassificationViewer};
+
 
 pub struct MNIST;
 impl DatasetSetup for MNIST {
@@ -38,7 +40,7 @@ impl DatasetSetup for MNIST {
     }
 }
 
-impl Param for MnistParams {
+impl UI for MnistParams {
     fn ui(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.vertical(|ui| {
@@ -47,14 +49,6 @@ impl Param for MnistParams {
                 ui.add(egui::DragValue::new(&mut self.batch_size));
             });
         });
-    }
-    fn config(&self) -> String {
-        ron::to_string(&self).unwrap()
-    }
-    fn load_config(&mut self, config: &str) -> Result<()> {
-        let new_self: Self = ron::from_str(config).context("Mnist Param")?;
-        *self = new_self;
-        Ok(())
     }
 }
 

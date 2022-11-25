@@ -2,13 +2,13 @@ use anyhow::{Result, Error, Context};
 use bevy_egui::egui;
 use ndarray::Axis;
 
-use super::Param;
+use crate::{Param, Config, UI};
 use crate::datasets::{self, TransformTypes, transforms};
 use crate::datasets::DatasetTypes;
 
 /// Each viewer maintains its own internal state, and manipulates the dataset
 /// fed to it
-pub trait ViewerUI: Param {
+pub trait ViewerUI: Config + UI {
     fn load_dataset(&mut self, dataset: DatasetTypes) -> Result<()>;
     fn load_transform(&mut self, transform: TransformTypes) -> Result<()>;
 }
@@ -16,10 +16,13 @@ pub trait ViewerUI: Param {
 
 pub struct EmptyViewer {}
 
-impl Param for EmptyViewer {
+impl UI for EmptyViewer {
     fn ui(&mut self, ui: &mut egui::Ui) {
         ui.label("No viewer implemented for this dataset.");
     }
+}
+
+impl Config for EmptyViewer {
     fn config(&self) -> String {
         "".to_string()
     }
@@ -63,7 +66,7 @@ impl ViewerUI for ClassificationViewer {
     }
 }
 
-impl Param for ClassificationViewer {
+impl UI for ClassificationViewer {
     fn ui(&mut self, ui: &mut egui::Ui) {
         if let Some(data) = &mut self.data {
             let texture = self.texture.get_or_insert_with(|| {
@@ -73,13 +76,13 @@ impl Param for ClassificationViewer {
                     data.reset();
                     data.next().unwrap()
                 };
-
+    
                 let data_point = if let Some(t) = &self.transform {
                     t.transform(data_point)
                 } else {
                     data_point
                 };
-
+    
                 let pixels: Vec<_> = data_point.image.image
                     .index_axis(Axis(0), 0)
                     .as_slice()
@@ -90,14 +93,14 @@ impl Param for ClassificationViewer {
                     }).collect();
                 let size = data_point.image.size();
                 let color_image = egui::ColorImage { size, pixels };
-
+    
                 ui.ctx().load_texture("im sample", color_image, egui::TextureFilter::Nearest)
             });
-
+    
             let mut size = texture.size_vec2();
             size *= self.im_scale;
             ui.image(texture, size);
-
+    
             ui.horizontal_centered(|ui| {
                 if ui.button("next").clicked() {
                     self.texture = None;
@@ -107,13 +110,16 @@ impl Param for ClassificationViewer {
                     data.shuffle();
                 }
             });
-
+    
             ui.label("image scale");
             ui.add(egui::Slider::new(&mut self.im_scale, 0.1..=10.0));
         } else {
             ui.label("No dataset loaded");
         }
     }
+}
+
+impl Config for ClassificationViewer {
     fn config(&self) -> String {
         ron::to_string(&self.im_scale).unwrap()
     }
