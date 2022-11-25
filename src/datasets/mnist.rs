@@ -6,7 +6,7 @@ use itertools::Itertools;
 use serde::{Serialize, Deserialize};
 use image::io::Reader as ImageReader;
 
-use super::{ImClassifyDataPoint, DatasetTypes, Dataset};
+use super::{ImClassifyDataPoint, Dataset};
 use anyhow::{Context, Result};
 
 
@@ -29,7 +29,7 @@ impl Default for MnistParams {
 }
 
 impl MnistParams {
-    pub fn build(&self) -> Result<DatasetTypes> {
+    pub fn build(&self) -> Result<Mnist> {
         let mut trainset: PathBuf = self.path.clone().into();
         trainset.push("training");
 
@@ -66,7 +66,7 @@ impl MnistParams {
         let order = 0..train.labels.len();
 
         let x = Mnist { train, test, order: order.collect_vec(), idx: 0, batch_size: self.batch_size };
-        Ok(DatasetTypes::Classification(Box::new(x)))
+        Ok(x)
     }
 }
 
