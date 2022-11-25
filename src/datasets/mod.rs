@@ -37,52 +37,6 @@ pub trait DataTransforms: Param {
     fn transform(&self, data: Self::DataPoint) -> Self::DataPoint;
 }
 
-/// This is the unification of possible Datasets behaviors, constructed from DatasetUI, or
-/// some other parameter-adjusting setup trait.
-pub type ClassificationType = Box<dyn Dataset<DataPoint = ImClassifyDataPoint>>;
-pub enum DatasetTypes {
-    Classification(ClassificationType),
-    // Detection(Box<dyn ImDetection>),
-    // Generation(Box<dyn ImGeneration>),
-}
-
-/// Transform type enum, reflective of the DatasetTypes enum, which only depends
-/// on the type of the output data point
-pub type ClassificationTransform = Box<dyn transforms::Transform<DataPoint = ImClassifyDataPoint>>;
-
-pub enum TransformTypes {
-    Identity,
-    Classification(ClassificationTransform)
-}
-
-impl Clone for TransformTypes {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Identity => Self::Identity,
-            Self::Classification(arg0) => Self::Classification(dyn_clone::clone_box(&**arg0)),
-        }
-    }
-}
-
-pub struct DataWrapper<D> {
-    dataset: Box<dyn Dataset<DataPoint = D>>,
-    transform: Box<dyn Transform<DataPoint= D>>
-}
-
-impl<D> DataWrapper<D> {
-    pub fn new(dataset: Box<dyn Dataset<DataPoint = D>>, transform: Box<dyn Transform<DataPoint= D>>) -> Self {
-        DataWrapper { dataset, transform }
-    }
-}
-
-impl<D> Iterator for DataWrapper<D> {
-    type Item = D;
-    fn next(&mut self) -> Option<Self::Item> {
-        let x = self.dataset.next()?;
-        Some(self.transform.transform(x))
-    }
-}
-
 /////////////////////////////////////////////////////////////////////////////////////////
 /// The Data types that the datasets output and transforms input.
 #[derive(Clone)]

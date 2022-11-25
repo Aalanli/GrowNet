@@ -170,40 +170,50 @@ where D: Dataset<DataPoint = ImClassifyDataPoint>, B: DatasetBuilder<Dataset = D
                         });
                     });
 
-                    ui.group(|ui| {
-                        ui.vertical_centered(|ui| {
-                            
-                            ui.horizontal_centered(|ui| {
-                                if let Some(_) = &self.train_texture {
-                                    if ui.button("next train").clicked() {
-                                        self.train_texture = None;
-                                    }
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            if let Some(_) = &self.train_texture {
+                                if ui.button("next train").clicked() {
+                                    self.train_texture = None;
                                 }
-                                if let Some(_) = &self.test_texture {
-                                    if ui.button("next test").clicked() {
-                                        self.test_texture = None;
-                                    }
+                            }
+                            if let Some(_) = &self.test_texture {
+                                if ui.button("next test").clicked() {
+                                    self.test_texture = None;
                                 }
-                            });
-
-                            ui.horizontal_centered(|ui| {
-                                if let Some(data) = &mut self.train_data {
-                                    if ui.button("shuffle train").clicked() {
-                                        data.shuffle();
-                                    }
-                                }
-            
-                                if let Some(data) = &mut self.test_data {
-                                    if ui.button("shuffle train").clicked() {
-                                        data.shuffle();
-                                    }
-                                }
-                            });
-
-                            ui.label("image scale");
-                            ui.add(egui::Slider::new(&mut self.im_scale, 0.1..=10.0));
+                            }
                         });
+
+                        ui.horizontal(|ui| {
+                            if let Some(data) = &mut self.train_data {
+                                if ui.button("shuffle train").clicked() {
+                                    data.shuffle();
+                                }
+                            }
+        
+                            if let Some(data) = &mut self.test_data {
+                                if ui.button("shuffle train").clicked() {
+                                    data.shuffle();
+                                }
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
+                            if ui.button("reset train").clicked() {
+                                self.train_data = None;
+                                self.train_texture = None;
+                            }
+                            if ui.button("reset test").clicked() {
+                                self.test_data = None;
+                                self.test_texture = None;
+                            }
+                        });
+
+                        ui.label("image scale");
+                        ui.add(egui::Slider::new(&mut self.im_scale, 0.1..=10.0));
+
                     });
+                    
     
                 });
             });
