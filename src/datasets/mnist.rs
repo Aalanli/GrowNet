@@ -1,79 +1,112 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 use rand::seq::SliceRandom;
 
 use ndarray::prelude::*;
+use bevy_egui::egui;
 use itertools::Itertools;
 use serde::{Serialize, Deserialize};
 use image::io::Reader as ImageReader;
+use anyhow::{Context, Result, Error};
 
-use super::{ImClassifyDataPoint, Dataset};
-use anyhow::{Context, Result};
+
+use crate::UI;
+use super::{Dataset, DatasetBuilder};
+use super::{ImageDataPoint, ImClassifyDataPoint};
 
 
 /// Main configuration parameters for Mnist
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct MnistParams {
-    pub path: String,
-    pub batch_size: usize,
+    path: PathBuf,
+    train_batch_size: usize,
+    test_batch_size: usize,
 }
 
-/// Default is probably not necessary any more, since configuration files exist
-/// but we keep them nontheless since there is no default canonical config file
-impl Default for MnistParams {
-    fn default() -> Self {
-        MnistParams { 
-            path: "".to_string(), 
-            batch_size: 1
-        }
+impl UI for MnistParams {
+    fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
+        ui.group(|ui| {
+            ui.vertical(|ui| {
+                let mut path_str = self.path.to_str().unwrap().to_owned();
+                ui.label("Cifar10 Parameters");
+                ui.text_edit_singleline(&mut path_str);
+                ui.label("train batch size");
+                ui.add(egui::DragValue::new(&mut self.train_batch_size));
+                ui.label("test batch size");
+                ui.add(egui::DragValue::new(&mut self.test_batch_size));
+                self.path = path_str.into();
+            });
+        });
     }
 }
 
+impl DatasetBuilder for MnistParams {
+    type Dataset = Mnist;
+
+    fn build_train(&self) -> anyhow::Result<Self::Dataset> {
+        if self.train_batch_size == 0 {
+            return Err(Error::msg("batch size cannot be zero"));
+        }
+        MnistParams::build_train(self)
+    }
+
+    fn build_test(&self) -> Option<anyhow::Result<Self::Dataset>> {
+        if self.test_batch_size == 0 {
+            return Some(Err(Error::msg("batch size cannot be zero")));
+        }
+        Some(MnistParams::build_test(self))
+    }
+}
+
+
 impl MnistParams {
-    pub fn build(&self) -> Result<Mnist> {
+    fn read_subdirs(dir: &PathBuf) -> Result<Vec<(u32, PathBuf)>, Error> {
+        let mut correct_paths = Vec::<(u32, PathBuf)>::new();
+
+        for path in dir.read_dir()? {
+            let a = path?;
+            let label = a.file_name().into_string().unwrap().parse::<u32>()
+                .with_context(|| format!("Dir {} is not a numeral", a.path().to_str().unwrap()))?;
+            let subpaths = a.path().read_dir().with_context(|| format!("No dir {} exists mnist", dir.to_str().unwrap()))?;
+            for im_file in subpaths {
+                if let Ok(file) = im_file {
+                    correct_paths.push((label, file.path()));
+                }
+            }
+        }
+        Ok(correct_paths)
+    }
+    pub fn build_test(&self) -> Result<Mnist> {
+        let trainset: PathBuf = self.path.join("testing");
+        let test_paths = Self::read_subdirs(&trainset)?;
+        
+        let mut test = ImClassifyData::new();
+        test.push_raw(test_paths.iter().cloned());
+
+        let order = 0..test.labels.len();
+        
+        let x = Mnist { data: test, shuffle: order.collect_vec(), idx: 0, batch_size: self.test_batch_size };        
+        Ok(x)
+    }
+
+    pub fn build_train(&self) -> Result<Mnist> {
         let mut trainset: PathBuf = self.path.clone().into();
         trainset.push("training");
 
-        // Reads from a subdirectory expected to be structured in a particular manner
-        // returns error otherwise
-        let read_subdirs = |dir: &PathBuf| -> Result<_, anyhow::Error> {
-            let mut correct_paths = Vec::<(u32, PathBuf)>::new();
-
-            for path in dir.read_dir()? {
-                let a = path?;
-                let label = a.file_name().into_string().unwrap().parse::<u32>()
-                    .with_context(|| format!("Dir {} is not a numeral", a.path().to_str().unwrap()))?;
-                let subpaths = a.path().read_dir().with_context(|| format!("No dir {} exists mnist", dir.to_str().unwrap()))?;
-                for im_file in subpaths {
-                    if let Ok(file) = im_file {
-                        correct_paths.push((label, file.path()));
-                    }
-                }
-            }
-            Ok(correct_paths)
-        };
-
-        let train_paths = read_subdirs(&trainset)?;
-
-        trainset.pop();
-        trainset.push("testing");
-        let test_paths = read_subdirs(&trainset)?;
+        let train_paths = Self::read_subdirs(&trainset)?;
 
         let mut train = ImClassifyData::new();
         train.push_raw(train_paths.iter().cloned());
-
-        let mut test = ImClassifyData::new();
-        test.push_raw(test_paths.iter().cloned());
+        
         let order = 0..train.labels.len();
 
-        let x = Mnist { train, test, order: order.collect_vec(), idx: 0, batch_size: self.batch_size };
+        let x = Mnist { data: train, shuffle: order.collect_vec(), idx: 0, batch_size: self.train_batch_size };
         Ok(x)
     }
 }
 
 pub struct Mnist {
-    train: ImClassifyData,
-    test: ImClassifyData,
-    order: Vec<usize>,
+    data: ImClassifyData,
+    shuffle: Vec<usize>,
     idx: usize,
     batch_size: usize
 }
@@ -82,21 +115,21 @@ impl Dataset for Mnist {
     type DataPoint = ImClassifyDataPoint;
     fn next(&mut self) -> Option<Self::DataPoint> {
         // batch size stride greater than the number of elements
-        if self.idx + self.batch_size >= self.order.len() {
+        if self.idx + self.batch_size >= self.shuffle.len() {
             return None;
         }
         let img_slice: Vec<_> = (self.idx..self.batch_size + self.idx).map(|x| {
-            &self.train.data[self.order[x]]
+            &self.data.data[self.shuffle[x]]
         }).collect();
         let img = super::concat_im_size_eq(&img_slice);
-        let labels = (self.idx..self.batch_size + self.idx).map(|x| self.train.labels[self.order[x]]).collect();
+        let labels = (self.idx..self.batch_size + self.idx).map(|x| self.data.labels[self.shuffle[x]]).collect();
         self.idx += self.batch_size;
 
         let img = ImClassifyDataPoint { image: img, label: labels };
         Some(img)
     }
     fn shuffle(&mut self) {
-        self.order.shuffle(&mut rand::thread_rng());
+        self.shuffle.shuffle(&mut rand::thread_rng());
     }
     fn reset(&mut self) {
         self.idx = 0;

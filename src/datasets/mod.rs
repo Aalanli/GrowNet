@@ -10,8 +10,7 @@ use crate::Param;
 
 pub mod transforms;
 
-mod mnist;
-pub use mnist::MnistParams;
+pub mod mnist;
 pub mod cifar;
 
 

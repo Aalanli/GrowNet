@@ -47,5 +47,9 @@ fn setup_dataset_ui(mut commands: Commands) {
     let cifar_viewer = ui::data_ui::ClassificationViewer::new(cifar10);
     dataset_ui.push_viewer(cifar_viewer, "cifar10");
 
+    let mnist = data::mnist::MnistParams::default();
+    let mnist_viewer = ui::data_ui::ClassificationViewer::new(mnist);
+    dataset_ui.push_viewer(mnist_viewer, "mnist");
+
     commands.insert_resource(dataset_ui);
 }

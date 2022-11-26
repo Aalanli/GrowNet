@@ -158,81 +158,72 @@ where D: Dataset<DataPoint = ImClassifyDataPoint>, B: DatasetBuilder<Dataset = D
             self.loading_logic(ui);
         });
         ui.vertical(|ui| {
-            egui::containers::panel::SidePanel::right("images").show(ui.ctx(), |ui| {
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        //ui.allocate_space(egui::Vec2::new(100.0, 200.0));
-                        //ui.label(format!("available space {:?}", ui.available_size()));
-                        //ui.label(format!("available space {:?}", ui.spacing().interact_size));
-                        //ui.spacing_mut().interact_size.y = 60.0;
-                        //egui::containers::ScrollArea::vertical()
-                        //    .id_source("train images")
-                        //    .show(ui, |ui| {
-                        //        ui.label(format!("available space {:?}", ui.available_size()));
-                        //        self.display_im_if_any(&self.train_texture, ui);
-                        //    });
-        
-                        egui::CollapsingHeader::new("train images")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                            self.display_im_if_any(&self.train_texture, ui);
-                        });
-    
-                        if let Some(_) = &self.train_texture {
-                            if ui.button("next train").clicked() {
-                                self.train_texture = None;
-                            }
-                        }
-                        if let Some(data) = &mut self.train_data {
-                            if ui.button("shuffle train").clicked() {
-                                data.shuffle();
-                            }
-                        }
-                        if ui.button("reset train").clicked() {
-                            self.train_data = None;
-                            self.train_texture = None;
-                        }
-                    });
-    
-                    ui.vertical(|ui| {
-                        //egui::containers::ScrollArea::vertical()
-                        //    .id_source("test images")
-                        //    .max_height(f32::INFINITY)
-                        //    .show(ui, |ui| {
-                        //        //display_im(&self.test_texture, ui);
-                        //        ui.collapsing("test images", |ui| {
-                        //            self.display_im_if_any(&self.test_texture, ui);
-                        //        });
-                        //    });
-                        egui::CollapsingHeader::new("test images")
-                            .default_open(true)
-                            .show(ui, |ui| {
+            egui::containers::panel::SidePanel::right("test images").show(ui.ctx(), |ui| {
+                ui.vertical(|ui| {
+                    egui::containers::ScrollArea::vertical()
+                        .id_source("train images")
+                        .show(ui, |ui| {
                             self.display_im_if_any(&self.test_texture, ui);
-                        });
-    
-                        if let Some(_) = &self.test_texture {
-                            if ui.button("next test").clicked() {
+                            if let Some(_) = &self.test_texture {
+                                if ui.button("next test").clicked() {
+                                    self.test_texture = None;
+                                }
+                            }
+                            if let Some(data) = &mut self.test_data {
+                                if ui.button("shuffle test").clicked() {
+                                    data.shuffle();
+                                }
+                            }
+                            if ui.button("reset test").clicked() {
+                                self.test_data = None;
                                 self.test_texture = None;
                             }
-                        }
-                        if let Some(data) = &mut self.test_data {
-                            if ui.button("shuffle test").clicked() {
-                                data.shuffle();
-                            }
-                        }
-                        if ui.button("reset test").clicked() {
-                            self.test_data = None;
-                            self.test_texture = None;
-                        }
-                    });
-                });
-    
-                ui.label("image scale");
-                ui.add(
-                    egui::Slider::new(&mut self.im_scale, 0.1..=10.0)
-                );
+                        });
+                    //egui::CollapsingHeader::new("test images")
+                    //    .default_open(true)
+                    //    .show(ui, |ui| {
+                    //    self.display_im_if_any(&self.test_texture, ui);
+                    //});
 
+                });
             });
+            
+            egui::containers::panel::SidePanel::right("train images").show(ui.ctx(), |ui| {
+                ui.vertical(|ui| {
+                    egui::containers::ScrollArea::vertical()
+                        .id_source("train images")
+                        .show(ui, |ui| {
+                            self.display_im_if_any(&self.train_texture, ui);
+                            if let Some(_) = &self.train_texture {
+                                if ui.button("next train").clicked() {
+                                    self.train_texture = None;
+                                }
+                            }
+                            if let Some(data) = &mut self.train_data {
+                                if ui.button("shuffle train").clicked() {
+                                    data.shuffle();
+                                }
+                            }
+                            if ui.button("reset train").clicked() {
+                                self.train_data = None;
+                                self.train_texture = None;
+                            }
+                        });
+    
+                    //egui::CollapsingHeader::new("train images")
+                    //    .default_open(true)
+                    //    .show(ui, |ui| {
+                    //    self.display_im_if_any(&self.train_texture, ui);
+                    //});
+
+                }); 
+            });
+    
+            ui.label("image scale");
+            ui.add(
+                egui::Slider::new(&mut self.im_scale, 0.1..=10.0)
+            );
+
         });
         
     }
