@@ -79,4 +79,3 @@ impl ComputeInstance {
         &mut (*compute) as *mut ComputeInstance
     }
 }
-

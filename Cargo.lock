@@ -1956,7 +1956,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "grownet"
+name = "grownet-models"
+version = "0.1.0"
+dependencies = [
+ "crossbeam",
+ "ndarray",
+ "ndarray-rand",
+ "num",
+ "rand",
+ "rand_distr",
+]
+
+[[package]]
+name = "grownet-ui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2467,18 +2479,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys",
-]
-
-[[package]]
-name = "models"
-version = "0.1.0"
-dependencies = [
- "crossbeam",
- "ndarray",
- "ndarray-rand",
- "num",
- "rand",
- "rand_distr",
 ]
 
 [[package]]

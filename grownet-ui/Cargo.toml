@@ -1,5 +1,5 @@
 [package]
-name = "grownet"
+name = "grownet-ui"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,7 +10,7 @@ name = "grownet_lib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "grownet"
+name = "grownet-ui"
 path = "src/main.rs"
 
 
