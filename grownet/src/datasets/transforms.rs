@@ -4,14 +4,13 @@ use std::marker::PhantomData;
 use bevy_egui::egui;
 
 use serde::{Serialize, de::DeserializeOwned, Deserialize};
-use dyn_clone::DynClone;
 use anyhow::{Result, Context};
 
 use crate::{Param, Config, UI};
 use super::ImageDataPoint;
 
 
-pub trait Transform: Param + DynClone {
+pub trait Transform: Param {
     type DataPoint;
     fn transform(&self, data: Self::DataPoint) -> Self::DataPoint;
 }

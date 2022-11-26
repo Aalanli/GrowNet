@@ -2,16 +2,26 @@ use std::marker::PhantomData;
 use std::alloc::{self, Layout};
 use std::ptr::{self, NonNull};
 
-/// Single threaded buffer holding a large number of various shaped tensors of different dimensions in
-/// contiguous memory
-struct TensorCtx<T, const N: usize> {
-    workbuf: *mut T,
-    ptr: NonNull<T>,
+use ndarray::prelude::*;
+
+/// Single threaded buffer holding a large number of tensors of the same dimension
+pub struct TensorCtx<T, const N: usize> {
+    workbuf: NonNull<T>, // temporary accumulator buffer
+    ptr: NonNull<T>, // buffer holding flattened tensors
     dims: *mut [usize; N],
     strides: *mut [usize; N],
     offsets: *mut usize,
     len: usize,
     alloc_elems: usize
+}
+
+impl<T, const N: usize> TensorCtx<T, N> {
+    fn alloc(ptr: NonNull<T>) {
+        
+    }
+    pub fn new() -> Self {
+        todo!()
+    }
 }
 
 fn transpose_slice<T: Copy, const N: usize>(

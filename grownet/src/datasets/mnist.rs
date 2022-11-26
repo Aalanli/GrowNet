@@ -209,17 +209,4 @@ mod test {
         let h = Array4::<f32>::ones((4, 3, 512, 512));
         let _p = h.slice(s![0, .., .., ..]);
     }
-    
-    #[test]
-    fn draw() {
-        
-        use plotters::prelude::*;
-        let mut backend = BitMapBackend::new("examples/outputs/2.png", (300, 200));
-        // And if we want SVG backend
-        // let backend = SVGBackend::new("output.svg", (800, 600));
-        //backend.open().unwrap();
-        backend.draw_rect((50,50), (200, 150), &RGBColor(255,0,0), true).unwrap();
-        //backend.close().unwarp();
-        backend.present().unwrap();
-    }
 }

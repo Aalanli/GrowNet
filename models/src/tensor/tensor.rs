@@ -8,9 +8,8 @@ use std::convert::From;
 
 use num::iter::Range;
 
-use super::index2::{self as ind, ConvertIndex, Index as TIndex, LinArr};
+use super::index::{self as ind, ConvertIndex, Index as TIndex, LinArr};
 use super::slice::{IndexBounds, TsSlices, Slicev2, Edge, S};
-use super::{Tensor, MutTensor};
 
 /////////////////////////////////////////////////////////////////////
 // The Tensor implementation which owns its datatypes, and is represented as a multidimensional array

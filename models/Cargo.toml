@@ -1,0 +1,23 @@
+[package]
+name = "models"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "model_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "models"
+path = "src/main.rs"
+
+
+[dependencies]
+num = "0.4"
+ndarray = "0.15.0"
+ndarray-rand = "0.14.0"
+rand = "0.8.5"
+rand_distr = "0.4.3"
+crossbeam = "0.8.2"
