@@ -20,7 +20,7 @@ rand = "0.8.5"
 ndarray-rand = "0.14.0"
 rand_distr = "0.4.3"
 
-bevy = { version = "0.8.1" }
+bevy = { version = "0.8.1", features = ["dynamic"] }
 bevy_egui = "0.16.1"
 bevy-inspector-egui = "0.12.1"
 bevy_stl = "0.6.0"

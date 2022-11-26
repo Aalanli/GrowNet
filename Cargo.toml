@@ -1,8 +1,8 @@
 [workspace]
 
 members = [
-    "grownet",
-    "models"
+    "grownet-ui",
+    "grownet-models"
 ]
 
 resolver = "2"
