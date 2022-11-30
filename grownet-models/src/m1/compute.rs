@@ -8,6 +8,7 @@ use ndarray_rand::{RandomExt, rand_distr::Normal, rand_distr::Uniform};
 use rand::{thread_rng};
 use rand_distr::Distribution;
 use super::GlobalParams;
+use crate::ops::Normalize;
 
 pub struct Relu {}
 
@@ -20,62 +21,86 @@ impl Relu {
     }
 }
 
-type Message = np::Array1<f32>;
-
-/// Each ComputeInstance represents the primary heavy computation
-/// performed by each node, this is the most computationally intensive
-/// part of a compute node
-pub struct ComputeInstance {
+pub struct Linear {
     w: np::Array2<f32>,
-    b: np::Array1<f32>,
+    b: np::Array2<f32>,
     act_fn: Relu,
     dw: np::Array2<f32>,
-    db: np::Array1<f32>,
+    db: np::Array2<f32>,
 }
 
-impl ComputeInstance {
-    pub fn new(dim: usize) -> ComputeInstance {
-        ComputeInstance {
+impl Linear {
+    pub fn new(dim: usize) -> Linear {
+        Linear {
             w:  np::Array::random((dim, dim), Normal::new(0.0, 1.0).unwrap()),
-            b:  np::Array::random((dim,), Uniform::new(-1.0, 1.0)),
+            b:  np::Array::zeros((1, dim)),
             dw: np::Array::zeros((dim,dim)),
-            db: np::Array::zeros((dim,)),
+            db: np::Array::zeros((1, dim)),
             act_fn: Relu{}
         }
     }
     
-    pub fn forward(&mut self, msg: &np::Array1<f32>) -> np::Array1<f32> {
+    pub fn forward(&mut self, msg: &np::Array2<f32>) -> np::Array2<f32> {
         // y = W*x + b
-        let mut y: np::Array<f32, np::Dim<[usize; 1]>> = self.w.dot(msg);
+        let mut y = msg.dot(&self.w);
         y += &self.b;
         // yhat = relu(y)
         y.mapv_inplace(|x| self.act_fn.forward(x));
         y
     }
 
-    pub fn backward(&mut self, grad_msg: &np::Array1<f32>, past_msg: &np::Array1<f32>) -> np::Array1<f32> {
-        let dy_dx: np::Array1<f32> = grad_msg.mapv(|x| self.act_fn.backward(x));
-        self.db += &dy_dx;
-        let past_msg = past_msg.view().insert_axis(Axis(0));
-        let dy_dx = dy_dx.view().insert_axis(Axis(1));
-        self.dw += &dy_dx.dot(&past_msg);
-        let dx_ds = self.dw.t().dot(&dy_dx).remove_axis(Axis(1));
+    pub fn backward(&mut self, grad_msg: &np::Array2<f32>, input_msg: &np::Array2<f32>) -> np::Array2<f32> {
+        let dy_dx = grad_msg.mapv(|x| self.act_fn.backward(x));
+        self.db += &dy_dx.sum_axis(np::Axis(0));
+        self.dw += &input_msg.t().dot(&dy_dx);
+        let dx_ds = dy_dx.dot(&self.w.t());
         dx_ds
     }
 
-    pub fn zero_grad(&mut self) {
-        self.dw.map_mut(|x| *x = 0.0);
-        self.db.map_mut(|x| *x = 0.0);
+    pub fn get_parms<'a, 'b: 'a>(&'b mut self, params: &'a mut Vec<(&'a mut np::Array2<f32>, &'a mut np::Array2<f32>)>) {
+        params.push((&mut self.w, &mut self.dw));
+        params.push((&mut self.b, &mut self.db));
+    }
+}
+
+struct Node {
+    linear: Linear,
+    accum_msg: np::Array2<f32>,
+    norm_msg: np::Array2<f32>,
+    norms: Vec<Normalize>
+}
+
+impl Node {
+    fn new(dim: usize) -> Self {
+        Self { linear: Linear::new(dim), accum_msg: np::Array2::zeros((1, dim)),
+            norm_msg: np::Array2::zeros((1, dim)), norms: Vec::new() }
+    }
+    fn accum(&mut self, msg: &np::Array2<f32>) {
+        if msg.dim() != self.accum_msg.dim() {
+            self.accum_msg = np::Array2::zeros(msg.dim());
+        }
+        self.accum_msg += msg;
     }
 
-    pub fn apply_grad(&mut self, params: &GlobalParams) {
-        self.w.zip_mut_with(&self.dw, |a, b| *a -= b * params.lr);
-        self.b.zip_mut_with(&self.db, |a, b| *a -= b * params.lr);
+    fn forward(&mut self) -> np::Array2<f32> {
+        let batch = self.accum_msg.dim().0;
+        while self.norms.len() < batch {
+            self.norms.push(Normalize::new());
+        }
+        self.linear.forward(&self.accum_msg)
     }
 
-    pub unsafe fn new_instance(dim: usize) -> *mut Self {
-        let compute = ComputeInstance::new(dim);
-        let mut compute = mem::ManuallyDrop::new(compute);
-        &mut (*compute) as *mut ComputeInstance
+    fn backward(&mut self, grad: &np::Array2<f32>) {
+        self.linear.backward(grad, &self.accum_msg);
     }
+}
+
+#[test]
+fn linear() {
+    let mut linear = Linear::new(16);
+    let input = np::Array2::zeros((14, 16));
+    let grad = np::Array2::ones((14, 16));
+    
+    let y = linear.forward(&input);
+    let dx = linear.backward(&grad, &y);
 }

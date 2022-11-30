@@ -1,13 +1,32 @@
 use std::marker::PhantomData;
 use std::alloc::{self, Layout};
+use std::ops::{Deref, DerefMut, AddAssign, Index, Add};
 use std::ptr::{self, NonNull};
 use std::mem;
 use std::num::Wrapping;
 use num::Float;
 use rand::{self, thread_rng};
 
-use ndarray::{prelude::*, Shape, StrideShape, ViewRepr, Data, LinalgScalar, linalg, RawData};
+use ndarray::{prelude::*, Shape, StrideShape, ViewRepr, Data, LinalgScalar, linalg, RawData, IndexLonger, ShapeError, ErrorKind};
 use rand_distr::{Normal, Distribution, StandardNormal};
+
+/// ParamId logically owns a particular Array in memory
+/// but it is only possible to get a reference to it via
+/// a reference to the parent allocator.
+/// TODO: obtain an unique id corresponding to each allocator, to avoid using the same
+///       ParamId on multiple allocators. (only for --debug profiles?)
+pub struct ParamId<Sh> {
+    idx: usize,
+    shape: Sh
+}
+
+/// VolatileId which is only valid for a single 'generation', before the parent
+/// allocator calls clear, and after its own allocation.
+/// Assumes that there will not be usize::MAX number of generations at once.
+pub struct VolatileId<Sh> {
+    id: ParamId<Sh>,
+    generation: Wrapping<usize>,
+}
 
 
 /// Allocates Arrays all packed contiguously, of the same dimension.
@@ -19,27 +38,25 @@ use rand_distr::{Normal, Distribution, StandardNormal};
 /// but it is possible to get a mutable reference from ParamMutRef, since it
 /// logically owns the data.
 /// We make it only possible to retrieve the data with a ParamId, since it logically
-/// owns the data, it cannot be clonable. We make it impossible to get two
-/// ParamMutRefs at the same time, as making a ParamMutRef consumes the only copy
-/// of ParamId. It is only possible to get that copy back by destroying/consuming
-/// a ParamMutRef.
-pub struct StaticAllocator<T, D> {
+/// owns the data, it cannot be clonable
+pub struct StaticAllocator<T> {
     ptr: NonNull<T>,
-    shapes: Vec<StrideShape<D>>,
     offsets: Vec<usize>,
     len: usize,
     cap: usize,
     _marker: PhantomData<T>
 }
 
-impl<T, D> StaticAllocator<T, D> {
+use ndarray::IntoDimension;
+
+
+impl<T> StaticAllocator<T> {
     pub fn new() -> Self {
         assert!(mem::size_of::<T>() != 0, "We're not ready to handle ZSTs");
         Self { 
             ptr: NonNull::dangling(), 
-            shapes: Vec::new(), 
             offsets: Vec::new(),
-            len: 0, cap: 0, 
+            len: 0, cap: 0,
             _marker: PhantomData 
         }
     }
@@ -59,17 +76,15 @@ impl<T, D> StaticAllocator<T, D> {
     pub fn slice_mut(&mut self) -> &mut [T] {
         unsafe { &mut *ptr::slice_from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
     }
-}
 
-impl<T, D: Dimension> StaticAllocator<T, D> {
     /// Reserves/allocates the block of memory specified by dim, returns
     /// the ParamId of that block, and a mutable slice of that specific block.
     /// This is mostly for later initialization schemes, which may
     /// want to specialize to to be a number type, so one can mutably
     /// initialize the memory from the slice.
     /// This function is unsafe, as it makes it possible to alias memory
-    unsafe fn alloc<Sh>(&mut self, dim: Sh) -> (ParamId, &mut [T])
-        where Sh: Into<StrideShape<D>> 
+    unsafe fn alloc<D, Sh>(&mut self, dim: Sh) -> (ParamId<StrideShape<D>>, &mut [T])
+        where D: Dimension, Sh: Into<StrideShape<D>> 
     {
         let shape: StrideShape<D> = dim.into();
         let elems = shape.size();
@@ -78,12 +93,11 @@ impl<T, D: Dimension> StaticAllocator<T, D> {
         }
         let id = self.offsets.len();
 
-        self.shapes.push(shape);
         self.offsets.push(self.len);
 
         self.len += elems;
 
-        let id = ParamId { idx: id };
+        let id = ParamId { idx: id, shape };
 
         let slice = unsafe {
             &mut *ptr::slice_from_raw_parts_mut(self.ptr.as_ptr().add(self.len - elems), elems)
@@ -94,8 +108,8 @@ impl<T, D: Dimension> StaticAllocator<T, D> {
 
     /// reserves an unitialized chunk of memory with specified dimension, produces an id
     /// denoting the location of that chunk
-    pub fn alloc_uninit<Sh>(&mut self, dim: Sh) -> ParamId
-        where Sh: Into<StrideShape<D>> 
+    pub fn alloc_uninit<D, Sh>(&mut self, dim: Sh) -> ParamId<StrideShape<D>>
+    where D: Dimension, Sh: Into<StrideShape<D>> 
     {
         let shape: StrideShape<D> = dim.into();
         let elems = shape.size();
@@ -104,56 +118,38 @@ impl<T, D: Dimension> StaticAllocator<T, D> {
         }
         let id = self.offsets.len();
 
-        self.shapes.push(shape);
         self.offsets.push(self.len);
 
         self.len += elems;
 
-        ParamId { idx: id }
+        ParamId { idx: id, shape }
     }
 
     /// gets a view of the internal array from the id
-    pub fn get(&self, id: &ParamId) -> ArrayView<'_, T, D> {
+    pub fn get<'a, D: Dimension>(&self, id: &'a ParamId<StrideShape<D>>) -> ArrayView<'a, T, D> {
         unsafe {
             let ptr = self.ptr.as_ptr().add(self.offsets[id.idx]);
-            ArrayView::from_shape_ptr(self.shapes[id.idx].clone(), ptr as *const T)
+            let view = ArrayView::from_shape_ptr(id.shape.clone(), ptr as *const T);
+            view
         }
     }
 
     /// the mutable version of get, but consumes the id ensuring that
     /// there is only one mutable reference
-    pub fn get_mut(&self, id: ParamId) -> ParamMutRef<'_, T, D> {
+    pub fn get_mut<'a, D: Dimension>(&self, id: &'a mut ParamId<StrideShape<D>>) -> ArrayViewMut<'a, T, D> {
         unsafe {
             let ptr = self.ptr.as_ptr().add(self.offsets[id.idx]);
-            let view = ArrayViewMut::from_shape_ptr(self.shapes[id.idx].clone(), ptr);
-            ParamMutRef { id, view }
+            let view = ArrayViewMut::from_shape_ptr(id.shape.clone(), ptr);
+            view
         }
     }
 
-    /// This is especially useful for computing statistics of internal arrays
-    pub fn iter(&self) -> impl Iterator<Item = ArrayView<'_, T, D>> {
-        (0..self.shapes.len()).map(|x| {
-            let id = ParamId { idx: x };
-            self.get(&id)
-        })
-    }
-
-    /// this seems like it would violate the contract of ParamId, but there is a 
-    /// subtle difference between actually owning the data, and what ParamId does, since
-    /// ParamId can only get the data it 'owns' with a reference to this allocator.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = ArrayViewMut<'_, T, D>> {
-        (0..self.shapes.len()).map(|x| {
-            unsafe {
-                let ptr = self.ptr.as_ptr().add(self.offsets[x]);
-                let view = ArrayViewMut::from_shape_ptr(self.shapes[x].clone(), ptr);
-                view
-            }
-        })
-    }
+    
 }
 
-impl<T: Clone, D: Dimension> StaticAllocator<T, D> {
-    pub fn alloc_fn<Sh>(&mut self, dim: Sh, mut f: impl FnMut() -> T) -> ParamId
+
+impl<T: Clone> StaticAllocator<T> {
+    pub fn alloc_fn<D: Dimension, Sh>(&mut self, dim: Sh, mut f: impl FnMut() -> T) -> ParamId<StrideShape<D>>
         where Sh: Into<StrideShape<D>> {
         let (id, slice) = unsafe{ self.alloc(dim) };
         slice.iter_mut().for_each(|x| {
@@ -161,12 +157,23 @@ impl<T: Clone, D: Dimension> StaticAllocator<T, D> {
         });
         id
     }
+    pub fn store<'a, D: Dimension>(&mut self, arr: &ArrayView<'a, T, D>) -> ParamId<StrideShape<D>> {
+        let mut id = self.alloc_uninit(arr.dim());
+        let mut new_arr = self.get_mut(&mut id);
+        new_arr.zip_mut_with(arr, |a, b| {
+            *a = b.clone();
+        });
+
+        id
+    }
 }
 
-impl<T, D: Dimension> StaticAllocator<T, D> 
+use ndarray::DimMax;
+
+impl<T> StaticAllocator<T> 
 where T: Float, StandardNormal: Distribution<T> {
-    pub fn alloc_rand<Sh>(&mut self, dim: Sh, mu: T, sigma: T) -> ParamId
-        where Sh: Into<StrideShape<D>> {
+    pub fn alloc_rand<D, Sh>(&mut self, dim: Sh, mu: T, sigma: T) -> ParamId<StrideShape<D>>
+        where D: Dimension, Sh: Into<StrideShape<D>> {
         let (id, slice) = unsafe{ self.alloc(dim) };
         let mut rng = thread_rng();
         let normal = Normal::new(mu, sigma).unwrap();
@@ -176,8 +183,8 @@ where T: Float, StandardNormal: Distribution<T> {
         id
     }
 
-    pub fn alloc_randn<Sh>(&mut self, dim: Sh) -> ParamId
-        where Sh: Into<StrideShape<D>> {
+    pub fn alloc_randn<D, Sh>(&mut self, dim: Sh) -> ParamId<StrideShape<D>>
+        where D: Dimension, Sh: Into<StrideShape<D>> {
         let (id, slice) = unsafe{ self.alloc(dim) };
         let mut rng = thread_rng();
         let normal = Normal::new(T::zero(), T::one()).unwrap();
@@ -186,43 +193,35 @@ where T: Float, StandardNormal: Distribution<T> {
         });
         id
     }
+    
+    pub fn binop<D1, D2>(&mut self, a: &ParamId<StrideShape<D1>>, b: &ParamId<StrideShape<D2>>) 
+    where D1: Dimension, D2: Dimension + DimMax<D1> {
+        let a_len = a.shape.size();
+        let b_len = b.shape.size();
+
+        let dim3 = broadcast(a.shape.raw_dim(), b.shape.raw_dim()).unwrap();
+        let c = Array::<f32, _>::zeros(dim3);
+        let a = self.get(a);
+        let b = self.get(b);
+
+        if a_len > b_len {
+
+        }
+    }
 }
 
-impl<T, D> Drop for StaticAllocator<T, D> {
+impl<T> Drop for StaticAllocator<T> {
     fn drop(&mut self) {
         unsafe{ free(&mut self.ptr, self.cap); }
     }
 }
 
-impl<T, D> Default for StaticAllocator<T, D> {
+impl<T> Default for StaticAllocator<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// ParamId logically owns a particular Array in memory
-/// but it is only possible to get a reference to it via
-/// a reference to the parent allocator.
-/// TODO: obtain an unique id corresponding to each allocator, to avoid using the same
-///       ParamId on multiple allocators. (only for --debug profiles?)
-pub struct ParamId {
-    idx: usize
-}
-
-pub struct ParamMutRef<'a, T, D> {
-    id: ParamId,
-    view: ArrayViewMut<'a, T, D>
-}
-
-impl<'a, T, D> ParamMutRef<'a, T, D> {
-    fn get(&mut self) -> &mut ArrayViewMut<'a, T, D> {
-        &mut self.view
-    }
-
-    fn id(self) -> ParamId {
-        self.id
-    }
-}
 
 
 /// Single threaded buffer holding a large number of tensors of the same dimension.
@@ -231,14 +230,14 @@ impl<'a, T, D> ParamMutRef<'a, T, D> {
 /// This is used to store intermediate calculations in a single forward and backward pass,
 /// which does not need to be retained across training steps.
 /// TODO: Disable runtime check for generation correctness for release profile.
-pub struct VolatileAllocator<T, D> {
-    data: StaticAllocator<T, D>,
+pub struct VolatileAllocator<T> {
+    data: StaticAllocator<T>,
     global_generation: Wrapping<usize>
 }
 
-impl<T, D> VolatileAllocator<T, D> {
+impl<T> VolatileAllocator<T> {
     pub fn new() -> Self {
-        Self { data: StaticAllocator::<T, D>::new(), global_generation: Wrapping(0) }
+        Self { data: StaticAllocator::<T>::new(), global_generation: Wrapping(0) }
     }
 
     fn grow(&mut self, size: usize) {
@@ -247,19 +246,16 @@ impl<T, D> VolatileAllocator<T, D> {
 
 }
 
-impl<T, D: Dimension> VolatileAllocator<T, D> {
-    pub fn alloc_uninit<Sh>(&self, dim: Sh) -> VolatileId
-        where Sh: Into<StrideShape<D>> 
+impl<T> VolatileAllocator<T> {
+    pub fn alloc_uninit<D, Sh>(&mut self, dim: Sh) -> VolatileId<StrideShape<D>>
+        where D: Dimension, Sh: Into<StrideShape<D>> 
     {
-        let id = unsafe {
-            let ptr = &self.data as *const StaticAllocator<T, D> as *mut StaticAllocator<T, D>;
-            (*ptr).alloc_uninit(dim)
-        };
+        let id = self.data.alloc_uninit(dim);
         VolatileId { id, generation: self.global_generation }
     }
 
     /// gets a view of the internal array 
-    pub fn get(&self, id: &VolatileId) -> Option<ArrayView<'_, T, D>> {
+    pub fn get<'a, D: Dimension>(&self, id: &'a VolatileId<StrideShape<D>>) -> Option<ArrayView<'a, T, D>> {
         if id.generation != self.global_generation {
             None
         } else {
@@ -267,141 +263,275 @@ impl<T, D: Dimension> VolatileAllocator<T, D> {
         }
     }
 
-    pub fn get_mut(&self, id: VolatileId) -> Option<VolatileMutRef<'_, T, D>> {
+    pub fn get_mut<'a, D: Dimension>(&self, id: &'a mut VolatileId<StrideShape<D>>) -> Option<ArrayViewMut<'a, T, D>> {
         if id.generation != self.global_generation {
             return None;
         }
-        let view = self.data.get_mut(id.id);
-        Some(VolatileMutRef {generation: self.global_generation, view})
+        let view = self.data.get_mut(&mut id.id);
+        Some(view)
     }
 
     pub fn clear(&mut self) {
         self.global_generation += 1;
         self.data.len = 0;
-        self.data.shapes.clear();
         self.data.offsets.clear();
     }
 }
 
-impl<T> VolatileAllocator<T, Ix2> 
-where T: LinalgScalar {
-    /// matmuls a and b, stores the result, referenced to by the return value
-    pub fn mat(&mut self, a: &VolatileId, b: &VolatileId) -> Option<VolatileId> {
-        let a = self.get(a)?;
-        let b = self.get(b)?;
-        let adim = a.dim();
-        let bdim = b.dim();
-        let cdim = [adim.0, bdim.1];
-        let c_id = self.alloc_uninit(cdim);
-        let mut c = self.get_mut(c_id)?;
-        let data = c.get();
-        linalg::general_mat_mul(T::one(), &a, &b, T::zero(), data);
 
-        Some(c.id())
-    }
-
-    /// matmuls a and b, stores the result, referenced to by the return value
-    pub fn mat_arr(&self, a: &ArrayView<'_, T, Ix2>, b: &ArrayView<'_, T, Ix2>) -> VolatileId {
-        let adim = a.dim();
-        let bdim = b.dim();
-        let cdim = [adim.0, bdim.1];
-        let c_id = self.alloc_uninit(cdim);
-        let mut c = self.get_mut(c_id).unwrap();
-        let data = c.get();
-        linalg::general_mat_mul(T::one(), &a, &b, T::zero(), data);
-
-        c.id()
-    }
-    
-    pub fn bin_op<F>(&mut self, a: &VolatileId, b: &VolatileId, mut f: F) -> Option<VolatileId> 
-    where F: FnMut(&mut ArrayViewMut<'_, T, Ix2>, &ArrayView<'_, T, Ix2>, &ArrayView<'_, T, Ix2>) {
-        let a = self.get(a)?;
-        let b = self.get(b)?;
-        if a.dim() != b.dim() {
-            return None;
-        }
-        let c_id = self.alloc_uninit(a.dim());
-        let mut c = self.get_mut(c_id)?;
-        {
-            let view = c.get();
-            f(view, &a, &b)
-        }
-        Some(c.id())
-    }
-
-    pub fn add(&mut self, a: &VolatileId, b: &VolatileId) -> Option<VolatileId> {
-        self.bin_op(a, b, |c, a, b| {
-            c.iter_mut().zip(a.iter()).zip(b.iter()).for_each(|((c, a), b)| {
-                *c = *a + *b;
-            });
-        })
-    }
-}
-
-impl<T, D> Default for VolatileAllocator<T, D> {
+impl<T> Default for VolatileAllocator<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// VolatileId which is only valid for a single 'generation', before the parent
-/// allocator calls clear, and after its own allocation.
-/// Assumes that there will not be usize::MAX number of generations at once.
-pub struct VolatileId {
-    id: ParamId,
-    generation: Wrapping<usize>,
-}
-
-pub struct VolatileMutRef<'a, T, D> {
-    generation: Wrapping<usize>,
-    view: ParamMutRef<'a, T, D>
-}
-
-impl<'a, T, D: Dimension> VolatileMutRef<'a, T, D> {
-    fn get(&mut self) -> &mut ArrayViewMut<'a, T, D> {
-        self.view.get()
-    }
-
-    fn id(self) -> VolatileId {
-        VolatileId { generation: self.generation, id: self.view.id() }
-    }
-}
-
 
 #[derive(Default)]
-pub struct ModelAllocatorV1 {
-    params: StaticAllocator<f32, Ix2>,
-    grads:  StaticAllocator<f32, Ix2>,
-    temp_vars: VolatileAllocator<f32, Ix2>
+pub struct ModelAllocatorV1<T> {
+    params: StaticAllocator<T>,
+    temp_vars: VolatileAllocator<T>
 }
 
-impl ModelAllocatorV1 {
-    pub fn alloc_randn(&mut self, dim: [usize; 2]) -> (ParamId, ParamId) {
-        let param = self.params.alloc_randn(dim);
-        let grad = self.grads.alloc_fn(dim, || 0.0);
-        (param, grad)
+impl<T: Float + LinalgScalar> ModelAllocatorV1<T> {
+
+}
+
+
+
+#[test]
+fn test_static_alloc() {
+    let mut alloc = StaticAllocator::<f32>::new();
+    let mut a = alloc.alloc_randn([1, 4]);
+    let mut b = alloc.alloc_randn([4, 4]);
+
+    let c = alloc.get(&a);
+    let mut d = alloc.get_mut(&mut b);
+    
+    let j = c.broadcast([4, 4]).unwrap();
+    
+    assert!(j.shape() == d.shape() && d.ndim() == j.ndim());
+    //println!("c {}, e {}", *c.0, *e.0);
+    
+}
+
+use std::iter::IntoIterator;
+#[inline(always)]
+pub fn from_kind(k: ErrorKind) -> ShapeError {
+    ShapeError::from_kind(k)
+}
+pub fn co_broadcast<D1, D2, Output>(shape1: &D1, shape2: &D2) -> Result<Output, ShapeError>
+where
+    D1: Dimension,
+    D2: Dimension,
+    Output: Dimension,
+{
+    let (k, overflow) = shape1.ndim().overflowing_sub(shape2.ndim());
+    // Swap the order if d2 is longer.
+    if overflow {
+        return co_broadcast::<D2, D1, Output>(shape2, shape1);
+    }
+    // The output should be the same length as shape1.
+    let mut out = Output::zeros(shape1.ndim());
+    for (out, s) in out.slice_mut().iter_mut().zip(shape1.slice().iter()) {
+        *out = *s;
+    }
+    let h = out.slice_mut();
+    let it = IntoIterator::into_iter(h);
+    for (out, s2) in it.zip(shape2.slice()) {
+        if *out != *s2 {
+            if *out == 1 {
+                *out = *s2
+            } else if *s2 != 1 {
+                return Err(from_kind(ErrorKind::IncompatibleShape));
+            }
+        }
+    }
+    Ok(out)
+}
+
+pub fn broadcast<D1, D2>(shape1: &D1, shape2: &D2) -> Result<<D2 as DimMax<D1>>::Output, ShapeError>
+where
+    D1: Dimension,
+    D2: Dimension + DimMax<D1>,
+    //<D2 as DimMax<D1>>::Output: Into<StrideShape<<D2 as DimMax<D1>>::Output>>
+{
+    co_broadcast::<D1, D2, <D2 as DimMax<D1>>::Output>(shape1, shape2)
+}
+
+#[test]
+fn test_broadcast() {
+    let a1 = [1usize, 5, 1];
+    let a2 = [4usize, 1, 1, 2];
+    let h1: Ix3 = a1.into_dimension();
+    let h2 = a2.into_dimension();
+
+    let h3 = broadcast(&h1, &h2).unwrap();
+
+    println!("{:?}", h3);
+}
+
+/// Simple parameter allocator, mainly used for collecting gradients
+/// does not enforce memory safety or the rust memory model
+pub struct ParamAllocator<T> {
+    ptr: NonNull<T>,
+    len: usize,
+    cap: usize,
+    _marker: PhantomData<T>
+}
+
+impl<T> ParamAllocator<T> {
+    pub fn new() -> Self {
+        assert!(mem::size_of::<T>() != 0, "We're not ready to handle ZSTs");
+        Self { 
+            ptr: NonNull::dangling(), 
+            len: 0, cap: 0,
+            _marker: PhantomData 
+        }
+    }
+    /// grows the internal storage in addition to the size that it has
+    pub fn grow(&mut self, size: usize) {
+        grow::<T>(size, &mut self.ptr, &mut self.cap);
+    }
+
+    /// current number of elements allocated, useful for future mass allocation/reservation
+    pub fn capacity(&self) -> usize { self.cap }
+
+    /// Gets a linear slice to the entire block of memory that is allocated
+    pub fn slice(&self) -> &[T] {
+        unsafe { &*ptr::slice_from_raw_parts(self.ptr.as_ptr(), self.len) }
+    }
+
+    pub fn slice_mut(&mut self) -> &mut [T] {
+        unsafe { &mut *ptr::slice_from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+    }
+
+    fn alloc(&mut self, elems: usize) -> &mut [T] {
+        if elems + self.len >= self.cap {
+            self.grow(elems + self.len - self.cap);
+        }
+
+        let slice = unsafe { &mut *ptr::slice_from_raw_parts_mut(self.ptr.as_ptr().add(self.len), elems) };
+        self.len += elems;
+        slice
+    }
+
+    /// reserves an unitialized chunk of memory with specified dimension, produces an id
+    /// denoting the location of that chunk
+    pub fn alloc_uninit<D, Sh>(&mut self, dim: Sh) -> OwnedParam<T, D>
+        where D: Dimension, Sh: Into<StrideShape<D>>
+    {
+        let shape: StrideShape<D> = dim.into();
+        let elems = shape.size();
+        if elems + self.len >= self.cap {
+            self.grow(elems + self.len - self.cap);
+        }
+        let new_ptr = unsafe {
+            NonNull::new(self.ptr.as_ptr().add(self.len)).unwrap()
+        };
+
+        let param = OwnedParam { ptr: new_ptr, shape: shape };
+        self.len += elems;
+        param
     }
 }
 
+impl<T: Clone> ParamAllocator<T> {
+    pub fn alloc_fn<D, Sh>(&mut self, dim: Sh, mut f: impl FnMut() -> T) -> OwnedParam<T, D>
+        where D: Dimension, Sh: Into<StrideShape<D>> {
+        
+        let shape: StrideShape<D> = dim.into();
+        let slice = self.alloc(shape.size());
+        slice.iter_mut().for_each(|x| {
+            *x = f()
+        });
 
-pub struct Linear {
-    w: ParamId,
-    b: ParamId,
-    dw: ParamId,
-    db: ParamId,
+        OwnedParam { ptr: NonNull::new(slice.as_mut_ptr()).unwrap(), shape: shape }
+    }
 }
 
+impl<T> ParamAllocator<T> 
+where T: Float, StandardNormal: Distribution<T> {
+    pub fn alloc_rand<D, Sh>(&mut self, dim: Sh, mu: T, sigma: T) -> OwnedParam<T, D>
+        where D: Dimension, Sh: Into<StrideShape<D>> {
+        let mut rng = thread_rng();
+        let normal = Normal::new(mu, sigma).unwrap();
+
+        self.alloc_fn(dim, || {
+            normal.sample(&mut rng)
+        })
+    }
+
+    pub fn alloc_randn<D, Sh>(&mut self, dim: Sh) -> OwnedParam<T, D>
+        where D: Dimension, Sh: Into<StrideShape<D>> {
+        self.alloc_rand(dim, T::zero(), T::one())
+    }
+}
+
+impl<T> Drop for ParamAllocator<T> {
+    fn drop(&mut self) {
+        unsafe{ free(&mut self.ptr, self.cap); }
+    }
+}
+
+impl<T> Default for ParamAllocator<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct OwnedParam<T, D> {
+    ptr: NonNull<T>,
+    shape: StrideShape<D>
+}
+
+impl<T, D: Dimension> OwnedParam<T, D> {
+    fn get(&self) -> ArrayView<'_, T, D> {
+        unsafe{ ArrayView::from_shape_ptr(self.shape.clone(), self.ptr.as_ptr()) }
+    }
+    fn get_mut(&mut self) -> ArrayViewMut<'_, T, D> {
+        unsafe{ ArrayViewMut::from_shape_ptr(self.shape.clone(), self.ptr.as_ptr()) }
+    }
+}
+
+impl<T: Float, D: Dimension> OwnedParam<T, D> {
+    fn zero(&mut self) {
+        for i in 0..self.shape.size() {
+            unsafe {
+                *self.ptr.as_ptr().add(i) = T::zero();
+            }
+        }
+    }
+}
+
+struct ModelAllocator {
+    params: ParamAllocator<f32>,
+    grads: ParamAllocator<f32>
+}
+
+impl ModelAllocator {
+    fn alloc_randn<D, Sh>(&mut self, dim: Sh) -> (OwnedParam<f32, D>, OwnedParam<f32, D>)
+    where D: Dimension, Sh: Into<StrideShape<D>> + Clone {
+        (self.params.alloc_randn(dim.clone()), self.grads.alloc_fn(dim, || 0.0))
+    }
+}
+
+pub struct Linear {
+    w: OwnedParam<f32, Ix2>,
+    b: OwnedParam<f32, Ix2>,
+    dw: OwnedParam<f32, Ix2>,
+    db: OwnedParam<f32, Ix2>,
+}
+
+
 impl Linear {
-    fn init(allocator: &mut ModelAllocatorV1, dim: usize) -> Self {
+    fn init(allocator: &mut ModelAllocator, dim: usize) -> Self {
         let (w, dw) = allocator.alloc_randn([dim, dim]);
         let (b, db) = allocator.alloc_randn([1, dim]);
         Self { w, b, dw, db }
     }
 
-    pub fn forward(&self, allocator: &mut ModelAllocatorV1, data: VolatileId) -> VolatileId {
-        let w = allocator.params.get(&self.w);
-        let data = allocator.temp_vars.get(&data).unwrap();
-        let ty = allocator.temp_vars.mat_arr(&w, &data);
+    pub fn forward(&self, data: Array2<f32>) -> Array2<f32> {
+        
         todo!()
     }
 }
@@ -524,6 +654,7 @@ fn normalize_grad() {
     println!("backward pass {}", dy_dx);
 }
 
+/*
 #[test]
 fn parameter_alloc_test() {
     let mut params = StaticAllocator::<f32, Ix2>::new();
@@ -548,4 +679,4 @@ fn volatile_matmul_test() {
     println!("generation {}, result_shape {:?}", c.generation, volatile.get(&c).unwrap().shape());
     println!("a \n{}", volatile.get(&a).unwrap());
 }
-
+*/
