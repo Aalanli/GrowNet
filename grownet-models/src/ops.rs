@@ -314,6 +314,15 @@ fn test_static_alloc() {
     
 }
 
+#[test]
+fn broadcast_matmul_test() {
+    let a = Array::<f32, _>::ones([12, 5]);
+    let b = Array::<f32, _>::ones([5, 24]);
+
+    let c = a.dot(&b);
+    println!("{:?}", c.dim());
+}
+
 use std::iter::IntoIterator;
 #[inline(always)]
 pub fn from_kind(k: ErrorKind) -> ShapeError {
