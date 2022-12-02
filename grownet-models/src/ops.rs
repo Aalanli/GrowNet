@@ -1,13 +1,15 @@
+use std::fmt::{Display, Debug};
 use std::marker::PhantomData;
 use std::alloc::{self, Layout};
 use std::ops::{Deref, DerefMut, AddAssign, Index, Add};
 use std::ptr::{self, NonNull};
 use std::mem;
 use std::num::Wrapping;
+use ndarray::linalg::general_mat_mul;
 use num::Float;
 use rand::{self, thread_rng};
 
-use ndarray::{prelude::*, Shape, StrideShape, ViewRepr, Data, LinalgScalar, linalg, RawData, IndexLonger, ShapeError, ErrorKind};
+use ndarray::{prelude::*, IntoDimension, DimMax, Shape, StrideShape, ViewRepr, Data, LinalgScalar, linalg, RawData, IndexLonger, ShapeError, ErrorKind};
 use rand_distr::{Normal, Distribution, StandardNormal};
 
 /// ParamId logically owns a particular Array in memory
@@ -15,6 +17,7 @@ use rand_distr::{Normal, Distribution, StandardNormal};
 /// a reference to the parent allocator.
 /// TODO: obtain an unique id corresponding to each allocator, to avoid using the same
 ///       ParamId on multiple allocators. (only for --debug profiles?)
+#[derive(Debug)]
 pub struct ParamId<Sh> {
     idx: usize,
     shape: Sh
@@ -23,6 +26,7 @@ pub struct ParamId<Sh> {
 /// VolatileId which is only valid for a single 'generation', before the parent
 /// allocator calls clear, and after its own allocation.
 /// Assumes that there will not be usize::MAX number of generations at once.
+#[derive(Debug)]
 pub struct VolatileId<Sh> {
     id: ParamId<Sh>,
     generation: Wrapping<usize>,
@@ -47,8 +51,6 @@ pub struct StaticAllocator<T> {
     _marker: PhantomData<T>
 }
 
-use ndarray::IntoDimension;
-
 
 impl<T> StaticAllocator<T> {
     pub fn new() -> Self {
@@ -62,7 +64,8 @@ impl<T> StaticAllocator<T> {
     }
     /// grows the internal storage in addition to the size that it has
     pub fn grow(&mut self, size: usize) {
-        grow::<T>(size, &mut self.ptr, &mut self.cap);
+        self.ptr = grow::<T>(size, self.ptr, self.cap);
+        self.cap += size;
     }
 
     /// current number of elements allocated, useful for future mass allocation/reservation
@@ -83,7 +86,7 @@ impl<T> StaticAllocator<T> {
     /// want to specialize to to be a number type, so one can mutably
     /// initialize the memory from the slice.
     /// This function is unsafe, as it makes it possible to alias memory
-    unsafe fn alloc<D, Sh>(&mut self, dim: Sh) -> (ParamId<StrideShape<D>>, &mut [T])
+    unsafe fn alloc<D, Sh>(&mut self, dim: Sh) -> (ParamId<StrideShape<D>>, & mut [T])
         where D: Dimension, Sh: Into<StrideShape<D>> 
     {
         let shape: StrideShape<D> = dim.into();
@@ -126,26 +129,28 @@ impl<T> StaticAllocator<T> {
     }
 
     /// gets a view of the internal array from the id
-    pub fn get<'a, D: Dimension>(&self, id: &'a ParamId<StrideShape<D>>) -> ArrayView<'a, T, D> {
+    pub unsafe fn get<'a, D: Dimension>(&self, id: &'a ParamId<StrideShape<D>>) -> ArrayView<'a, T, D> {
         unsafe {
             let ptr = self.ptr.as_ptr().add(self.offsets[id.idx]);
-            let view = ArrayView::from_shape_ptr(id.shape.clone(), ptr as *const T);
+            let view = ArrayView::from_shape_ptr(id.shape.raw_dim().clone(), ptr as *const T);
             view
         }
     }
 
     /// the mutable version of get, but consumes the id ensuring that
     /// there is only one mutable reference
-    pub fn get_mut<'a, D: Dimension>(&self, id: &'a mut ParamId<StrideShape<D>>) -> ArrayViewMut<'a, T, D> {
+    pub unsafe fn get_mut<'a, D: Dimension>(&self, id: &'a mut ParamId<StrideShape<D>>) -> ArrayViewMut<'a, T, D> {
         unsafe {
             let ptr = self.ptr.as_ptr().add(self.offsets[id.idx]);
-            let view = ArrayViewMut::from_shape_ptr(id.shape.clone(), ptr);
+            let view = ArrayViewMut::from_shape_ptr(id.shape.raw_dim().clone(), ptr);
             view
         }
     }
 
+
     
 }
+
 
 
 impl<T: Clone> StaticAllocator<T> {
@@ -168,10 +173,8 @@ impl<T: Clone> StaticAllocator<T> {
     }
 }
 
-use ndarray::DimMax;
-
 impl<T> StaticAllocator<T> 
-where T: Float, StandardNormal: Distribution<T> {
+where T: Float + Debug, StandardNormal: Distribution<T> {
     pub fn alloc_rand<D, Sh>(&mut self, dim: Sh, mu: T, sigma: T) -> ParamId<StrideShape<D>>
         where D: Dimension, Sh: Into<StrideShape<D>> {
         let (id, slice) = unsafe{ self.alloc(dim) };
@@ -194,19 +197,57 @@ where T: Float, StandardNormal: Distribution<T> {
         id
     }
     
-    pub fn binop<D1, D2>(&mut self, a: &ParamId<StrideShape<D1>>, b: &ParamId<StrideShape<D2>>) 
+    pub fn binop<D1, D2>(&mut self, a: &ParamId<StrideShape<D1>>, b: &ParamId<StrideShape<D2>>, mut f: impl FnMut(T, T) -> T) 
+        -> ParamId<StrideShape<<D2 as DimMax<D1>>::Output>>
     where D1: Dimension, D2: Dimension + DimMax<D1> {
-        let a_len = a.shape.size();
-        let b_len = b.shape.size();
-
         let dim3 = broadcast(a.shape.raw_dim(), b.shape.raw_dim()).unwrap();
-        let c = Array::<f32, _>::zeros(dim3);
+        let mut c_id = unsafe{ self.alloc_uninit(dim3.clone()) };
+
+        let mut c = self.get_mut(&mut c_id);
         let a = self.get(a);
         let b = self.get(b);
 
-        if a_len > b_len {
+        let mut itercount = 0;
+        
+        c.iter_mut().zip(a.iter()).zip(b.iter()).for_each(|((a, b), c)| {*a = f(*b, *c); itercount += 1;});
+        
+        c_id
+    }
+}
 
-        }
+#[test]
+fn test_binops() {
+    let mut alloc = StaticAllocator::<f32>::new();
+    let a = alloc.alloc_randn([4, 4]);
+    let b = alloc.alloc_randn([4, 4]);
+    
+    let c_id = alloc.binop(&a, &b, |a, b| a + b);
+    let a0 = alloc.get(&a).to_owned();
+    let b0 = alloc.get(&b).to_owned();
+    let c = alloc.get(&c_id);
+    let c0 = &a0 + &b0;
+    let c1 = &alloc.get(&a) + &alloc.get(&b);
+
+
+    let err1 = (&c - &c0).fold(-f32::MAX, |a, acc| a.max((*acc).abs()));
+    let err2 = (&c - &c1).fold(-f32::MAX, |a, acc| a.max((*acc).abs()));
+    let err3 = (&c0 - &c1).fold(-f32::MAX, |a, acc| a.max((*acc).abs()));
+    
+    println!("max error {}", err1);
+    println!("max error {}", err2);
+    println!("max error {}", err3);
+}
+
+
+impl<T: LinalgScalar> StaticAllocator<T> {
+    pub fn matmul(&mut self, a: &ParamId<StrideShape<Ix2>>, b: &ParamId<StrideShape<Ix2>>) {
+        let sh_a = a.shape.raw_dim()[0];
+        let sh_b = b.shape.raw_dim()[1];
+        let a = self.get(a);
+        let b = self.get(b);
+        let mut c_id = self.alloc_uninit([sh_a, sh_b]);
+        let mut c = self.get_mut(&mut c_id);
+        general_mat_mul(T::one(), &a, &b, T::zero(), &mut c);
     }
 }
 
@@ -292,36 +333,6 @@ pub struct ModelAllocatorV1<T> {
     temp_vars: VolatileAllocator<T>
 }
 
-impl<T: Float + LinalgScalar> ModelAllocatorV1<T> {
-
-}
-
-
-
-#[test]
-fn test_static_alloc() {
-    let mut alloc = StaticAllocator::<f32>::new();
-    let mut a = alloc.alloc_randn([1, 4]);
-    let mut b = alloc.alloc_randn([4, 4]);
-
-    let c = alloc.get(&a);
-    let mut d = alloc.get_mut(&mut b);
-    
-    let j = c.broadcast([4, 4]).unwrap();
-    
-    assert!(j.shape() == d.shape() && d.ndim() == j.ndim());
-    //println!("c {}, e {}", *c.0, *e.0);
-    
-}
-
-#[test]
-fn broadcast_matmul_test() {
-    let a = Array::<f32, _>::ones([12, 5]);
-    let b = Array::<f32, _>::ones([5, 24]);
-
-    let c = a.dot(&b);
-    println!("{:?}", c.dim());
-}
 
 use std::iter::IntoIterator;
 #[inline(always)]
@@ -334,7 +345,7 @@ where
     D2: Dimension,
     Output: Dimension,
 {
-    let (k, overflow) = shape1.ndim().overflowing_sub(shape2.ndim());
+    let (_k, overflow) = shape1.ndim().overflowing_sub(shape2.ndim());
     // Swap the order if d2 is longer.
     if overflow {
         return co_broadcast::<D2, D1, Output>(shape2, shape1);
@@ -399,7 +410,8 @@ impl<T> ParamAllocator<T> {
     }
     /// grows the internal storage in addition to the size that it has
     pub fn grow(&mut self, size: usize) {
-        grow::<T>(size, &mut self.ptr, &mut self.cap);
+        self.ptr = grow::<T>(size, self.ptr, self.cap);
+        self.cap += size;
     }
 
     /// current number of elements allocated, useful for future mass allocation/reservation
@@ -604,30 +616,29 @@ impl Normalize {
 
 /// grows the specified pointer by size, to cap + size
 /// mutably sets the pointer to the new allocated pointer, and cap to the new cap
-fn grow<T>(size: usize, ptr: &mut NonNull<T>, cap: &mut usize) {
-    let (new_cap, new_layout) = if *cap == 0 {
+fn grow<T>(size: usize, ptr: NonNull<T>, cap: usize) -> NonNull<T> {
+    let (_new_cap, new_layout) = if cap == 0 {
         (size, Layout::array::<T>(size).unwrap())
     } else {
-        let new_cap = *cap + size;
+        let new_cap = cap + size;
         let new_layout = Layout::array::<T>(new_cap).unwrap();
         (new_cap, new_layout)
     };
 
     assert!(new_layout.size() <= isize::MAX as usize, "Allocation too large");
 
-    let new_ptr = if *cap == 0 {
+    let new_ptr = if cap == 0 {
         unsafe { alloc::alloc(new_layout) }
     } else {
-        let old_layout = Layout::array::<T>(*cap).unwrap();
+        let old_layout = Layout::array::<T>(cap).unwrap();
         let old_ptr = ptr.as_ptr() as *mut u8;
         unsafe { alloc::realloc(old_ptr, old_layout, new_layout.size()) }
     };
     // If allocation fails, `new_ptr` will be null, in which case we abort.
-    *ptr = match NonNull::new(new_ptr as *mut T) {
+    match NonNull::new(new_ptr as *mut T) {
         Some(p) => p,
         None => alloc::handle_alloc_error(new_layout),
-    };
-    *cap = new_cap;
+    }
 }
 
 /// frees the block pointed to by ptr
