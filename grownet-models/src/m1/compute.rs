@@ -8,7 +8,7 @@ use ndarray_rand::{RandomExt, rand_distr::Normal, rand_distr::Uniform};
 use rand::{thread_rng};
 use rand_distr::Distribution;
 use super::GlobalParams;
-use crate::ops::Normalize;
+use crate::ops;
 
 pub struct Relu {}
 
@@ -67,13 +67,12 @@ struct Node {
     linear: Linear,
     accum_msg: np::Array2<f32>,
     norm_msg: np::Array2<f32>,
-    norms: Vec<Normalize>
 }
 
 impl Node {
     fn new(dim: usize) -> Self {
         Self { linear: Linear::new(dim), accum_msg: np::Array2::zeros((1, dim)),
-            norm_msg: np::Array2::zeros((1, dim)), norms: Vec::new() }
+            norm_msg: np::Array2::zeros((1, dim)) }
     }
     fn accum(&mut self, msg: &np::Array2<f32>) {
         if msg.dim() != self.accum_msg.dim() {
@@ -84,9 +83,7 @@ impl Node {
 
     fn forward(&mut self) -> np::Array2<f32> {
         let batch = self.accum_msg.dim().0;
-        while self.norms.len() < batch {
-            self.norms.push(Normalize::new());
-        }
+        
         self.linear.forward(&self.accum_msg)
     }
 
