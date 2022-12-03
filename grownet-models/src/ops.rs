@@ -18,9 +18,9 @@ use rand_distr::{Normal, Distribution, StandardNormal};
 /// TODO: obtain an unique id corresponding to each allocator, to avoid using the same
 ///       ParamId on multiple allocators. (only for --debug profiles?)
 #[derive(Debug)]
-pub struct ParamId<Sh> {
+pub struct ParamId<D> {
     idx: usize,
-    shape: Sh
+    shape: StrideShape<D>
 }
 
 /// VolatileId which is only valid for a single 'generation', before the parent
@@ -43,7 +43,7 @@ pub struct VolatileId<Sh> {
 /// logically owns the data.
 /// We make it only possible to retrieve the data with a ParamId, since it logically
 /// owns the data, it cannot be clonable
-pub struct StaticAllocator<T> {
+pub struct ArrayAllocator<T> {
     ptr: NonNull<T>,
     offsets: Vec<usize>,
     len: usize,
@@ -52,7 +52,7 @@ pub struct StaticAllocator<T> {
 }
 
 
-impl<T> StaticAllocator<T> {
+impl<T> ArrayAllocator<T> {
     pub fn new() -> Self {
         assert!(mem::size_of::<T>() != 0, "We're not ready to handle ZSTs");
         Self { 
@@ -64,19 +64,20 @@ impl<T> StaticAllocator<T> {
     }
     /// grows the internal storage in addition to the size that it has
     pub fn grow(&mut self, size: usize) {
-        self.ptr = grow::<T>(size, self.ptr, self.cap);
-        self.cap += size;
+        let new_size = ((size * 50) as f32 + (self.cap as f32) * 0.7) as usize;
+        self.ptr = grow::<T>(new_size, self.ptr, self.cap);
+        self.cap += new_size;
     }
 
     /// current number of elements allocated, useful for future mass allocation/reservation
     pub fn capacity(&self) -> usize { self.cap }
 
     /// Gets a linear slice to the entire block of memory that is allocated
-    pub fn slice(&self) -> &[T] {
+    pub unsafe fn slice(&self) -> &[T] {
         unsafe { &*ptr::slice_from_raw_parts(self.ptr.as_ptr(), self.len) }
     }
 
-    pub fn slice_mut(&mut self) -> &mut [T] {
+    pub unsafe fn slice_mut(&mut self) -> &mut [T] {
         unsafe { &mut *ptr::slice_from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
     }
 
@@ -86,7 +87,7 @@ impl<T> StaticAllocator<T> {
     /// want to specialize to to be a number type, so one can mutably
     /// initialize the memory from the slice.
     /// This function is unsafe, as it makes it possible to alias memory
-    unsafe fn alloc<D, Sh>(&mut self, dim: Sh) -> (ParamId<StrideShape<D>>, & mut [T])
+    unsafe fn alloc<D, Sh>(&mut self, dim: Sh) -> (ParamId<D>, & mut [T])
         where D: Dimension, Sh: Into<StrideShape<D>> 
     {
         let shape: StrideShape<D> = dim.into();
@@ -111,7 +112,7 @@ impl<T> StaticAllocator<T> {
 
     /// reserves an unitialized chunk of memory with specified dimension, produces an id
     /// denoting the location of that chunk
-    pub fn alloc_uninit<D, Sh>(&mut self, dim: Sh) -> ParamId<StrideShape<D>>
+    pub fn alloc_uninit<D, Sh>(&mut self, dim: Sh) -> ParamId<D>
     where D: Dimension, Sh: Into<StrideShape<D>> 
     {
         let shape: StrideShape<D> = dim.into();
@@ -132,7 +133,7 @@ impl<T> StaticAllocator<T> {
     /// This is unsafe because the underlying memory pointer could change if any allocation opeations lie between
     /// a get and another get. One must do all allocations before get operations, otherwise, returned references could
     /// be pointing to invalid memory.
-    pub unsafe fn get<'a, D: Dimension>(&self, id: &'a ParamId<StrideShape<D>>) -> ArrayView<'a, T, D> {
+    pub unsafe fn get<'a, D: Dimension>(&self, id: &'a ParamId<D>) -> ArrayView<'a, T, D> {
         unsafe {
             let ptr = self.ptr.as_ptr().add(self.offsets[id.idx]);
             let view = ArrayView::from_shape_ptr(id.shape.raw_dim().clone(), ptr as *const T);
@@ -142,7 +143,7 @@ impl<T> StaticAllocator<T> {
 
     /// the mutable version of get, but consumes the id ensuring that
     /// there is only one mutable reference
-    pub unsafe fn get_mut<'a, D: Dimension>(&self, id: &'a mut ParamId<StrideShape<D>>) -> ArrayViewMut<'a, T, D> {
+    pub unsafe fn get_mut<'a, D: Dimension>(&self, id: &'a mut ParamId<D>) -> ArrayViewMut<'a, T, D> {
         unsafe {
             let ptr = self.ptr.as_ptr().add(self.offsets[id.idx]);
             let view = ArrayViewMut::from_shape_ptr(id.shape.raw_dim().clone(), ptr);
@@ -153,11 +154,12 @@ impl<T> StaticAllocator<T> {
 
 
 
-impl<T: Clone> StaticAllocator<T> {
-    pub fn get_copy<'a, D: Dimension>(&self, id: &'a ParamId<StrideShape<D>>) -> Array<T, D> {
+impl<T: Clone> ArrayAllocator<T> {
+    pub fn get_copy<'a, D: Dimension>(&self, id: &'a ParamId<D>) -> Array<T, D> {
         unsafe { self.get(id).to_owned() }
     }
-    pub fn alloc_fn<D: Dimension, Sh>(&mut self, dim: Sh, mut f: impl FnMut() -> T) -> ParamId<StrideShape<D>>
+
+    pub fn alloc_fn<D: Dimension, Sh>(&mut self, dim: Sh, mut f: impl FnMut() -> T) -> ParamId<D>
         where Sh: Into<StrideShape<D>> {
         let (id, slice) = unsafe{ self.alloc(dim) };
         slice.iter_mut().for_each(|x| {
@@ -165,7 +167,8 @@ impl<T: Clone> StaticAllocator<T> {
         });
         id
     }
-    pub fn store<'a, D: Dimension>(&mut self, arr: &ArrayView<'a, T, D>) -> ParamId<StrideShape<D>> {
+    
+    pub fn store<'a, D: Dimension>(&mut self, arr: &ArrayView<'a, T, D>) -> ParamId<D> {
         let mut id = self.alloc_uninit(arr.dim());
         let mut new_arr = unsafe{ self.get_mut(&mut id) };
         new_arr.zip_mut_with(arr, |a, b| {
@@ -176,9 +179,9 @@ impl<T: Clone> StaticAllocator<T> {
     }
 }
 
-impl<T> StaticAllocator<T> 
+impl<T> ArrayAllocator<T> 
 where T: Float + Debug, StandardNormal: Distribution<T> {
-    pub fn alloc_rand<D, Sh>(&mut self, dim: Sh, mu: T, sigma: T) -> ParamId<StrideShape<D>>
+    pub fn alloc_rand<D, Sh>(&mut self, dim: Sh, mu: T, sigma: T) -> ParamId<D>
         where D: Dimension, Sh: Into<StrideShape<D>> {
         let (id, slice) = unsafe{ self.alloc(dim) };
         let mut rng = thread_rng();
@@ -189,7 +192,7 @@ where T: Float + Debug, StandardNormal: Distribution<T> {
         id
     }
 
-    pub fn alloc_randn<D, Sh>(&mut self, dim: Sh) -> ParamId<StrideShape<D>>
+    pub fn alloc_randn<D, Sh>(&mut self, dim: Sh) -> ParamId<D>
         where D: Dimension, Sh: Into<StrideShape<D>> {
         let (id, slice) = unsafe{ self.alloc(dim) };
         let mut rng = thread_rng();
@@ -200,8 +203,8 @@ where T: Float + Debug, StandardNormal: Distribution<T> {
         id
     }
     
-    pub fn binop<D1, D2>(&mut self, a: &ParamId<StrideShape<D1>>, b: &ParamId<StrideShape<D2>>, mut f: impl FnMut(T, T) -> T) 
-        -> ParamId<StrideShape<<D2 as DimMax<D1>>::Output>>
+    pub fn binop<D1, D2>(&mut self, a: &ParamId<D1>, b: &ParamId<D2>, mut f: impl FnMut(T, T) -> T) 
+        -> ParamId<<D2 as DimMax<D1>>::Output>
     where D1: Dimension, D2: Dimension + DimMax<D1> {
         let dim3 = broadcast(a.shape.raw_dim(), b.shape.raw_dim()).unwrap();
         let mut c_id = self.alloc_uninit(dim3.clone());
@@ -219,19 +222,19 @@ where T: Float + Debug, StandardNormal: Distribution<T> {
         }
     }
 
-    pub fn x<'a, 'b, D>(&'a mut self, id: &'b ParamId<StrideShape<D>>) -> AllocOps<'a, ArrayView<'b, T, D>, T> 
+    pub fn x<'a, 'b, D>(&'a mut self, id: &'b ParamId<D>) -> AllocOps<'a, ArrayView<'b, T, D>, T> 
     where D: Dimension {
         let view = unsafe { self.get(id) };
         AllocOps { alloc: self, id: view }
     }
 
-    pub fn xmut<'a, 'b, D>(&'a mut self, id: &'b mut ParamId<StrideShape<D>>) -> AllocOps<'a, ArrayViewMut<'b, T, D>, T> 
+    pub fn xmut<'a, 'b, D>(&'a mut self, id: &'b mut ParamId<D>) -> AllocOps<'a, ArrayViewMut<'b, T, D>, T> 
     where D: Dimension {
         let view = unsafe { self.get_mut(id) };
         AllocOps { alloc: self, id: view }
     }
 
-    pub fn xs<'a, 'b, D, const N: usize>(&'a mut self, ids: [&'b ParamId<StrideShape<D>>; N])
+    pub fn xs<'a, 'b, D, const N: usize>(&'a mut self, ids: [&'b ParamId<D>; N])
         -> AllocOps<'a, [ArrayView<'b, T, D>; N], T>
     where D: Dimension + Sized, T: Sized
     {
@@ -246,7 +249,7 @@ where T: Float + Debug, StandardNormal: Distribution<T> {
         AllocOps { alloc: self, id: view }
     }
 
-    pub fn xsmut<'a, 'b, D, const N: usize>(&'a mut self, mut ids: [&'b mut ParamId<StrideShape<D>>; N])
+    pub fn xsmut<'a, 'b, D, const N: usize>(&'a mut self, mut ids: [&'b mut ParamId<D>; N])
         -> AllocOps<'a, [ArrayViewMut<'b, T, D>; N], T>
     where D: Dimension + Sized, T: Sized
     {
@@ -265,14 +268,14 @@ where T: Float + Debug, StandardNormal: Distribution<T> {
         AllocOps { alloc: self, id: view }
     }
     
-    pub fn zero_<D: Dimension>(&self, a: &mut ParamId<StrideShape<D>>) {
+    pub fn zero_<D: Dimension>(&self, a: &mut ParamId<D>) {
         let mut a = unsafe { self.get_mut(a) };
         a.map_mut(|v| { *v = T::zero(); } );
     }
 }
 
 pub struct AllocOps<'a, P, T> {
-    alloc: &'a mut StaticAllocator<T>,
+    alloc: &'a mut ArrayAllocator<T>,
     id: P
 }
 
@@ -282,25 +285,9 @@ impl<'a, P, T> AllocOps<'a, P, T> {
     }
 }
 
-fn transmutetest<D: Dimension, const N: usize>(a: [MaybeUninit<D>; N]) -> [D; N] {
-    unsafe{
-        let ptr = &a as *const MaybeUninit<D> as *const [D; N];
-        let value = ptr.read();
-        mem::forget(a);
-        value
-    }
-}
-
-unsafe fn transmute_arr<T, const N: usize>(arr: [MaybeUninit<T>; N]) -> [T; N] {
-    let ptr = &arr as *const [MaybeUninit<T>; N] as *const [T; N];
-    let val = ptr.read();
-    mem::forget(arr);
-    val
-}
-
 impl<'a, P, T> AllocOps<'a, P, T>
 {
-    pub fn xs<'b, D, const N: usize>(self, ids: [&'b ParamId<StrideShape<D>>; N])
+    pub fn xs<'b, D, const N: usize>(self, ids: [&'b ParamId<D>; N])
         -> AllocOps<'a, (P, [ArrayView<'b, T, D>; N]), T>
     where D: Dimension + Sized, T: Sized
     {
@@ -315,7 +302,7 @@ impl<'a, P, T> AllocOps<'a, P, T>
         AllocOps { alloc: self.alloc, id: (self.id, view) }
     }
 
-    pub fn xsmut<'b, D, const N: usize>(self, mut ids: [&'b mut ParamId<StrideShape<D>>; N])
+    pub fn xsmut<'b, D, const N: usize>(self, mut ids: [&'b mut ParamId<D>; N])
         -> AllocOps<'a, (P, [ArrayViewMut<'b, T, D>; N]), T>
     where D: Dimension + Sized, T: Sized
     {
@@ -334,7 +321,7 @@ impl<'a, P, T> AllocOps<'a, P, T>
         AllocOps { alloc: self.alloc, id: (self.id, view) }
     }
 
-    pub fn x<'b, D>(self, id: &'b ParamId<StrideShape<D>>) 
+    pub fn x<'b, D>(self, id: &'b ParamId<D>) 
         -> AllocOps<'a, (P, ArrayView<'b, T, D>), T>
     where D: Dimension
     {
@@ -342,7 +329,7 @@ impl<'a, P, T> AllocOps<'a, P, T>
         AllocOps { alloc: self.alloc, id: (self.id, view) }
     }
 
-    pub fn xmut<'b, D>(self, id: &'b mut ParamId<StrideShape<D>>) 
+    pub fn xmut<'b, D>(self, id: &'b mut ParamId<D>) 
         -> AllocOps<'a, (P, ArrayViewMut<'b, T, D>), T>
     where D: Dimension
     {
@@ -351,47 +338,10 @@ impl<'a, P, T> AllocOps<'a, P, T>
     }
 }
 
-#[test]
-fn test_binops() {
-    let mut alloc = StaticAllocator::<f32>::new();
-    let a = alloc.alloc_randn([4, 4]);
-    let b = alloc.alloc_randn([4, 4]);
-    
-    let c_id = alloc.binop(&a, &b, |a, b| a + b);
-    let a0 = alloc.get_copy(&a).to_owned();
-    let b0 = alloc.get_copy(&b).to_owned();
-    let c = alloc.get_copy(&c_id);
-    let c0 = &a0 + &b0;
-    let c1 = &alloc.get_copy(&a) + &alloc.get_copy(&b);
 
 
-    let err1 = (&c - &c0).fold(-f32::MAX, |a, acc| a.max((*acc).abs()));
-    let err2 = (&c - &c1).fold(-f32::MAX, |a, acc| a.max((*acc).abs()));
-    let err3 = (&c0 - &c1).fold(-f32::MAX, |a, acc| a.max((*acc).abs()));
-    
-    println!("max error {}", err1);
-    println!("max error {}", err2);
-    println!("max error {}", err3);
-}
-
-#[test]
-fn test_operation() {
-    let mut alloc = StaticAllocator::<f32>::new();
-    let a = alloc.alloc_randn([4, 4]);
-    let b = alloc.alloc_randn([4, 4]);
-
-    let mut c = alloc.alloc_uninit([4, 4]);
-    alloc.x(&a).x(&b).xmut(&mut c).op(|((a, b), mut c)| {
-        c += &(&a + &b);
-    });
-
-    let ops = alloc.x(&a).xs([&b, &c]);
-
-}
-
-
-impl<T: LinalgScalar> StaticAllocator<T> {
-    pub fn matmul(&mut self, a: &ParamId<StrideShape<Ix2>>, b: &ParamId<StrideShape<Ix2>>) {
+impl<T: LinalgScalar> ArrayAllocator<T> {
+    pub fn matmul(&mut self, a: &ParamId<Ix2>, b: &ParamId<Ix2>) {
         let sh_a = a.shape.raw_dim()[0];
         let sh_b = b.shape.raw_dim()[1];
         let mut c_id = self.alloc_uninit([sh_a, sh_b]);
@@ -404,85 +354,29 @@ impl<T: LinalgScalar> StaticAllocator<T> {
     }
 }
 
-impl<T> Drop for StaticAllocator<T> {
+impl<T> Drop for ArrayAllocator<T> {
     fn drop(&mut self) {
         unsafe{ free(&mut self.ptr, self.cap); }
     }
 }
 
-impl<T> Default for StaticAllocator<T> {
+impl<T> Default for ArrayAllocator<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
 
-#[inline(always)]
-pub fn from_kind(k: ErrorKind) -> ShapeError {
-    ShapeError::from_kind(k)
-}
-pub fn co_broadcast<D1, D2, Output>(shape1: &D1, shape2: &D2) -> Result<Output, ShapeError>
-where
-    D1: Dimension,
-    D2: Dimension,
-    Output: Dimension,
-{
-    let (_k, overflow) = shape1.ndim().overflowing_sub(shape2.ndim());
-    // Swap the order if d2 is longer.
-    if overflow {
-        return co_broadcast::<D2, D1, Output>(shape2, shape1);
-    }
-    // The output should be the same length as shape1.
-    let mut out = Output::zeros(shape1.ndim());
-    for (out, s) in out.slice_mut().iter_mut().zip(shape1.slice().iter()) {
-        *out = *s;
-    }
-    let h = out.slice_mut();
-    let it = IntoIterator::into_iter(h);
-    for (out, s2) in it.zip(shape2.slice()) {
-        if *out != *s2 {
-            if *out == 1 {
-                *out = *s2
-            } else if *s2 != 1 {
-                return Err(from_kind(ErrorKind::IncompatibleShape));
-            }
-        }
-    }
-    Ok(out)
-}
-
-pub fn broadcast<D1, D2>(shape1: &D1, shape2: &D2) -> Result<<D2 as DimMax<D1>>::Output, ShapeError>
-where
-    D1: Dimension,
-    D2: Dimension + DimMax<D1>,
-    //<D2 as DimMax<D1>>::Output: Into<StrideShape<<D2 as DimMax<D1>>::Output>>
-{
-    co_broadcast::<D1, D2, <D2 as DimMax<D1>>::Output>(shape1, shape2)
-}
-
-#[test]
-fn test_broadcast() {
-    let a1 = [1usize, 5, 1];
-    let a2 = [4usize, 1, 1, 2];
-    let h1: Ix3 = a1.into_dimension();
-    let h2 = a2.into_dimension();
-
-    let h3 = broadcast(&h1, &h2).unwrap();
-
-    println!("{:?}", h3);
-}
-
-
 pub struct Linear {
-    w: ParamId<StrideShape<Ix2>>,
-    b: ParamId<StrideShape<Ix2>>,
-    dw: ParamId<StrideShape<Ix2>>,
-    db: ParamId<StrideShape<Ix2>>,
+    w: ParamId<Ix2>,
+    b: ParamId<Ix2>,
+    dw: ParamId<Ix2>,
+    db: ParamId<Ix2>,
 }
 
 
 impl Linear {
-    fn init(allocator: &mut StaticAllocator<f32>, dim: usize) -> Self {
+    fn init(allocator: &mut ArrayAllocator<f32>, dim: usize) -> Self {
         let w = allocator.alloc_randn([dim, dim]);
         let dw = allocator.alloc_randn([dim, dim]);
         let b = allocator.alloc_randn([1, dim]);
@@ -580,6 +474,52 @@ fn grow<T>(size: usize, ptr: NonNull<T>, cap: usize) -> NonNull<T> {
     }
 }
 
+#[inline(always)]
+pub fn from_kind(k: ErrorKind) -> ShapeError {
+    ShapeError::from_kind(k)
+}
+
+/// Helper broadcasting function copied from ndarray source
+pub fn co_broadcast<D1, D2, Output>(shape1: &D1, shape2: &D2) -> Result<Output, ShapeError>
+where
+    D1: Dimension,
+    D2: Dimension,
+    Output: Dimension,
+{
+    let (_k, overflow) = shape1.ndim().overflowing_sub(shape2.ndim());
+    // Swap the order if d2 is longer.
+    if overflow {
+        return co_broadcast::<D2, D1, Output>(shape2, shape1);
+    }
+    // The output should be the same length as shape1.
+    let mut out = Output::zeros(shape1.ndim());
+    for (out, s) in out.slice_mut().iter_mut().zip(shape1.slice().iter()) {
+        *out = *s;
+    }
+    let h = out.slice_mut();
+    let it = IntoIterator::into_iter(h);
+    for (out, s2) in it.zip(shape2.slice()) {
+        if *out != *s2 {
+            if *out == 1 {
+                *out = *s2
+            } else if *s2 != 1 {
+                return Err(from_kind(ErrorKind::IncompatibleShape));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// broadcasts two dimensions for binary operations
+pub fn broadcast<D1, D2>(shape1: &D1, shape2: &D2) -> Result<<D2 as DimMax<D1>>::Output, ShapeError>
+where
+    D1: Dimension,
+    D2: Dimension + DimMax<D1>,
+    //<D2 as DimMax<D1>>::Output: Into<StrideShape<<D2 as DimMax<D1>>::Output>>
+{
+    co_broadcast::<D1, D2, <D2 as DimMax<D1>>::Output>(shape1, shape2)
+}
+
 /// frees the block pointed to by ptr
 unsafe fn free<T>(ptr: &mut NonNull<T>, cap: usize) {
     if cap != 0 {
@@ -593,6 +533,15 @@ unsafe fn free<T>(ptr: &mut NonNull<T>, cap: usize) {
         }
     }
 }
+
+
+unsafe fn transmute_arr<T, const N: usize>(arr: [MaybeUninit<T>; N]) -> [T; N] {
+    let ptr = &arr as *const [MaybeUninit<T>; N] as *const [T; N];
+    let val = ptr.read();
+    mem::forget(arr);
+    val
+}
+
 
 #[test]
 fn normalize_grad() {
@@ -612,6 +561,54 @@ fn normalize_grad() {
     println!("forward pass {}", y);
     println!("backward pass {}", dy_dx);
 }
+
+#[test]
+fn test_broadcast() {
+    let a1 = [1usize, 5, 1];
+    let a2 = [4usize, 1, 1, 2];
+    let h1: Ix3 = a1.into_dimension();
+    let h2 = a2.into_dimension();
+
+    let h3 = broadcast(&h1, &h2).unwrap();
+
+    println!("{:?}", h3);
+}
+
+#[test]
+fn test_binops() {
+    let mut alloc = ArrayAllocator::<f32>::new();
+    let a = alloc.alloc_randn([4, 4]);
+    let b = alloc.alloc_randn([4, 4]);
+    
+    let c_id = alloc.binop(&a, &b, |a, b| a + b);
+    let a0 = alloc.get_copy(&a).to_owned();
+    let b0 = alloc.get_copy(&b).to_owned();
+    let c = alloc.get_copy(&c_id);
+    let c0 = &a0 + &b0;
+    let c1 = &alloc.get_copy(&a) + &alloc.get_copy(&b);
+
+
+    let err1 = (&c - &c0).fold(-f32::MAX, |a, acc| a.max((*acc).abs()));
+    let err2 = (&c - &c1).fold(-f32::MAX, |a, acc| a.max((*acc).abs()));
+    let err3 = (&c0 - &c1).fold(-f32::MAX, |a, acc| a.max((*acc).abs()));
+    
+    println!("max error {}", err1);
+    println!("max error {}", err2);
+    println!("max error {}", err3);
+}
+
+#[test]
+fn test_operation() {
+    let mut alloc = ArrayAllocator::<f32>::new();
+    let a = alloc.alloc_randn([4, 4]);
+    let b = alloc.alloc_randn([4, 4]);
+
+    let mut c = alloc.alloc_uninit([4, 4]);
+    alloc.x(&a).x(&b).xmut(&mut c).op(|((a, b), mut c)| {
+        c += &(&a + &b);
+    });
+}
+
 
 /*
 #[test]
