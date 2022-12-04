@@ -1,4 +1,5 @@
 use ndarray::prelude::*;
+use num::Float;
 
 const EPSILON: f32 = 1e-5;
 
@@ -56,7 +57,9 @@ pub fn drelu(x: f32) -> f32 {
 }
 
 
-
+fn maximum<T: Float, D: Dimension>(a: &ArrayView<T, D>) -> T {
+    a.fold(-T::max_value(), |a, b| a.max((*b).abs()))
+}
 
 #[test]
 fn normalize_grad() {
@@ -64,15 +67,12 @@ fn normalize_grad() {
 
     let dim = 16;
     let x: Array1<f32> = Array::random((dim,), Normal::new(0.0, 1.0).unwrap());
-    let grad: Array1<f32> = Array1::ones([dim]);
-    let mut dy_dx: Array1::<f32> = Array1::ones([dim]);
-    let mut y: Array1::<f32> = Array1::ones([dim]);
+    //let grad: Array1<f32> = Array1::ones([dim]);
+    //let mut dy_dx: Array1::<f32> = Array1::ones([dim]);
+    //let mut y: Array1::<f32> = Array1::ones([dim]);
     
-    //let mut norm = Normalize::new();
-    //norm.forward(x.view(), y.view_mut());
-    //norm.backward(grad.view(), x.view(), dy_dx.view_mut());
-//
-    //println!("input {}", x);
-    //println!("forward pass {}", y);
-    //println!("backward pass {}", dy_dx);
+    let mut normbuf = Array1::zeros(x.dim());
+    normalize(x.as_slice().unwrap(), normbuf.as_slice_mut().unwrap(), None, None);
+
+    println!("max norm {}", maximum(&normbuf.view()));
 }
