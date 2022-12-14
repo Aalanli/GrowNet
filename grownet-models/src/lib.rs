@@ -3,6 +3,6 @@
 #![allow(unused_macros)]
 
 pub mod models;
-pub mod tensor;
+
 pub mod ops;
 pub mod allocator;

@@ -1,17 +1,136 @@
 use std::mem;
+use std::ops::Deref;
 use std::ptr::{self, null};
 
+use ndarray::prelude::*;
 use ndarray::prelude as np;
 use ndarray::{Axis};
 use ndarray_rand::{RandomExt, rand_distr::Normal, rand_distr::Uniform};
 
+use num::Float;
 use rand::{thread_rng};
 use rand_distr::Distribution;
 
-use super::GlobalParams;
-use super::activations::{Relu, WeightedSigmoid};
-use super::ops::l2_norm;
-use super::{NodeResult, NodeMessage, Message};
+
+pub fn l2_norm<T: Float>(a: &Array1<T>) -> T {
+    a.fold(T::zero(), |acc, x| acc + *x * *x).sqrt()
+}
+
+/// The global setup parameters for the entire network,
+/// is passed by reference into each forward and backward call
+#[derive(Clone)]
+pub struct GlobalParams {
+    sim_strictness: f32,
+    underflow_epsilon: f32,
+    sim_epsilon: f32,
+    lr: f32,
+    compute_dim: usize,
+
+    s_mean: f32,
+    s_var: f32,
+    b_mean: f32,
+    b_var: f32,
+
+    ro_var: f32,
+}
+
+/// The main enum signifying the output state of a node, as nodes may
+/// not output anything if internal requirements are not met
+#[derive(Clone)]
+pub enum NodeResult<T: Clone> {
+    NoResult,
+    Msg(T),
+}
+
+/// Primary message format in the network, probably should make this
+/// polymorphic with respect number of dimensions
+#[derive(Clone)]
+pub struct Message(Array1<f32>);
+
+/// Primary messages passed between different nodes, should make this a polymorphic
+/// trait
+#[derive(Clone)]
+pub struct NodeMessage {
+    msg: Message,
+    mag: f32
+}
+
+
+
+impl Deref for Message {
+    type Target = Array1<f32>;
+    fn deref(&self) -> &Self::Target {
+        &self.0        
+    }
+}
+
+impl From<Array1<f32>> for Message {
+    fn from(a: Array1<f32>) -> Self {
+        Message(a)
+    }
+}
+
+impl NodeMessage {
+    pub fn new(msg: Message) -> NodeMessage {
+        let norm = l2_norm(&msg);
+        NodeMessage { msg, mag: norm }
+    }
+}
+
+
+
+pub struct WeightedSigmoid {
+    pub s: f32,
+    pub b: f32,
+    pub ds: f32,
+    pub db: f32,
+    pub x: f32,
+    pub y: f32,
+}
+
+impl WeightedSigmoid {
+    pub fn forward(&mut self, x: f32) -> f32 {
+        self.x = x;
+        self.y = 1.0 / (1.0 + (self.b * (x - self.s)).exp());
+        self.y
+    }
+
+    pub fn backward(&mut self, grad: f32) -> f32 {
+        let dy_dsigmoid = grad * self.y * (1.0 - self.y);
+        let dy_dx = self.b * dy_dsigmoid;
+        self.ds += -dy_dx;
+        self.db += dy_dsigmoid * (self.x - self.s);
+        dy_dx
+    }
+
+    pub fn zero_grad(&mut self) {
+        self.ds = 0.0;
+        self.db = 0.0;
+    }
+
+    pub fn apply_grad(&mut self, params: &GlobalParams) {
+        self.b -= self.db * params.lr;
+        self.s -= self.ds * params.lr;
+    }
+
+    pub fn is_underflow(&self, x: f32, eps: f32) -> bool {
+        self.s - eps / self.b > x
+    }
+
+    pub fn underflow_cutoff(&self, eps: f32) -> f32 {
+        self.s - eps / self.b
+    }
+}
+pub struct Relu {}
+
+impl Relu {
+    pub fn forward(&self, x: f32) -> f32 {
+        x.max(0.0)
+    }
+    pub fn backward(&self, x: f32) -> f32 {
+        x.max(0.0).min(1.0)
+    }
+}
 
 
 /// Each ComputeInstance represents the primary heavy computation
