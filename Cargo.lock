@@ -2077,6 +2077,7 @@ dependencies = [
 name = "grownet-models"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "crossbeam",
  "ndarray",
  "ndarray-rand",
