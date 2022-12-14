@@ -4,11 +4,11 @@
 		{
 			"type": "cargo",
 			"command": "run",
-			"args": ["--bin", "grownet"],
+			"args": ["--package", "grownet-models", "--bin", "grownet-models"],
 			"problemMatcher": [
 				"$rustc"
 			],
-			"label": "rust: cargo run",
+			"label": "rust: cargo run grownet-models",
 			"group": {
 				"kind": "build",
 				"isDefault": true
