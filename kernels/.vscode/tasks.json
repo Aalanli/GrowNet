@@ -6,7 +6,7 @@
         {
             "label": "Make build files from CMakeLists.txt",
             "type": "shell",
-            "command": "cmake -G Ninja -S ${workspaceFolder}/src -B ${workspaceFolder}/src/cbuild",
+            "command": "cmake -G Ninja -S ${workspaceFolder} -B ${workspaceFolder}/cbuild",
             "problemMatcher": []
         },
         {
@@ -15,11 +15,11 @@
             "command": "cmake",
             "args": [
                 "--build",
-                "${workspaceFolder}/src/cbuild",
+                "${workspaceFolder}/cbuild",
                 "-j",
                 "12",
                 "&&",
-                "${workspaceFolder}/src/cbuild/main"
+                "${workspaceFolder}/cbuild/main"
             ],
             "options": {
                 "cwd": "${fileDirname}"
@@ -53,16 +53,10 @@
             "detail": "compiler: /bin/g++-9"
         },
         {
-            "type": "cargo",
-            "command": "run",
-            "problemMatcher": [
-                "$rustc"
-            ],
-            "label": "rust: cargo run",
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            }
+            "type": "shell",
+            "label": "clean cbuild dir",
+            "command": "rm -r ${workspaceFolder}/cbuild && mkdir ${workspaceFolder}/cbuild",
+            "problemMatcher": []
         }
     ]
 }
