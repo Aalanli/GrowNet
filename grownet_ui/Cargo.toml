@@ -1,5 +1,5 @@
 [package]
-name = "grownet-ui"
+name = "grownet_ui"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,11 +10,12 @@ name = "grownet_lib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "grownet-ui"
+name = "grownet_ui"
 path = "src/main.rs"
 
 
 [dependencies]
+grownet_models = { path = "../grownet_models" }
 ndarray = "0.15.0"
 rand = "0.8.5"
 ndarray-rand = "0.14.0"
@@ -32,3 +33,4 @@ image = "0.24.5"
 serde = "1.0.147"
 ron = "0.8.0"
 anyhow = "1.0"
+tch = "0.10.1"

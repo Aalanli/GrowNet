@@ -1,5 +1,5 @@
 [package]
-name = "grownet-models"
+name = "grownet_models"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,7 +10,7 @@ name = "model_lib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "grownet-models"
+name = "grownet_models"
 path = "src/main.rs"
 
 
@@ -24,3 +24,4 @@ crossbeam = "0.8.2"
 tch = "0.10.1"
 smallvec = "1.10.0"
 anyhow = "1.0"
+serde = "1.0.147"

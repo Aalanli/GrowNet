@@ -67,3 +67,17 @@ fn train_loop() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn cifar_test() {
+    use std::path;
+    println!("cur dir {:?}", std::env::current_dir().unwrap());
+    let p: path::PathBuf = "assets/ml_datasets/cifar10".into();
+    let p1 = std::env::current_dir().unwrap().parent().unwrap().join(p);
+    assert!(p1.exists(), "path does not exist");
+    let data = tch::vision::cifar::load_dir(p1).unwrap();
+    let mut iter = data.train_iter(4);
+    let (im, _label) = iter.next().unwrap();
+    println!("im shape {:?}", im.size());
+    println!("im stats: max {}, min {}, type {:?}", im.max(), im.min(), im.kind());
+}

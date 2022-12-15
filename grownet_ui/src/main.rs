@@ -8,6 +8,8 @@ use bevy_egui::EguiPlugin;
 use grownet_lib as lib;
 use lib::ui;
 
+use lib::data_configs;
+
 /// the path at which the user config files are stored
 const ROOT_PATH: &str = "assets/config";
 
@@ -43,12 +45,13 @@ fn setup_dataset_ui(mut commands: Commands) {
     use lib::datasets as data;
     let mut dataset_ui = ui::DatasetUI::default();
 
+    dataset_ui.push_viewer(data_configs::build_viewer(), "cifar10Torchimpl");
     let cifar10 = data::cifar::Cifar10Params::default();
-    let cifar_viewer = ui::data_ui::ClassificationViewer::new(cifar10);
+    let cifar_viewer = ui::data_ui::ClassificationViewerOwned::new(cifar10);
     dataset_ui.push_viewer(cifar_viewer, "cifar10");
 
     let mnist = data::mnist::MnistParams::default();
-    let mnist_viewer = ui::data_ui::ClassificationViewer::new(mnist);
+    let mnist_viewer = ui::data_ui::ClassificationViewerOwned::new(mnist);
     dataset_ui.push_viewer(mnist_viewer, "mnist");
 
     commands.insert_resource(dataset_ui);

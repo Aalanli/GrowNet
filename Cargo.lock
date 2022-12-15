@@ -2074,7 +2074,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "grownet-models"
+name = "grownet_models"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2084,12 +2084,13 @@ dependencies = [
  "num",
  "rand",
  "rand_distr",
+ "serde",
  "smallvec",
  "tch",
 ]
 
 [[package]]
-name = "grownet-ui"
+name = "grownet_ui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2098,6 +2099,7 @@ dependencies = [
  "bevy_egui 0.16.1",
  "bevy_stl",
  "crossbeam",
+ "grownet_models",
  "image 0.24.5",
  "itertools",
  "ndarray",
@@ -2106,6 +2108,7 @@ dependencies = [
  "rand_distr",
  "ron 0.8.0",
  "serde",
+ "tch",
 ]
 
 [[package]]
