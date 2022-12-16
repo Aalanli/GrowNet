@@ -13,7 +13,7 @@ use bevy_egui::{egui, EguiContext};
 use anyhow::Result;
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
-use crate::{Param, Config, UI};
+use crate::{Config, UI};
 
 /// Defines everything that gets the dataset viewer to work
 pub mod data_ui;

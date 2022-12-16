@@ -2,40 +2,22 @@
 #![allow(unused_imports)]
 #![allow(unused_macros)]
 
-pub mod models_configs;
-pub mod data_configs;
-pub mod datasets;
+
 pub mod ui;
 pub mod visualizations;
+pub mod model_configs;
+pub mod data_configs;
 
 use bevy_egui::egui;
 use anyhow::{Result, Context};
 use serde::{Serialize, de::DeserializeOwned};
 
-/// Param trait captures the various parameters settings that needs to be saved
-/// to disk and modified through the ui
-pub trait Param: Config + UI {}
+use model_lib::Config;
 
-pub trait Config: Send + Sync {
-    fn config(&self) -> String;
-    fn load_config(&mut self, config: &str) -> Result<()>;
-}
-
-pub trait UI {
+pub trait UI: Config {
     fn ui(&mut self, ui: &mut egui::Ui);
 }
 
-impl<T: Serialize + DeserializeOwned + Send + Sync> Config for T {
-    fn config(&self) -> String {
-        ron::to_string(self).unwrap()
-    }
-    fn load_config(&mut self, config: &str) -> Result<()> {
-        *self = ron::from_str(config).context(format!("Failed to load context {}", config))?;
-        Ok(())
-    }
-}
-
-impl<T: Config + UI> Param for T {}
 
 pub struct ConfigWrapper<C, D> {
     pub config: C,

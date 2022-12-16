@@ -11,6 +11,15 @@ pub mod data;
 pub mod cifar;
 pub mod mnist;
 
+use super::Config;
+
+
+pub trait DatasetBuilder: Config {
+    type Dataset: Dataset;
+    fn build_train(&self) -> Result<Self::Dataset>;
+    fn build_test(&self) -> Option<Result<Self::Dataset>>;
+}
+
 /// The universal Dataset trait, which is the final object
 /// passed to the model for training
 pub trait Dataset: Sync + Send {
@@ -18,10 +27,4 @@ pub trait Dataset: Sync + Send {
     fn next(&mut self) -> Option<Self::DataPoint>;
     fn reset(&mut self);
     fn shuffle(&mut self);
-}
-
-pub trait DatasetBuilder {
-    type Dataset: Dataset;
-    fn build_train(&self) -> Result<Self::Dataset>;
-    fn build_test(&self) -> Option<Result<Self::Dataset>>;
 }

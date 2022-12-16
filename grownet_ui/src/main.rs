@@ -5,7 +5,6 @@ use bevy::{prelude::*, asset::AssetServerSettings};
 use bevy_stl;
 use bevy_egui::EguiPlugin;
 
-use model_lib::datasets;
 
 use grownet_lib as lib;
 use lib::ui;
@@ -42,7 +41,8 @@ fn setup_ui(mut commands: Commands) {
 }
 
 fn setup_dataset_ui(mut commands: Commands) {
-    use lib::datasets as data;
+    use model_lib::datasets as data;
+
     let mut dataset_ui = ui::DatasetUI::default();
 
     let cifar10 = data::cifar::Cifar10Params::default();

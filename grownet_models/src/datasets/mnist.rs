@@ -13,9 +13,9 @@ use crate::ops;
 /// Main configuration parameters for Mnist
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct MnistParams {
-    path: PathBuf,
-    train_batch_size: usize,
-    test_batch_size: usize,
+    pub path: PathBuf,
+    pub train_batch_size: usize,
+    pub test_batch_size: usize,
 }
 
 impl DatasetBuilder for MnistParams {

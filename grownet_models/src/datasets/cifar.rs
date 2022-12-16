@@ -59,9 +59,9 @@ impl ContiguousStaticImage {
 // main parameters driving the cifar10 dataset
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Cifar10Params {
-    path: path::PathBuf,
-    train_batch_size: usize,
-    test_batch_size: usize,
+    pub path: path::PathBuf,
+    pub train_batch_size: usize,
+    pub test_batch_size: usize,
 }
 
 impl DatasetBuilder for Cifar10Params {

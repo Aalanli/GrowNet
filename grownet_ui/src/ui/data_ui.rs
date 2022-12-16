@@ -4,7 +4,8 @@ use itertools::Itertools;
 use ndarray::{Array3, Array, Ix4};
 
 use crate::{Config, UI};
-use crate::datasets::{DatasetBuilder, Dataset, ImClassifyDataPoint};
+use model_lib::datasets::{Dataset, DatasetBuilder, data};
+
 use anyhow::{Result, Context, Error};
 
 
@@ -77,7 +78,7 @@ pub struct ClassificationViewer<D: DatasetBuilder> {
 }
 
 impl<D, B> ClassificationViewer<B>
-where D: Dataset<DataPoint = ImClassifyDataPoint>, B: DatasetBuilder<Dataset = D> {
+where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> {
     pub fn new(builder: B) -> Self {
         Self { train_data: None, test_data: None, params: builder, train_texture: None, test_texture: None, im_scale: 1.0 }
     }
@@ -153,7 +154,7 @@ where D: Dataset<DataPoint = ImClassifyDataPoint>, B: DatasetBuilder<Dataset = D
 }
 
 impl<D, B> UI for ClassificationViewer<B>
-where D: Dataset<DataPoint = ImClassifyDataPoint>, B: DatasetBuilder<Dataset = D> {
+where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> + UI {
     fn ui(&mut self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             self.params.ui(ui);
@@ -232,7 +233,7 @@ where D: Dataset<DataPoint = ImClassifyDataPoint>, B: DatasetBuilder<Dataset = D
 }
 
 impl<D, B> Config for ClassificationViewer<B>
-where D: Dataset<DataPoint = ImClassifyDataPoint>, B: DatasetBuilder<Dataset = D> {
+where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> + Sync + Send {
     fn config(&self) -> String {
         let self_params = ron::to_string(&self.im_scale).unwrap();
         let data_params = self.params.config();
@@ -249,7 +250,7 @@ where D: Dataset<DataPoint = ImClassifyDataPoint>, B: DatasetBuilder<Dataset = D
 }
 
 impl<D, B> Viewer for ClassificationViewer<B>
-where D: Dataset<DataPoint = ImClassifyDataPoint>, B: DatasetBuilder<Dataset = D> {
+where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> + UI {
     fn drop_dataset(&mut self) {
         self.train_data = None;
         self.test_data = None;
