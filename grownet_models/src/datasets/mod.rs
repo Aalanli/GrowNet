@@ -10,6 +10,7 @@ use anyhow::Result;
 pub mod data;
 pub mod cifar;
 pub mod mnist;
+pub mod transforms;
 
 use super::Config;
 

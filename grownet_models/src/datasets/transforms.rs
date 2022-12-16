@@ -1,58 +1,101 @@
 use std::marker::PhantomData;
 
-use bevy_egui::egui;
-
 use serde::{Serialize, de::DeserializeOwned, Deserialize};
 use anyhow::{Result, Context};
+use tch::Tensor;
 
-use crate::{Param, Config, UI};
-use super::ImageDataPoint;
+use crate::Config;
+use super::data;
 
-
-pub trait Transform: Param {
-    type DataPoint;
-    fn transform(&self, data: Self::DataPoint) -> Self::DataPoint;
+pub trait Transform: Config + Sized + Clone {
+    type In;
+    type Out;
+    fn transform(&self, data: Self::In) -> Self::Out;
+    fn compose<T: Transform<In = Self::Out>>(self, t: T) -> Compose<Self, T> {
+        Compose { t1: self, t2: t }
+    }
 }
 
-/// Simple generic transform implementation, to avoid implementing
-/// the necessary traits for each possible state
 #[derive(Clone)]
-pub struct SimpleTransform<DataPoint: Send + Sync + Clone, T: Serialize + DeserializeOwned + Send + Sync + Clone> {
-    pub state: T,
-    pub transform_fn: fn(&T, DataPoint) -> DataPoint,
-    pub ui_fn: fn(&mut T, &mut egui::Ui),
+pub struct Compose<T1, T2> {
+    pub t1: T1,
+    pub t2: T2
 }
 
-impl<D: Send + Sync + Clone, T: Serialize + DeserializeOwned + Send + Sync + Clone> UI for SimpleTransform<D, T> {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        let ui_fn = self.ui_fn;
-        ui_fn(&mut self.state, ui);
-    }
-}
-
-impl<D: Send + Sync + Clone, T: Serialize + DeserializeOwned + Send + Sync + Clone> Config for SimpleTransform<D, T> {
+impl<T1, T2> Config for Compose<T1, T2>
+where T1: Config, T2: Config
+{
     fn config(&self) -> String {
-        ron::to_string(&self.state).unwrap()
+        let pre = self.t1.config();
+        let post = self.t2.config();
+        ron::to_string(&(pre, post)).unwrap()
     }
+
     fn load_config(&mut self, config: &str) -> Result<()> {
-        self.state = ron::from_str(config).context("Simple Transform")?;
+        let (pre, post): (String, String) = ron::from_str(config)?;
+        self.t1.load_config(&pre)?;
+        self.t2.load_config(&post)?;
         Ok(())
     }
 }
 
-impl<D: Send + Sync + Clone, T: Serialize + DeserializeOwned + Send + Sync + Clone> Transform for SimpleTransform<D, T> {
-    type DataPoint = D;
-    fn transform(&self, data: Self::DataPoint) -> Self::DataPoint {
-        let t_fn = self.transform_fn;
-        t_fn(&self.state, data)
+impl<T1, T2> Transform for Compose<T1, T2> 
+where T1: Transform, T2: Transform<In = T1::Out>
+{
+    type In = T1::In;
+    type Out = T2::Out;
+    fn transform(&self, data: Self::In) -> Self::Out {
+        let x = self.t1.transform(data);
+        self.t2.transform(x)
+    }
+}
+
+#[derive(Clone)]
+pub struct FnTransform<F, In, Out> {
+    pub f: F,
+    _in: PhantomData<In>,
+    _out: PhantomData<Out>
+}
+
+impl<F1, In1, Out1> FnTransform<F1, In1, Out1>
+{
+    fn new<In, Out>(f: impl Fn(In) -> Out) -> FnTransform<impl Fn(In) -> Out, In, Out> {
+        FnTransform { f, _in: PhantomData, _out: PhantomData }
+    } 
+}
+
+impl<In, Out, F: Fn(In) -> Out> From<F> for FnTransform<F, In, Out> {
+    fn from(f: F) -> Self {
+        FnTransform { f, _in: PhantomData, _out: PhantomData }
+    }
+}
+
+impl<In, Out, F> Config for FnTransform<F, In, Out>
+where In: Send + Sync, Out: Send + Sync, F: Send + Sync 
+{
+    fn config(&self) -> String {
+        "".to_string()
+    }
+    fn load_config(&mut self, _config: &str) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl<In, Out, F> Transform for FnTransform<F, In, Out>
+where F: Send + Sync + Fn(In) -> Out + Clone, In: Send + Sync + Clone, Out: Send + Sync + Clone {
+    type In = In;
+    type Out = Out;
+    fn transform(&self, data: Self::In) -> Self::Out {
+        let f = &self.f;
+        f(data)
     }
 }
 
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Normalize {
-    mu: f32,
-    range: f32,
+    pub mu: f32,
+    pub range: f32,
 }
 
 impl Default for Normalize {
@@ -61,23 +104,10 @@ impl Default for Normalize {
     }
 }
 
-impl UI for Normalize {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.group(|ui| {
-            ui.label("Normalize transform params");
-            ui.vertical(|ui| {
-                ui.label("mu");
-                ui.add(egui::DragValue::new(&mut self.mu).speed(0.01));
-                ui.label("range");
-                ui.add(egui::DragValue::new(&mut self.range).speed(0.01));
-            });
-        });
-    }
-}
-
 impl Transform for Normalize {
-    type DataPoint = ImageDataPoint;
-    fn transform(&self, mut data: Self::DataPoint) -> Self::DataPoint {
+    type In = data::Image;
+    type Out = data::Image;
+    fn transform(&self, mut data: Self::In) -> Self::Out {
         let mut min = data.image[[0, 0, 0, 0]];
         let mut max = data.image[[0, 0, 0, 0]];
         data.image.for_each(|x| {
@@ -93,7 +123,6 @@ impl Transform for Normalize {
     }
 }
 
-use tch::Tensor;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BasicImAugumentation {
@@ -112,4 +141,17 @@ impl Default for BasicImAugumentation {
     fn default() -> Self {
         Self { flip: true, crop: 4, cutout: 8 }
     }
+}
+
+#[test]
+fn test_transform_fn() {
+    let t1 = |x: u32| (x * 2) as usize;
+    let t2 = |x: usize| x as f32 / 2.0;
+
+    let t1: FnTransform<_, _, _> = t1.into();
+    let t2: FnTransform<_, _, _> = t2.into();
+    let t2 = t1.compose(t2);
+
+    let h = t2.transform(1);
+    assert!(h == 1.0);
 }
