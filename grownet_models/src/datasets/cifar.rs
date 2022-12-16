@@ -5,11 +5,9 @@ use rand::seq::SliceRandom;
 use ndarray::prelude::*;
 use serde::{Serialize, Deserialize};
 use anyhow::{Result, Error, Context};
-use bevy_egui::egui;
 
-use crate::UI;
 use super::{Dataset, DatasetBuilder};
-use super::{ImageDataPoint, ImClassifyDataPoint};
+use super::data::{ImClassify, Image};
 
 /// A struct containing image data, where all images are are the same size
 /// and stored contiguously next to each other
@@ -42,7 +40,7 @@ impl ContiguousStaticImage {
         self.images.reserve_exact(images * self.offset);
     }
 
-    pub fn index(&self, indices: &[usize]) -> ImageDataPoint {
+    pub fn index(&self, indices: &[usize]) -> Image {
         let buf_sz = indices.len() * self.offset;
         let mut buf = Vec::<f32>::new();
         buf.reserve_exact(buf_sz);
@@ -54,7 +52,7 @@ impl ContiguousStaticImage {
         }
 
         let arr = Array::from_shape_vec((indices.len(), self.width, self.height, 3), buf).unwrap();
-        ImageDataPoint { image: arr }
+        Image { image: arr }
     }
 }
 
@@ -64,23 +62,6 @@ pub struct Cifar10Params {
     path: path::PathBuf,
     train_batch_size: usize,
     test_batch_size: usize,
-}
-
-impl UI for Cifar10Params {
-    fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
-        ui.group(|ui| {
-            ui.vertical(|ui| {
-                let mut path_str = self.path.to_str().unwrap().to_owned();
-                ui.label("Cifar10 Parameters");
-                ui.text_edit_singleline(&mut path_str);
-                ui.label("train batch size");
-                ui.add(egui::DragValue::new(&mut self.train_batch_size));
-                ui.label("test batch size");
-                ui.add(egui::DragValue::new(&mut self.test_batch_size));
-                self.path = path_str.into();
-            });
-        });
-    }
 }
 
 impl DatasetBuilder for Cifar10Params {
@@ -170,8 +151,9 @@ impl Cifar10 {
     }
 }
 
+
 impl Dataset for Cifar10 {
-    type DataPoint = ImClassifyDataPoint;
+    type DataPoint = ImClassify;
 
     fn next(&mut self) -> Option<Self::DataPoint> {
         // batch size stride greater than the number of elements
@@ -183,7 +165,7 @@ impl Dataset for Cifar10 {
         let labels = (self.idx..self.batch_size + self.idx).map(|x| self.labels[self.shuffle[x]]).collect();
         self.idx += self.batch_size;
 
-        let img = ImClassifyDataPoint { image: img_datapoint, label: labels };
+        let img = ImClassify { image: img_datapoint, label: labels };
         Some(img)
     }
 

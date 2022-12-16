@@ -2,17 +2,13 @@ use std::{path::PathBuf, str::FromStr};
 use rand::seq::SliceRandom;
 
 use ndarray::prelude::*;
-use bevy_egui::egui;
-use itertools::Itertools;
 use serde::{Serialize, Deserialize};
 use image::io::Reader as ImageReader;
 use anyhow::{Context, Result, Error};
 
-
-use crate::UI;
 use super::{Dataset, DatasetBuilder};
-use super::{ImageDataPoint, ImClassifyDataPoint};
-
+use super::data::ImClassify;
+use crate::ops;
 
 /// Main configuration parameters for Mnist
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -20,23 +16,6 @@ pub struct MnistParams {
     path: PathBuf,
     train_batch_size: usize,
     test_batch_size: usize,
-}
-
-impl UI for MnistParams {
-    fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
-        ui.group(|ui| {
-            ui.vertical(|ui| {
-                let mut path_str = self.path.to_str().unwrap().to_owned();
-                ui.label("Cifar10 Parameters");
-                ui.text_edit_singleline(&mut path_str);
-                ui.label("train batch size");
-                ui.add(egui::DragValue::new(&mut self.train_batch_size));
-                ui.label("test batch size");
-                ui.add(egui::DragValue::new(&mut self.test_batch_size));
-                self.path = path_str.into();
-            });
-        });
-    }
 }
 
 impl DatasetBuilder for MnistParams {
@@ -56,7 +35,6 @@ impl DatasetBuilder for MnistParams {
         Some(MnistParams::build_test(self))
     }
 }
-
 
 impl MnistParams {
     fn read_subdirs(dir: &PathBuf) -> Result<Vec<(u32, PathBuf)>, Error> {
@@ -82,9 +60,9 @@ impl MnistParams {
         let mut test = ImClassifyData::new();
         test.push_raw(test_paths.iter().cloned());
 
-        let order = 0..test.labels.len();
+        let order = (0..test.labels.len()).collect();
         
-        let x = Mnist { data: test, shuffle: order.collect_vec(), idx: 0, batch_size: self.test_batch_size };        
+        let x = Mnist { data: test, shuffle: order, idx: 0, batch_size: self.test_batch_size };        
         Ok(x)
     }
 
@@ -97,9 +75,9 @@ impl MnistParams {
         let mut train = ImClassifyData::new();
         train.push_raw(train_paths.iter().cloned());
         
-        let order = 0..train.labels.len();
+        let order = (0..train.labels.len()).collect();
 
-        let x = Mnist { data: train, shuffle: order.collect_vec(), idx: 0, batch_size: self.train_batch_size };
+        let x = Mnist { data: train, shuffle: order, idx: 0, batch_size: self.train_batch_size };
         Ok(x)
     }
 }
@@ -112,7 +90,7 @@ pub struct Mnist {
 }
 
 impl Dataset for Mnist {
-    type DataPoint = ImClassifyDataPoint;
+    type DataPoint = ImClassify;
     fn next(&mut self) -> Option<Self::DataPoint> {
         // batch size stride greater than the number of elements
         if self.idx + self.batch_size >= self.shuffle.len() {
@@ -121,11 +99,11 @@ impl Dataset for Mnist {
         let img_slice: Vec<_> = (self.idx..self.batch_size + self.idx).map(|x| {
             &self.data.data[self.shuffle[x]]
         }).collect();
-        let img = super::concat_im_size_eq(&img_slice);
+        let img = ops::concat_im_size_eq(&img_slice);
         let labels = (self.idx..self.batch_size + self.idx).map(|x| self.data.labels[self.shuffle[x]]).collect();
         self.idx += self.batch_size;
 
-        let img = ImClassifyDataPoint { image: img, label: labels };
+        let img = ImClassify { image: img, label: labels };
         Some(img)
     }
     fn shuffle(&mut self) {
@@ -159,37 +137,5 @@ impl ImClassifyData {
             self.data.push(arr);
             self.labels.push(l);
         }
-    }
-}
-
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    
-    #[test]
-    fn permute_axes() {
-        use ndarray_rand::{RandomExt, rand_distr::Normal, rand_distr::Uniform};
-    
-        use rand::{thread_rng};
-        use rand_distr::Distribution;
-    
-        let h: Array<f32, _> = Array::random((3, 4, 4), Normal::new(0.0, 1.0).unwrap());
-        let p = h.clone().permuted_axes((1, 2, 0));
-        let p = p.as_standard_layout();
-    
-        let k = h.as_slice().unwrap().iter().zip(p.as_slice().unwrap().iter())
-            .all(|(a, b)| a == b);
-        println!("{}", k);
-        let hp = h.permuted_axes((1, 2, 0));
-        let r = hp.iter().zip(p.as_slice().unwrap().iter())
-        .all(|(a, b)| a == b);
-        println!("{}", r);
-    }
-
-    #[test]
-    fn slice() {
-        let h = Array4::<f32>::ones((4, 3, 512, 512));
-        let _p = h.slice(s![0, .., .., ..]);
     }
 }

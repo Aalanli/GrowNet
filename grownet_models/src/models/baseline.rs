@@ -47,6 +47,10 @@ fn learning_rate(epoch: i64) -> f64 {
 }
 
 
+pub struct BaselineParams<Opt> {
+    opt_params: Opt,
+    
+}
 
 fn train_loop() -> Result<()> {
     let m = tch::vision::cifar::load_dir("data")?;

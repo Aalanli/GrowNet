@@ -38,10 +38,14 @@ pub trait DataTransforms: Param {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 /// The Data types that the datasets output and transforms input.
+
+/// Expect images to be normalized between [0, 1] and has a shape of NWHC
 #[derive(Clone)]
 pub struct ImageDataPoint {
     pub image: Array4<f32>
 }
+
+
 
 /// The data point associated with the image detection task, this is the type which
 /// gets fed into the model

@@ -2079,6 +2079,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "crossbeam",
+ "image 0.24.5",
  "ndarray",
  "ndarray-rand",
  "num",

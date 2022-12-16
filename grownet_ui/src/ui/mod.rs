@@ -17,6 +17,7 @@ use crate::{Param, Config, UI};
 
 /// Defines everything that gets the dataset viewer to work
 pub mod data_ui;
+pub mod train_ui;
 pub use data_ui::DatasetUI;
 
 /// The ui plugin, the entry point for the ui

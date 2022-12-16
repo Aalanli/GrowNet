@@ -1,5 +1,8 @@
+use tch::Tensor;
+use anyhow::{Result, Error};
 use ndarray::prelude::*;
 use num::Float;
+use crate::datasets::data::*;
 
 const EPSILON: f32 = 1e-5;
 
@@ -60,6 +63,47 @@ pub fn drelu(x: f32) -> f32 {
 fn maximum<T: Float, D: Dimension>(a: &ArrayView<T, D>) -> T {
     a.fold(-T::max_value(), |a, b| a.max((*b).abs()))
 }
+
+/// Converts an image tensor NCWH to an image array of shape NWHC
+pub fn convert_image_tensor(t: &Tensor) -> Result<Array<f32, Ix4>> {
+    let dims: Vec<_> = t.size().iter().map(|x| *x as usize).collect();
+    if dims.len() != 4 || dims[1] != 3 {
+        return Err(Error::msg("tensor shape, expect NCWH"));
+    }
+    let t = t.to_device(tch::Device::Cpu).to_dtype(tch::Kind::Float, false, true);
+    // convert to channels last
+    let t = t.permute(&[0, 2, 3, 1]);
+    let ptr = t.as_ptr() as *const f32;
+    let arr = unsafe{ ArrayView4::<f32>::from_shape_ptr((dims[0], dims[1], dims[2], dims[3]), ptr).to_owned() };
+    Ok(arr)
+}
+
+/// user must ensure that internal type of tensor match T
+pub unsafe fn ts_to_vec<T: Clone>(t: &Tensor) -> Vec<T> {
+    let t = t.to_device(tch::Device::Cpu);
+    let len = t.size().iter().fold(1, |x, y| x * y) as usize;
+    let ptr = t.as_ptr() as *const T;
+    
+    let s = &*std::ptr::slice_from_raw_parts(ptr, len);
+    s.to_vec()
+}
+
+
+/// Assumes that all the 3d arrays have the same size, this function
+/// stacks all the images in the first dimension. [W, H, C] -> [B, W, H, C]
+pub fn concat_im_size_eq(imgs: &[&Array3<f32>]) -> Image {
+    let whc = imgs[0].dim();
+    let b = imgs.len();
+    let mut img = Array4::<f32>::zeros((b, whc.0, whc.1, whc.2));
+    for i in 0..b {
+        let mut smut = img.slice_mut(s![i, .., .., ..]);
+        smut.zip_mut_with(imgs[i], |a, b| {
+            *a = *b;
+        });
+    }
+    Image { image: img }
+}
+
 
 #[test]
 fn normalize_grad() {
