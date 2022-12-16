@@ -3,9 +3,12 @@ use std::path;
 use rand::seq::SliceRandom;
 
 use ndarray::prelude::*;
+use serde::de::DeserializeOwned;
 use serde::{Serialize, Deserialize};
 use anyhow::{Result, Error, Context};
 
+use super::Config;
+use super::transforms::Transform;
 use super::{Dataset, DatasetBuilder};
 use super::data::{ImClassify, Image};
 
@@ -56,15 +59,39 @@ impl ContiguousStaticImage {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct Test<T> {
+    t: T
+}
 // main parameters driving the cifar10 dataset
-#[derive(Debug, Serialize, Deserialize, Default)]
-pub struct Cifar10Params {
+#[derive(Debug, Default)]
+pub struct Cifar10Params<T> {
     pub path: path::PathBuf,
     pub train_batch_size: usize,
     pub test_batch_size: usize,
+    pub transform: T
 }
 
-impl DatasetBuilder for Cifar10Params {
+impl<T: Transform> Config for Cifar10Params<T> {
+    fn config(&self) -> String {
+        let c = (self.path.to_str().unwrap(), 
+            ron::to_string(&self.train_batch_size).unwrap(), 
+            ron::to_string(&self.test_batch_size).unwrap(),
+            self.transform.config());
+        ron::to_string(&c).unwrap()
+    }
+
+    fn load_config(&mut self, config: &str) -> Result<()> {
+        let c: (String, String, String, String) = ron::from_str(config)?;
+        self.path = c.0.into();
+        self.train_batch_size = ron::from_str(&c.1)?;
+        self.test_batch_size = ron::from_str(&c.2)?;
+        self.transform.load_config(&c.3)?;
+        Ok(())
+    }
+}
+
+impl<T: Transform + Send + Sync> DatasetBuilder for Cifar10Params<T> {
     type Dataset = Cifar10;
 
     fn build_train(&self) -> anyhow::Result<Self::Dataset> {

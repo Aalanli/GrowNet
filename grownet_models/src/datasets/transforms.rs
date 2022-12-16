@@ -4,6 +4,7 @@ use serde::{Serialize, de::DeserializeOwned, Deserialize};
 use anyhow::{Result, Context};
 use tch::Tensor;
 
+use crate::ops;
 use crate::Config;
 use super::data;
 
@@ -13,6 +14,54 @@ pub trait Transform: Config + Sized + Clone {
     fn transform(&self, data: Self::In) -> Self::Out;
     fn compose<T: Transform<In = Self::Out>>(self, t: T) -> Compose<Self, T> {
         Compose { t1: self, t2: t }
+    }
+}
+
+#[derive(Clone)]
+pub struct Concat<T1, T2, F, O> {
+    pub t1: T1,
+    pub t2: T2,
+    pub f: F,
+    _out: PhantomData<O>
+}
+
+impl<T1, T2, F, O> Concat<T1, T2, F, O>
+where T1: Transform, T2: Transform, F: Fn(&T1, &T2, T1::In) -> O + Send + Sync + Clone,
+    O: Send + Sync + Clone
+{
+    pub fn new(t1: T1, t2: T2, f: F) -> Self {
+        Self { t1, t2, f, _out: PhantomData }
+    }
+}
+
+impl<T1, T2, F, O> Config for Concat<T1, T2, F, O>
+where T1: Transform, T2: Transform, F: Fn(&T1, &T2, T1::In) -> O + Send + Sync + Clone,
+    O: Send + Sync + Clone
+{
+    fn config(&self) -> String {
+        let pre = self.t1.config();
+        let post = self.t2.config();
+        ron::to_string(&(pre, post)).unwrap()
+    }
+
+    fn load_config(&mut self, config: &str) -> Result<()> {
+        let (pre, post): (String, String) = ron::from_str(config)?;
+        self.t1.load_config(&pre)?;
+        self.t2.load_config(&post)?;
+        Ok(())
+    }
+}
+
+impl<T1, T2, F, O> Transform for Concat<T1, T2, F, O>
+where T1: Transform, T2: Transform, F: Fn(&T1, &T2, T1::In) -> O + Send + Sync + Clone,
+    O: Send + Sync + Clone
+{
+    type In = T1::In;
+    type Out = O;
+    fn transform(&self, data: Self::In) -> Self::Out {
+        let f = &self.f;
+        let x = f(&self.t1, &self.t2, data);
+        x
     }
 }
 
@@ -59,7 +108,7 @@ pub struct FnTransform<F, In, Out> {
 
 impl<F1, In1, Out1> FnTransform<F1, In1, Out1>
 {
-    fn new<In, Out>(f: impl Fn(In) -> Out) -> FnTransform<impl Fn(In) -> Out, In, Out> {
+    pub fn new<In, Out>(f: impl Fn(In) -> Out) -> FnTransform<impl Fn(In) -> Out, In, Out> {
         FnTransform { f, _in: PhantomData, _out: PhantomData }
     } 
 }
@@ -142,6 +191,20 @@ impl Default for BasicImAugumentation {
         Self { flip: true, crop: 4, cutout: 8 }
     }
 }
+
+impl Transform for BasicImAugumentation {
+    type In = data::Image;
+    type Out = data::Image;
+    fn transform(&self, data: Self::In) -> Self::Out {
+        let ts = ops::convert_image_array(&data.image.view()).unwrap();
+        let ts = self.transform(&ts);
+        let im = ops::convert_image_tensor(&ts).unwrap();
+        data::Image { image: im }
+    }
+}
+
+
+
 
 #[test]
 fn test_transform_fn() {

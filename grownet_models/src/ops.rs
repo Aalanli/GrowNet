@@ -78,6 +78,13 @@ pub fn convert_image_tensor(t: &Tensor) -> Result<Array<f32, Ix4>> {
     Ok(arr)
 }
 
+pub fn convert_image_array(a: &ArrayView4<f32>) -> Result<Tensor> {
+    let slice = if let Some(a) = a.as_slice() {a} else {return Err(Error::msg("array should be contiguous"));};
+    let dim = a.dim();
+    let ts = Tensor::of_slice(slice).reshape(&[dim.0 as i64, dim.1 as i64, dim.2 as i64, dim.3 as i64]);
+    Ok(ts)
+}
+
 /// user must ensure that internal type of tensor match T
 pub unsafe fn ts_to_vec<T: Clone>(t: &Tensor) -> Vec<T> {
     let t = t.to_device(tch::Device::Cpu);

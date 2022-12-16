@@ -4,7 +4,7 @@ use anyhow::Result;
 use bevy_egui::egui;
 
 use crate::UI;
-use model_lib::datasets;
+use model_lib::{datasets, Config};
 use datasets::transforms::Transform;
 
 impl UI for datasets::mnist::MnistParams {
@@ -24,7 +24,7 @@ impl UI for datasets::mnist::MnistParams {
     }
 }
 
-impl UI for datasets::cifar::Cifar10Params {
+impl<T: Transform + UI> UI for datasets::cifar::Cifar10Params<T> {
     fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
         ui.group(|ui| {
             ui.vertical(|ui| {
@@ -35,6 +35,8 @@ impl UI for datasets::cifar::Cifar10Params {
                 ui.add(egui::DragValue::new(&mut self.train_batch_size));
                 ui.label("test batch size");
                 ui.add(egui::DragValue::new(&mut self.test_batch_size));
+                ui.label("transform params");
+                self.transform.ui(ui);
                 self.path = path_str.into();
             });
         });
@@ -79,6 +81,16 @@ where F: Send + Sync, In: Send + Sync, Out: Send + Sync
 
 impl<T1, T2> UI for datasets::transforms::Compose<T1, T2>
 where T1: Transform + UI, T2: Transform + UI
+{
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        self.t1.ui(ui);
+        self.t2.ui(ui);
+    }
+}
+
+impl<T1, T2, F, O> UI for datasets::transforms::Concat<T1, T2, F, O>
+where T1: Transform + UI, T2: Transform + UI, F: Fn(&T1, &T2, T1::In) -> O + Send + Sync + Clone,
+    O: Send + Sync + Clone
 {
     fn ui(&mut self, ui: &mut egui::Ui) {
         self.t1.ui(ui);
