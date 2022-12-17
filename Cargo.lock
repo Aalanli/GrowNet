@@ -2074,11 +2074,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "grownet_macros"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "proc-macro2",
+ "quote",
+ "ron 0.8.0",
+ "serde",
+ "syn",
+]
+
+[[package]]
 name = "grownet_models"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "crossbeam",
+ "grownet_macros",
  "image 0.24.5",
  "ndarray",
  "ndarray-rand",

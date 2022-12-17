@@ -24,7 +24,7 @@ impl UI for datasets::mnist::MnistParams {
     }
 }
 
-impl<T: Transform + UI> UI for datasets::cifar::Cifar10Params<T> {
+impl UI for datasets::cifar::Cifar10Params {
     fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
         ui.group(|ui| {
             ui.vertical(|ui| {
@@ -36,7 +36,7 @@ impl<T: Transform + UI> UI for datasets::cifar::Cifar10Params<T> {
                 ui.label("test batch size");
                 ui.add(egui::DragValue::new(&mut self.test_batch_size));
                 ui.label("transform params");
-                self.transform.ui(ui);
+                //self.transform.ui(ui);
                 self.path = path_str.into();
             });
         });

@@ -26,3 +26,46 @@ impl<T: Serialize + DeserializeOwned + Send + Sync> Config for T {
         Ok(())
     }
 }
+
+use grownet_macros::{Test, Config};
+#[test]
+fn config_proc_macro_test() {
+    #[derive(Default, Config)]
+    struct Test {
+        a: datasets::transforms::Normalize,
+        b: datasets::transforms::Normalize
+    }
+
+    let t = Test::default();
+    println!("{}", t.config());
+}
+
+trait Test {
+    fn call(&self);
+}
+
+struct A {}
+impl Test for A {
+    fn call(&self) {
+        println!("A");
+    }
+}
+struct B {}
+impl Test for B {
+    fn call(&self) {
+        println!("B");
+    }
+}
+
+
+#[test]
+fn derive_test() {
+    #[derive(Test)]
+    struct C {
+        a: A,
+        b: B
+    }
+    
+    let c = C { a: A {}, b: B {}};
+    c.call();
+}

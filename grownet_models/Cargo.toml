@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 
 [dependencies]
+grownet_macros = { path = "../grownet_macros" }
 num = "0.4"
 ndarray = "0.15.6"
 ndarray-rand = "0.14.0"

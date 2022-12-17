@@ -3,6 +3,7 @@
 members = [
     "grownet_ui",
     "grownet_models",
+    "grownet_macros"
 ]
 
 resolver = "2"

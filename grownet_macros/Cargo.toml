@@ -1,0 +1,18 @@
+[package]
+name = "grownet_macros"
+version = "0.1.0"
+edition = "2021"
+
+
+[lib]
+name = "grownet_macros"
+path = "src/lib.rs"
+proc-macro = true
+
+[dependencies]
+syn = { version = "*", features = ["extra-traits"] }
+quote = "*"
+proc-macro2 = "*"
+anyhow = "1.0"
+serde = "1.0.147"
+ron = "0.8.0"

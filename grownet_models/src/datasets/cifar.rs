@@ -64,15 +64,14 @@ struct Test<T> {
     t: T
 }
 // main parameters driving the cifar10 dataset
-#[derive(Debug, Default)]
-pub struct Cifar10Params<T> {
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct Cifar10Params {
     pub path: path::PathBuf,
     pub train_batch_size: usize,
     pub test_batch_size: usize,
-    pub transform: T
 }
-
-impl<T: Transform> Config for Cifar10Params<T> {
+/*
+impl<T: Transform> Config for Cifar10Params {
     fn config(&self) -> String {
         let c = (self.path.to_str().unwrap(), 
             ron::to_string(&self.train_batch_size).unwrap(), 
@@ -90,8 +89,8 @@ impl<T: Transform> Config for Cifar10Params<T> {
         Ok(())
     }
 }
-
-impl<T: Transform + Send + Sync> DatasetBuilder for Cifar10Params<T> {
+*/
+impl DatasetBuilder for Cifar10Params {
     type Dataset = Cifar10;
 
     fn build_train(&self) -> anyhow::Result<Self::Dataset> {
