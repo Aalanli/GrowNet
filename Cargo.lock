@@ -2074,7 +2074,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "grownet_macros"
+name = "grownet_macro_core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2083,6 +2083,14 @@ dependencies = [
  "ron 0.8.0",
  "serde",
  "syn",
+]
+
+[[package]]
+name = "grownet_macros"
+version = "0.1.0"
+dependencies = [
+ "grownet_macro_core",
+ "proc-macro2",
 ]
 
 [[package]]

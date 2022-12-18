@@ -10,9 +10,5 @@ path = "src/lib.rs"
 proc-macro = true
 
 [dependencies]
-syn = { version = "*", features = ["extra-traits"] }
-quote = "*"
+grownet_macro_core = { path = "../grownet_macro_core" }
 proc-macro2 = "*"
-anyhow = "1.0"
-serde = "1.0.147"
-ron = "0.8.0"
