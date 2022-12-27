@@ -34,7 +34,7 @@ pub fn derive_test_macro(input: TokenStream) -> TokenStream {
 
 
 #[test]
-fn test_for_each_field() {
+pub fn test_for_each_field() {
     struct S {
         a: f32,
         b: f32,
