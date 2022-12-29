@@ -30,10 +30,18 @@ impl<T: Serialize + DeserializeOwned + Send + Sync> Config for T {
 use grownet_macros::{Config};
 #[test]
 fn config_proc_macro_test() {
-    #[derive(Default, Config)]
+    #[derive(Config)]
     struct Test {
-        a: datasets::transforms::Normalize,
-        b: datasets::transforms::Normalize
+        a: f32,
+        b: usize,
+        #[no_op]
+        c: fn(usize) -> usize
+    }
+
+    impl Default for Test {
+        fn default() -> Self {
+            Test { c: |x| x, a: 0.0, b: 1 }
+        }
     }
 
     let t = Test::default();
