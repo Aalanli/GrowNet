@@ -5,3 +5,8 @@ use grownet_macro_core as macros;
 pub fn derive_macro_config(input: TokenStream) -> TokenStream {
     macros::derive_macro_config(input.into()).unwrap().into()
 }
+
+#[proc_macro_derive(UI, attributes(no_op))]
+pub fn derive_macro_ui(input: TokenStream) -> TokenStream {
+    macros::derive_macro_ui(input.into()).unwrap().into()
+}

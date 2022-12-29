@@ -21,6 +21,22 @@ pub fn derive_macro_config(input: TokenStream) -> Result<TokenStream> {
     }
 }
 
+pub fn derive_macro_ui(input: TokenStream) -> Result<TokenStream> {
+    let DeriveInput {
+        ident,
+        data,
+        generics,
+        ..
+    } = parse2(input).unwrap();
+    
+    match data {
+        Struct(my_struct) => {
+            ui_derive::derive_macro_ui_named_struct_helper(ident, my_struct, generics).into()
+        },
+        _ => unimplemented!(),
+    }
+}
+
 /// Produces false if any field is annotated with #[no_op], true if there is no tag
 /// and panics otherwise (if there is multiple tags, or if the tag is not "no_op")
 fn filter_field_tag(field: &syn::Field) -> Result<bool> {
@@ -260,17 +276,135 @@ mod config_derive {
 
 mod ui_derive {
     use super::*;
-
+    pub fn derive_macro_ui_named_struct_helper(struct_name: Ident, s: DataStruct, generics: Generics) -> Result<TokenStream> {
+        let stripped_generics = strip_trait_bounds(&generics);
+        let where_clause = &generics.where_clause;
+    
+        match s.fields {
+            Fields::Named(fields) => {
+                let mut named_field_idents = Vec::new();
+                for f in fields.named.iter() {
+                    if filter_field_tag(f)? {
+                        named_field_idents.push(&f.ident);
+                    }
+                }
+                let tokens = quote!{
+                    impl #generics UI for #struct_name #stripped_generics
+                    #where_clause {
+                        fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
+                            ui.vertical(|ui| {
+                                #(ui.label(stringify!(#named_field_idents)); self.#named_field_idents.ui(ui);) *
+                            });
+                        }
+                    }
+                };
+                Ok(tokens)
+            }
+            Fields::Unnamed(fields) => {
+                let mut idx = Vec::new();
+                for (f, x) in fields.unnamed.iter().zip(0..) {
+                    if filter_field_tag(f)? {
+                        idx.push(x);
+                    }
+                }
+                let tokens = quote!{
+                    impl #generics UI for #struct_name #stripped_generics
+                    #where_clause {
+                        fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
+                            ui.vertical(|ui| {
+                                #(ui.label(stringify!(#idx)); self.#idx.ui(ui);) *
+                            });
+                        }
+                    }
+                
+                };
+                Ok(tokens)
+            }
+            Fields::Unit => {
+                Ok(quote!{
+                    impl #generics UI for #struct_name #stripped_generics
+                    #where_clause {
+                        fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {}
+                    }
+                })
+            }
+        }
+    }
+    
     #[test]
-    fn test_type_impl() {
-        let types = quote!(
+    fn test_ui() {
+        let tokens = quote!(
             struct T {
-                a: String
+                a: f32,
+                ts: Vec<usize>
             }
         );
+    
+        let impl_config = derive_macro_ui(tokens).unwrap();
+        let expected = quote!(
+            impl UI for T {
+                fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
+                    ui.vertical(|ui| {
+                        ui.label(stringify!(a));
+                        self.a.ui(ui);
+                        ui.label(stringify!(ts));
+                        self.ts.ui(ui);
+                    });
+                }
+            }
+        );
+        assert!(impl_config.to_string() == expected.to_string());
+    }
 
-        let derived = parse2::<DeriveInput>(types).unwrap();
-        
-        println!("{:#?}", derived);
+    #[test]
+    fn test_ui_generics() {
+        let tokens = quote!(
+            struct T<'a, S: Clone + Config, H: Config>
+            where H: Clone {
+                a: &(&'a S, H)
+            }
+        );
+    
+        let impl_config = derive_macro_ui(tokens).unwrap();
+        let expected = quote!(
+            impl<'a, S: Clone + Config, H: Config> UI for T<'a, S, H>
+            where H: Clone {
+                fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
+                    ui.vertical(|ui| {
+                        ui.label(stringify!(a));
+                        self.a.ui(ui);
+                    });
+                }
+            }
+        );
+        assert!(impl_config.to_string() == expected.to_string());
+    }
+
+    #[test]
+    fn test_ui_tags() {
+        let tokens = quote!(
+            struct T<'a, S: Clone + Config, H: Config>
+            where H: Clone {
+                a: &(&'a S, H),
+                #[no_op]
+                b: usize,
+                #[no_op]
+                c: usize,
+            }
+        );
+    
+        let impl_config = derive_macro_ui(tokens).unwrap();
+        let expected = quote!(
+            impl<'a, S: Clone + Config, H: Config> UI for T<'a, S, H>
+            where H: Clone {
+                fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
+                    ui.vertical(|ui| {
+                        ui.label(stringify!(a));
+                        self.a.ui(ui);
+                    });
+                }
+            }
+        );
+        assert!(impl_config.to_string() == expected.to_string());
     }
 }
