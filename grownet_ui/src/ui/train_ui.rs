@@ -7,12 +7,3 @@ pub enum Log {
 pub enum Commands {
     STOP
 }
-
-pub trait Trainer {
-    fn build(&mut self) -> (Sender<Commands>, Receiver<Log>);
-
-}
-
-pub struct TrainBaseline {
-    
-}

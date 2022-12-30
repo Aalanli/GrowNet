@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use anyhow::{Error, Result};
 
-use syn::{DeriveInput, Data::Struct, Fields, DataStruct, Ident, parse2, Generics};
+use syn::{DeriveInput, Data::Struct, Fields, DataStruct, Ident, parse2, Generics, WhereClause, Attribute, Type};
 
 
 pub fn derive_macro_config(input: TokenStream) -> Result<TokenStream> {
@@ -37,6 +37,17 @@ pub fn derive_macro_ui(input: TokenStream) -> Result<TokenStream> {
     }
 }
 
+fn filter_tag_no_op(field: &syn::Field) -> Vec<Attribute> {
+    field.attrs.iter().filter(|x| {
+        if let Some(ident) = x.path.get_ident() {
+            if ident.to_string() != "no_op".to_string() {
+                return true;
+            }
+        }
+        return false;
+    }).map(|x| x.clone()).collect()
+}
+
 /// Produces false if any field is annotated with #[no_op], true if there is no tag
 /// and panics otherwise (if there is multiple tags, or if the tag is not "no_op")
 fn filter_field_tag(field: &syn::Field) -> Result<bool> {
@@ -69,6 +80,62 @@ fn strip_trait_bounds(generics: &Generics) -> Generics {
         }
     }
     generics
+}
+
+struct BasicStructFields {
+    generics: Generics,
+    stripped_generics: Generics,
+    where_clause: Option<WhereClause>,
+    name: Ident,
+    fields: Vec<(String, Vec<Attribute>)>,
+    field_type: Vec<Type>
+}
+
+impl BasicStructFields {
+    fn new(derive: DeriveInput) -> Result<Self> {
+        let stripped_generics = strip_trait_bounds(&derive.generics);
+        let where_clause = derive.generics.where_clause.clone();
+        let (fields, field_type) = if let Struct(data) = derive.data {
+            match data.fields {
+                Fields::Named(fields) => {
+                    let mut named_field_idents = Vec::new();
+                    let mut field_type = Vec::new();
+                    for f in fields.named.iter() {
+                        let filtered_attrs = filter_tag_no_op(f);
+                        if filtered_attrs.len() == f.attrs.len() {
+                            if let Some(id) = &f.ident {
+                                named_field_idents.push((id.to_string(), filtered_attrs));
+                                field_type.push(f.ty.clone());
+                            }
+                        }
+                    }
+                    (named_field_idents, field_type)
+                }
+                Fields::Unnamed(fields) => {
+                    let mut idx = Vec::new();
+                    let mut types = Vec::new();
+                    for (f, x) in fields.unnamed.iter().zip(0..) {
+                        let filtered_attrs = filter_tag_no_op(f);
+                        if filtered_attrs.len() == f.attrs.len() {
+                            idx.push((x.to_string(), filtered_attrs));
+                            types.push(f.ty.clone());
+                        }
+                    }
+                    (idx, types)
+                }
+                Fields::Unit => {
+                    (Vec::new(), Vec::new())
+                }
+            }
+        } else {
+            return Err(Error::msg("expected data struct"));
+        };
+        Ok(Self { 
+            generics: derive.generics, 
+            stripped_generics, where_clause, 
+            name: derive.ident, 
+            fields, field_type })
+    }
 }
 
 mod config_derive {
@@ -247,16 +314,13 @@ mod config_derive {
         let tokens = quote!(
             struct T <'a, S: Copy>
             where S: Clone {
-                #[tag = 1]
+                #[tag = "1 + 2"]
                 a: f32,
-                b: f64,
-                ts: Vec<usize>,
-                d: &'a S
             }
         );
     
         let derive_input: DeriveInput = parse2(tokens).unwrap();
-        // println!("{:#?}", derive_input);
+        println!("{:#?}", derive_input);
         let generics = &derive_input.generics;
         let stripped_generics = strip_trait_bounds(&generics);
         let where_clause = &generics.where_clause;

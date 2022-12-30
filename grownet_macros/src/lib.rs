@@ -10,3 +10,8 @@ pub fn derive_macro_config(input: TokenStream) -> TokenStream {
 pub fn derive_macro_ui(input: TokenStream) -> TokenStream {
     macros::derive_macro_ui(input.into()).unwrap().into()
 }
+
+#[proc_macro]
+pub fn derive_ui(input: TokenStream) -> TokenStream {
+    macros::derive_macro_ui(input.into()).unwrap().into()
+}

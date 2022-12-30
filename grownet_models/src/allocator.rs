@@ -18,7 +18,13 @@ pub trait SimpleAllocator<T: Float> {
     fn clear(&mut self);
 }
 
-pub trait ArrayAllocOps<T: Float + LinalgScalar>: SimpleAllocator<T> {
+pub trait AllocOps<T: Float + LinalgScalar>: SimpleAllocator<T> {
+    fn fill<'a, D: Dimension, Sh: Into<StrideShape<D>>>(&'a self, dims: Sh, val: T) -> ArrayViewMut<'a, T, D> {
+        let mut a = self.alloc(dims);
+        a.iter_mut().for_each(|x| {*x = val;});
+        a
+    }
+
     fn alloc_dist<'a, D: Dimension, Sh: Into<StrideShape<D>>, F: Distribution<T>>(&'a self, dims: Sh, dist: F) -> ArrayViewMut<'a, T, D> {
         let mut arr = self.alloc(dims);
         let mut rng = thread_rng();
@@ -56,7 +62,7 @@ pub trait ArrayAllocOps<T: Float + LinalgScalar>: SimpleAllocator<T> {
     }
 }
 
-impl<F: Float + LinalgScalar, T: SimpleAllocator<F>> ArrayAllocOps<F> for T {}
+impl<F: Float + LinalgScalar, T: SimpleAllocator<F>> AllocOps<F> for T {}
 
 
 /// Allocates Arrays all packed contiguously, of the same dimension.
@@ -71,7 +77,6 @@ impl<F: Float + LinalgScalar, T: SimpleAllocator<F>> ArrayAllocOps<F> for T {}
 /// owns the data, it cannot be clonable
 pub struct ArrayAllocator<T> {
     ptr: NonNull<T>,
-    offsets: Vec<usize>,
     len: usize,
     cap: usize,
     _marker: PhantomData<T>
@@ -83,7 +88,6 @@ impl<T> ArrayAllocator<T> {
         assert!(mem::size_of::<T>() != 0, "We're not ready to handle ZSTs");
         Self { 
             ptr: NonNull::dangling(), 
-            offsets: Vec::new(),
             len: 0, cap: 0,
             _marker: PhantomData 
         }
@@ -148,6 +152,7 @@ impl<T: Float> SimpleAllocator<T> for ArrayAllocator<T> {
     }
 }
 
+/* Fancy Allocator current too complex, disfavoring it for something simpler
 mod fancy_allocator {
     use super::*;
 
@@ -553,7 +558,7 @@ mod fancy_allocator {
     }
 
 }
-
+*/
 
 impl<T> Drop for ArrayAllocator<T> {
     fn drop(&mut self) {

@@ -4,6 +4,8 @@
 use anyhow::Result;
 use tch::nn::{FuncT, ModuleT, OptimizerConfig, SequentialT};
 use tch::{nn, Device};
+use derivative::Derivative;
+use serde::{Serialize, Deserialize};
 
 fn conv_bn(vs: &nn::Path, c_in: i64, c_out: i64) -> SequentialT {
     let conv2d_cfg = nn::ConvConfig { padding: 1, bias: false, ..Default::default() };
@@ -46,10 +48,22 @@ fn learning_rate(epoch: i64) -> f64 {
     }
 }
 
+#[derive(Derivative, Serialize, Deserialize, Clone, Debug)]
+#[derivative(Default)]
+pub struct SGD {
+    #[derivative(Default(value="0.9"))]
+    momentum: f32,
+    #[derivative(Default(value="0.0"))]
+    dampening: f32,
+    #[derivative(Default(value="5e-4"))]
+    wd: f32,
+    #[derivative(Default(value="true"))]
+    nesterov: bool 
+}
 
-pub struct BaselineParams<Opt> {
-    opt_params: Opt,
-    
+#[derive(Debug, Clone)]
+pub struct BaselineParams {
+    sgd: SGD,
 }
 
 fn train_loop() -> Result<()> {
