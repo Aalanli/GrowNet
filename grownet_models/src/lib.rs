@@ -27,10 +27,10 @@ impl<T: Serialize + DeserializeOwned + Send + Sync> Config for T {
     }
 }
 
-use grownet_macros::{Config};
+use grownet_macros::Config as ConfigMacro;
 #[test]
 fn config_proc_macro_test() {
-    #[derive(Config)]
+    #[derive(ConfigMacro)]
     struct Test {
         a: f32,
         b: usize,

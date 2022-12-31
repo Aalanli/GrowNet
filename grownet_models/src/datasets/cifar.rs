@@ -8,7 +8,7 @@ use serde::{Serialize, Deserialize};
 use anyhow::{Result, Error, Context};
 
 use super::Config;
-use super::transforms::Transform;
+use super::Transform;
 use super::{Dataset, DatasetBuilder};
 use super::data::{ImClassify, Image};
 
