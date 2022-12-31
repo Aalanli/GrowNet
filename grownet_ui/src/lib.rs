@@ -50,6 +50,14 @@ impl UI for String {
     }
 }
 
+impl UI for std::path::PathBuf {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        let mut str = self.to_str().unwrap().to_string();
+        ui.text_edit_singleline(&mut str);
+        *self = str.into();
+    }
+}
+
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct DragConfig<T> {

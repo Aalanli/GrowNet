@@ -47,6 +47,7 @@ pub fn derive_macro_ui(input: TokenStream) -> Result<TokenStream> {
         #where_clause {
             fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
                 ui.vertical(|ui| {
+                    ui.label(stringify!(#struct_name));
                     #(ui.label(stringify!(#named_field_idents)); self.#named_field_idents.ui(ui);) *
                 });
             }

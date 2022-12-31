@@ -1,72 +1,40 @@
-/// Defining the config adjustment through the ui
-use ndarray::prelude::*;
-use anyhow::Result;
-use bevy_egui::egui;
-
 use crate::UI;
+use grownet_macros::derive_ui;
 use model_lib::{datasets, Config};
 use datasets::Transform;
 
-impl UI for datasets::mnist::MnistParams {
-    fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
-        ui.group(|ui| {
-            ui.vertical(|ui| {
-                let mut path_str = self.path.to_str().unwrap().to_owned();
-                ui.label("Cifar10 Parameters");
-                ui.text_edit_singleline(&mut path_str);
-                ui.label("train batch size");
-                ui.add(egui::DragValue::new(&mut self.train_batch_size));
-                ui.label("test batch size");
-                ui.add(egui::DragValue::new(&mut self.test_batch_size));
-                self.path = path_str.into();
-            });
-        });
+use datasets::mnist::MnistParams;
+derive_ui!(
+    struct MnistParams {
+        pub path: PathBuf,
+        pub train_batch_size: usize,
+        pub test_batch_size: usize,
     }
-}
+);
 
-impl UI for datasets::cifar::Cifar10Params {
-    fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
-        ui.group(|ui| {
-            ui.vertical(|ui| {
-                let mut path_str = self.path.to_str().unwrap().to_owned();
-                ui.label("Cifar10 Parameters");
-                ui.text_edit_singleline(&mut path_str);
-                ui.label("train batch size");
-                ui.add(egui::DragValue::new(&mut self.train_batch_size));
-                ui.label("test batch size");
-                ui.add(egui::DragValue::new(&mut self.test_batch_size));
-                ui.label("transform params");
-                //self.transform.ui(ui);
-                self.path = path_str.into();
-            });
-        });
+use datasets::cifar::Cifar10Params;
+derive_ui!(
+    pub struct Cifar10Params {
+        pub path: path::PathBuf,
+        pub train_batch_size: usize,
+        pub test_batch_size: usize,
     }
-}
+);
 
-impl UI for datasets::transforms::Normalize {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.group(|ui| {
-            ui.label("Normalize transform params");
-            ui.vertical(|ui| {
-                ui.label("mu");
-                ui.add(egui::DragValue::new(&mut self.mu).speed(0.01));
-                ui.label("range");
-                ui.add(egui::DragValue::new(&mut self.range).speed(0.01));
-            });
-        });
+use datasets::transforms::Normalize;
+derive_ui!(
+    pub struct Normalize {
+        pub mu: f32,
+        pub range: f32,
     }
-}
+);
 
-impl UI for datasets::transforms::BasicImAugumentation {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.group(|ui| {
-            ui.vertical(|ui| {
-                ui.checkbox(&mut self.flip, "flip");
-                ui.label("crop");
-                ui.add(egui::DragValue::new(&mut self.crop));
-                ui.label("cutout");
-                ui.add(egui::DragValue::new(&mut self.cutout));                
-            });
-        });
+use datasets::transforms::BasicImAugumentation;
+derive_ui!(
+    pub struct BasicImAugumentation {
+        pub flip: bool,
+        pub crop: i64,
+        pub cutout: i64,
     }
-}
+);
+

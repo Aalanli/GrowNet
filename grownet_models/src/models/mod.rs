@@ -2,7 +2,7 @@ use crate::Config;
 use crossbeam::channel::{Sender, Receiver};
 use std::thread::{JoinHandle, spawn};
 
-mod baseline;
+pub mod baseline;
 mod m1;
 mod m2;
 

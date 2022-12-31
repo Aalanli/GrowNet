@@ -8,7 +8,6 @@ use bevy_egui::EguiPlugin;
 
 use grownet_lib as lib;
 use lib::ui;
-use model_lib::datasets::Transform;
 
 /// the path at which the user config files are stored
 const ROOT_PATH: &str = "assets/config";
@@ -43,11 +42,9 @@ fn setup_ui(mut commands: Commands) {
 
 fn setup_dataset_ui(mut commands: Commands) {
     use model_lib::datasets as data;
-    use data::transforms;
 
     let mut dataset_ui = ui::DatasetUI::default();
-    
-    
+        
     let cifar10 = data::cifar::Cifar10Params::default();
     let cifar_viewer = ui::data_ui::ClassificationViewer::new(cifar10);
     dataset_ui.push_viewer(cifar_viewer, "cifar10");
