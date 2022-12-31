@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use bevy::prelude::*;
 use bevy_egui::egui;
 use itertools::Itertools;
@@ -69,13 +71,17 @@ pub trait Viewer: Config + UI {
 
 /// Viewer for the Classification dataset type
 pub struct ClassificationViewer<D: DatasetBuilder> {
-    train_data: Option<D::Dataset>,
-    test_data: Option<D::Dataset>,
+    train_data: Option<Mutex<D::Dataset>>,
+    test_data: Option<Mutex<D::Dataset>>,
     params: D,
     train_texture: Option<Vec<egui::TextureHandle>>,
     test_texture: Option<Vec<egui::TextureHandle>>,
     im_scale: f32
 }
+
+unsafe impl<D: DatasetBuilder> Send for ClassificationViewer<D> {}
+unsafe impl<D: DatasetBuilder> Sync for ClassificationViewer<D> {}
+
 
 impl<D, B> ClassificationViewer<B>
 where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> {
@@ -83,8 +89,9 @@ where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> {
         Self { train_data: None, test_data: None, params: builder, train_texture: None, test_texture: None, im_scale: 1.0 }
     }
 
-    fn load_texture(data: &mut D, ui: &mut egui::Ui) -> Vec<egui::TextureHandle> {
+    fn load_texture(data: &mut Mutex<D>, ui: &mut egui::Ui) -> Vec<egui::TextureHandle> {
         use ndarray::Axis;
+        let data = &mut *data.lock().unwrap();
         let data_point = if let Some(x) = data.next() {
             x
         } else {
@@ -120,11 +127,13 @@ where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> {
         };
         // load the datasets if not loaded already
         if let None = self.train_data {
-            self.train_data = self.params.build_train().map_or_else(|e| err_ui(e, ui), |x| Some(x));
+            let train_data = self.params.build_train().map_or_else(|e| err_ui(e, ui), |x| Some(x));
+            self.train_data = train_data.map(|x| Mutex::new(x));
         }
         if let None = self.test_data {
             if let Some(x) = self.params.build_test() {
-                self.test_data = x.map_or_else(|e| err_ui(e, ui), |x| Some(x));
+                let test_data = x.map_or_else(|e| err_ui(e, ui), |x| Some(x));
+                self.test_data = test_data.map(|x| Mutex::new(x));
             }
         }
 
@@ -174,7 +183,7 @@ where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> +
                             }
                             if let Some(data) = &mut self.test_data {
                                 if ui.button("shuffle test").clicked() {
-                                    data.shuffle();
+                                    (*data.lock().unwrap()).shuffle();
                                 }
                             }
                             if ui.button("reset test").clicked() {
@@ -204,7 +213,7 @@ where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> +
                             }
                             if let Some(data) = &mut self.train_data {
                                 if ui.button("shuffle train").clicked() {
-                                    data.shuffle();
+                                    (*data.lock().unwrap()).shuffle();
                                 }
                             }
                             if ui.button("reset train").clicked() {
@@ -233,7 +242,7 @@ where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> +
 }
 
 impl<D, B> Config for ClassificationViewer<B>
-where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> + Sync + Send {
+where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> {
     fn config(&self) -> String {
         let self_params = ron::to_string(&self.im_scale).unwrap();
         let data_params = self.params.config();

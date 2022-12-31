@@ -8,7 +8,7 @@ use bevy_egui::EguiPlugin;
 
 use grownet_lib as lib;
 use lib::ui;
-use model_lib::datasets::transforms::Transform;
+use model_lib::datasets::Transform;
 
 /// the path at which the user config files are stored
 const ROOT_PATH: &str = "assets/config";
@@ -46,9 +46,6 @@ fn setup_dataset_ui(mut commands: Commands) {
     use data::transforms;
 
     let mut dataset_ui = ui::DatasetUI::default();
-
-    let simple_transform = transforms::Normalize::default()
-        .compose(transforms::BasicImAugumentation::default());
     
     
     let cifar10 = data::cifar::Cifar10Params::default();

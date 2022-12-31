@@ -5,7 +5,7 @@ use bevy_egui::egui;
 
 use crate::UI;
 use model_lib::{datasets, Config};
-use datasets::transforms::Transform;
+use datasets::Transform;
 
 impl UI for datasets::mnist::MnistParams {
     fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
@@ -68,32 +68,5 @@ impl UI for datasets::transforms::BasicImAugumentation {
                 ui.add(egui::DragValue::new(&mut self.cutout));                
             });
         });
-    }
-}
-
-impl<F, In, Out> UI for datasets::transforms::FnTransform<F, In, Out> 
-where F: Send + Sync, In: Send + Sync, Out: Send + Sync 
-{
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.label("stateless function");
-    }
-}
-
-impl<T1, T2> UI for datasets::transforms::Compose<T1, T2>
-where T1: Transform + UI, T2: Transform + UI
-{
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        self.t1.ui(ui);
-        self.t2.ui(ui);
-    }
-}
-
-impl<T1, T2, F, O> UI for datasets::transforms::Concat<T1, T2, F, O>
-where T1: Transform + UI, T2: Transform + UI, F: Fn(&T1, &T2, T1::In) -> O + Send + Sync + Clone,
-    O: Send + Sync + Clone
-{
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        self.t1.ui(ui);
-        self.t2.ui(ui);
     }
 }

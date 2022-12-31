@@ -1,11 +1,16 @@
+
 /// This code is taken from https://github.com/LaurentMazare/tch-rs/blob/main/examples/cifar/main.rs
 /// with minor adjustments
 
 use anyhow::Result;
+use crossbeam::channel::unbounded;
 use tch::nn::{FuncT, ModuleT, OptimizerConfig, SequentialT};
 use tch::{nn, Device};
 use derivative::Derivative;
 use serde::{Serialize, Deserialize};
+
+
+use super::{TrainProgress, Train, Log, TrainCommand};
 
 fn conv_bn(vs: &nn::Path, c_in: i64, c_out: i64) -> SequentialT {
     let conv2d_cfg = nn::ConvConfig { padding: 1, bias: false, ..Default::default() };
@@ -52,39 +57,82 @@ fn learning_rate(epoch: i64) -> f64 {
 #[derivative(Default)]
 pub struct SGD {
     #[derivative(Default(value="0.9"))]
-    momentum: f32,
+    pub momentum: f64,
     #[derivative(Default(value="0.0"))]
-    dampening: f32,
+    pub dampening: f64,
     #[derivative(Default(value="5e-4"))]
-    wd: f32,
+    pub wd: f64,
     #[derivative(Default(value="true"))]
-    nesterov: bool 
+    pub nesterov: bool 
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
+#[derivative(Default)]
+pub struct ImTransform {
+    #[derivative(Default(value="true"))]
+    pub flip: bool,
+    #[derivative(Default(value="4"))]
+    pub crop: i64,
+    #[derivative(Default(value="8"))]
+    pub cutout: i64
+}
+
+#[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
+#[derivative(Default)]
 pub struct BaselineParams {
-    sgd: SGD,
+    pub sgd: SGD,
+    pub transform: ImTransform,
+    #[derivative(Default(value="1.0"))]
+    pub lr: f64,
+    #[derivative(Default(value="100"))]
+    pub epochs: u32,
+    #[derivative(Default(value="4"))]
+    pub batch_size: u32,
+    pub data_path: String
 }
 
-fn train_loop() -> Result<()> {
-    let m = tch::vision::cifar::load_dir("data")?;
-    let vs = nn::VarStore::new(Device::cuda_if_available());
-    let net = fast_resnet(&vs.root());
-    let mut opt =
-        nn::Sgd { momentum: 0.9, dampening: 0., wd: 5e-4, nesterov: true }.build(&vs, 0.)?;
-    for epoch in 1..150 {
-        opt.set_lr(learning_rate(epoch));
-        for (bimages, blabels) in m.train_iter(64).shuffle().to_device(vs.device()) {
-            let bimages = tch::vision::dataset::augmentation(&bimages, true, 4, 8);
-            let loss = net.forward_t(&bimages, true).cross_entropy_for_logits(&blabels);
-            opt.backward_step(&loss);
-        }
-        let test_accuracy =
-            net.batch_accuracy_for_logits(&m.test_images, &m.test_labels, vs.device(), 512);
-        println!("epoch: {:4} test acc: {:5.2}%", epoch, 100. * test_accuracy,);
+impl Train for BaselineParams {
+    fn build(&self) -> TrainProgress {
+        let (command_sender, command_recv) = unbounded::<TrainCommand>();
+        let (log_sender, log_recv) = unbounded::<Log>();
+
+        let params = self.clone();
+        let handle = std::thread::spawn(move || {
+            let sender = log_sender;
+            let recv = command_recv;
+            let m = tch::vision::cifar::load_dir(params.data_path).unwrap();
+            let vs = nn::VarStore::new(Device::cuda_if_available());
+            let net = fast_resnet(&vs.root());
+            let mut opt =
+                nn::Sgd { momentum: params.sgd.momentum, 
+                          dampening: params.sgd.dampening, 
+                          wd: params.sgd.wd, 
+                          nesterov: params.sgd.nesterov }.build(&vs, params.lr).unwrap();
+            for epoch in 1..(params.epochs as i64) {
+                opt.set_lr(learning_rate(epoch));
+                for (bimages, blabels) in m.train_iter(params.batch_size as i64).shuffle().to_device(vs.device()) {
+                    let bimages = tch::vision::dataset::augmentation(&bimages, params.transform.flip, params.transform.crop, params.transform.cutout);
+                    let loss = net.forward_t(&bimages, true).cross_entropy_for_logits(&blabels);
+                    opt.backward_step(&loss);
+
+                    match recv.recv().unwrap() {
+                        TrainCommand::STOP => {
+                            return ();
+                        },
+                        _ => {}
+                    }
+                        
+                }
+                let test_accuracy =
+                net.batch_accuracy_for_logits(&m.test_images, &m.test_labels, vs.device(), 512);
+                sender.send(Log::PLOT("test accuracy".to_string(), epoch as f32, 100. * test_accuracy as f32)).unwrap();
+            }
+        });
+        
+        TrainProgress { send: command_sender, recv: log_recv, handle: handle }
     }
-    Ok(())
 }
+
 
 #[test]
 fn cifar_test() {
