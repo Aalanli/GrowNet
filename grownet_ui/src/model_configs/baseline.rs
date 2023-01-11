@@ -33,7 +33,7 @@ derive_ui!(
     }
 );
 
-use md::BaselineParams;
+pub use md::BaselineParams;
 derive_ui!(
     #[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
     #[derivative(Default)]

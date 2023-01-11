@@ -27,7 +27,7 @@ impl<T: Serialize + DeserializeOwned + Send + Sync> Config for T {
     }
 }
 
-use grownet_macros::Config as ConfigMacro;
+pub use grownet_macros::Config as ConfigMacro;
 #[test]
 fn config_proc_macro_test() {
     #[derive(ConfigMacro)]
