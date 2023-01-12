@@ -16,6 +16,7 @@ pub enum Log {
     PLOT(String, f32, f32), // key, x, y
 }
 
+
 pub struct TrainProgress {
     pub send: Sender<TrainCommand>,
     pub recv: Receiver<Log>,

@@ -135,7 +135,7 @@ pub struct UIParams {
 /// Menu involves only light ui tasks, while Trainer may involve some heavy compute, 
 /// (which may run on another thread), and rendering.
 #[derive(Clone, Eq, PartialEq, Debug, Hash)]
-enum State {
+pub enum AppState {
     Menu,
     Trainer
 }

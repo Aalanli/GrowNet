@@ -28,6 +28,7 @@ fn main() {
         //.add_plugin(WorldInspectorPlugin::new())
         .add_plugin(bevy_stl::StlPlugin)
         .add_system(bevy::window::close_when_requested)
+        .add_state(ui::AppState::Menu)
         .add_startup_system_to_stage(StartupStage::PreStartup, setup_ui)
         .add_startup_system_to_stage(StartupStage::PreStartup, setup_dataset_ui)
         .add_plugin(ui::UIPlugin)
