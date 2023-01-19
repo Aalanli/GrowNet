@@ -26,9 +26,19 @@ pub struct UIPlugin;
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app
+            .add_event::<train_ui::TrainInstance>()
             .add_startup_system_to_stage(StartupStage::Startup, setup_ui)
             .add_system(save_ui)
-            .add_system(menu_ui);
+            .add_state(AppState::Menu)
+            .add_system_set(
+                SystemSet::on_update(AppState::Menu)
+                    .with_system(menu_ui)   
+            )
+            .add_system(train_ui::handle_training)
+            .add_system_set(
+                SystemSet::on_enter(AppState::Trainer)
+                    .with_system(train_ui::training_system)   
+            );
     }
 }
 
@@ -36,6 +46,10 @@ fn menu_ui(
     mut egui_context: ResMut<EguiContext>,
     mut params: ResMut<UIParams>,
     mut dataset_state: ResMut<DatasetUI>,
+    mut train_state: ResMut<train_ui::TrainingUI>,
+    mut app_state: ResMut<State<AppState>>,
+    mut train_resource: ResMut<train_ui::TrainResource>,
+    logs: Res<train_ui::TrainLogs>,
 ) {
     
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
@@ -47,15 +61,20 @@ fn menu_ui(
             ui.selectable_value(&mut params.open_panel, OpenPanel::Models, "Models");
             ui.selectable_value(&mut params.open_panel, OpenPanel::Datasets, "Datasets");
             ui.selectable_value(&mut params.open_panel, OpenPanel::Misc, "Misc");
-            ui.selectable_value(&mut params.open_panel, OpenPanel::Train, "Train");
         });
         ui.separator();
 
         match params.open_panel {
-            OpenPanel::Models => {},
-            OpenPanel::Datasets => {dataset_state.ui(ui)},
-            OpenPanel::Misc     => {params.update_misc(ui)},
-            OpenPanel::Train => {},
+            OpenPanel::Models => { 
+                let training = train_state.ui(ui, &logs);
+                if let Some(run) = training {
+                    train_resource.add_run(run);
+                    app_state.set(AppState::Trainer).unwrap();
+                    
+                }
+            },
+            OpenPanel::Datasets => { dataset_state.ui(ui) },
+            OpenPanel::Misc     => { params.update_misc(ui) },
         }
     });
 }
@@ -146,7 +165,6 @@ enum OpenPanel {
     Models,
     Datasets,
     Misc,
-    Train
 }
 
 impl UIParams {

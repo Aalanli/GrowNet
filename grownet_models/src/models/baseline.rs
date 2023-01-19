@@ -10,7 +10,7 @@ use derivative::Derivative;
 use serde::{Serialize, Deserialize};
 
 
-use super::{TrainProgress, Train, Log, TrainCommand};
+use super::{TrainProcess, Train, Log, TrainCommand};
 
 fn conv_bn(vs: &nn::Path, c_in: i64, c_out: i64) -> SequentialT {
     let conv2d_cfg = nn::ConvConfig { padding: 1, bias: false, ..Default::default() };
@@ -92,7 +92,7 @@ pub struct BaselineParams {
 }
 
 impl Train for BaselineParams {
-    fn build(&self) -> TrainProgress {
+    fn build(&self) -> TrainProcess {
         let (command_sender, command_recv) = unbounded::<TrainCommand>();
         let (log_sender, log_recv) = unbounded::<Log>();
 
@@ -116,7 +116,7 @@ impl Train for BaselineParams {
                     opt.backward_step(&loss);
 
                     match recv.recv().unwrap() {
-                        TrainCommand::STOP => {
+                        TrainCommand::KILL => {
                             return ();
                         },
                         _ => {}
@@ -129,7 +129,7 @@ impl Train for BaselineParams {
             }
         });
         
-        TrainProgress { send: command_sender, recv: log_recv, handle: handle }
+        TrainProcess { send: command_sender, recv: log_recv, handle: handle }
     }
 }
 
