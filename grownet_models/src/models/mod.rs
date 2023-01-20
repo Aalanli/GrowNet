@@ -2,6 +2,8 @@ use crate::Config;
 use crossbeam::channel::{Sender, Receiver};
 use std::thread::{JoinHandle, spawn};
 use anyhow::{Result, Error};
+use serde::{Serialize, Deserialize};
+use std::collections::HashMap;
 
 pub mod baseline;
 mod m1;
@@ -32,6 +34,38 @@ impl TrainProcess {
         Ok(())
     }
 }
+
+/// Struct containing all the logs associated with every run
+/// configs gets 'collapsed' into a common dictionary representation for displaying purposes
+#[derive(Default, Serialize, Deserialize)]
+pub struct TrainLogs {
+    pub models: Vec<RunInfo> // flattened representation, small enough number of runs to justify not using hashmap
+}
+
+/// This struct represents an individual training run
+#[derive(Serialize, Deserialize, Default)]
+pub struct RunInfo {
+    pub model_class: String, // name for the class of models this falls under
+    pub version: u32,        // id for this run
+    pub comments: String,
+    pub dataset: String,
+    pub plots: HashMap<String, Vec<(f32, f32)>>,
+    pub config: Option<HashMap<String, String>>  // TODO: convert types to this more easily
+}
+
+impl RunInfo {
+    pub fn run_name(&self) -> String {
+        format!("{}-v{}", self.model_class, self.version)
+    }
+    
+    pub fn log(&mut self, log: Log) {
+
+    }
+
+    pub fn reset(&mut self) {}
+}
+
+
 
 pub trait Train {
     fn build(&self) -> TrainProcess;

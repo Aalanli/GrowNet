@@ -4,10 +4,13 @@ use anyhow::{Result, Error};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
+
 use model_lib::models::{Train, TrainProcess, TrainCommand, Log};
-use super::AppState;
+use super::{AppState, UIParams};
 use super::super::model_configs::baseline;
 use crate::{Config, UI};
+
+pub use model_lib::models::{TrainLogs, RunInfo};
 
 pub trait TrainConfig: Train + Config + UI {}
 impl<T: Train + Config + UI + Clone> TrainConfig for T {}
@@ -58,34 +61,33 @@ impl TrainingUI {
     }
 }
 
+// Bevy resource, holds training tasks
+#[derive(Default, Deref, DerefMut)]
+pub struct RunQueue(VecDeque<TrainInstance>);
 
-pub enum Visuals {
+// The different behaviors when spawning new tasks
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum TrainProcessSchedule {
+    ONE,
+    LINE,
 }
 
+// A bevy event, used to kill training tasks
+pub struct StopTraining;
 
+// Bevy resource, holds 
+#[derive(Default)]
 pub struct TrainResource {
-    run_queue: VecDeque<TrainInstance>,
     cur_instance: Option<TrainInstance>,
     train_process: Option<TrainProcess>,
     console: Console,
-    vis: Visuals
+    // TODO: vis: Visuals
 }
 
 impl TrainResource {
-    /// schedules a new run on the end of the run queue
-    pub fn add_run(&mut self, run: TrainInstance) {
-        self.run_queue.push_back(run);
-    }
-
-    /// removes all runs scheduled, does not kill current active run, if any
-    pub fn clear_runs(&mut self) {
-        self.run_queue.clear();
-    }
-
-    /// removes all runs scheduled, and kills current active run if any
+    /// kills current active run if any
     /// blocks until the current active process (if any) is killed
     pub fn clean_runs(&mut self) -> Result<()> {
-        self.clear_runs();
         if let Some(t) = &mut self.train_process {
             t.send.send(TrainCommand::KILL)?;
             loop {
@@ -102,7 +104,6 @@ impl TrainResource {
         Ok(())
     }
 }
-
 
 pub struct Console {
     console_msgs: VecDeque<String>,
@@ -130,6 +131,11 @@ impl Console {
     }
 }
 
+impl Default for Console {
+    fn default() -> Self {
+        Self { console_msgs: VecDeque::new(), max_console_msgs: 50 }
+    }
+}
 
 /// This system is run regardless of AppState, as we want to switch between
 /// menu and training pane regardless of models running,
@@ -139,21 +145,55 @@ impl Console {
 /// This is setup so eventually, we can have hyperparmeter sweeps with relative ease,
 /// all the information for this is right here in this system, for max worker threads,
 /// gpu scheduling, etc.
-pub fn handle_training(
-    mut train_res: ResMut<TrainResource>, 
+pub fn handle_logging(
+    mut run_queue: ResMut<RunQueue>,
+    mut train_res: ResMut<TrainResource>,
     mut logs: ResMut<TrainLogs>,
+    params: Res<UIParams>,
+    mut stop_event: EventReader<StopTraining>
 ) {
-    let TrainResource { 
-        run_queue, 
+    let TrainResource {
         cur_instance,
         train_process, 
         console, 
-        vis } = &mut *train_res;
+        .. } = &mut *train_res;
+
+    // A STOPTraining event is sent
+    for _ in stop_event.iter() {
+        if train_process.is_some() { // if a process is running, kill it
+            // TODO: handle this error better
+            train_process.as_mut().unwrap().send.send(TrainCommand::KILL).expect("unable to send kill command");
+        } else { // else remove front facing tasks in the queue
+            run_queue.pop_front();
+        }
+    }
+
+    // this part is for spawning processes if there isn't one already spawned
+    if train_process.is_none() {
+        match params.train_schedule {
+            TrainProcessSchedule::ONE => {
+                // only one process allowed in the queue at a time,
+                // if more than one, kills the current task and spawns the last from the queue
+                if let Some(task) = run_queue.pop_back() {
+                    *train_process = Some(task.run_starter.build());
+                    *cur_instance = Some(task);
+                }
+                run_queue.clear();
+            },
+            TrainProcessSchedule::LINE => {
+                // more than one training task is allowed to be in the queue at the same time,
+                // they are processed in order, first in first out
+                if let Some(task) = run_queue.pop_front() {
+                    *train_process = Some(task.run_starter.build());
+                    *cur_instance = Some(task);
+                }
+            },
+        }
+    }
+
     
-    
-    // logging stuff
-    if let Some(process) = train_process {
-        while let Ok(log) = process.recv.try_recv() {
+    if train_process.is_some() {
+        while let Ok(log) = train_process.as_mut().unwrap().recv.try_recv() {
 
             match &log {
                 Log::PLOT(name, x, y) => {
@@ -165,6 +205,15 @@ pub fn handle_training(
                 Log::KILLED => {
                     let training_name = cur_instance.as_ref().unwrap().run.run_name();
                     console.insert_msg(format!("killed successfully {}", training_name));
+
+                    // after the process has died, we add its logged results to logs
+                    // and replace it with None
+                    let last_instace = std::mem::replace(cur_instance, None).unwrap();
+                    logs.as_mut().models.push(last_instace.run);
+                    // safe to free this since the process has already
+                    // in the next frame, the if clause above will spawn a new task
+                    *train_process = None;
+
                 }
             }
 
@@ -297,51 +346,4 @@ impl<C: TrainConfig + Default + Clone> ModelEnviron<C> {
 pub struct TrainInstance {
     run: RunInfo,
     run_starter: Box<dyn TrainConfig>,
-}
-
-/// Struct containing all the logs associated with every run
-/// configs gets 'collapsed' into a common dictionary representation for displaying purposes
-#[derive(Default, Serialize, Deserialize)]
-pub struct TrainLogs {
-    models: Vec<RunInfo> // flattened representation, small enough number of runs to justify not using hashmap
-}
-
-/// This struct represents an individual training run
-#[derive(Serialize, Deserialize, Default)]
-pub struct RunInfo {
-    pub model_class: String, // name for the class of models this falls under
-    pub version: u32,        // id for this run
-    pub comments: String,
-    pub dataset: String,
-    pub plots: HashMap<String, Vec<(f32, f32)>>,
-    pub config: Option<HashMap<String, String>>  // TODO: convert types to this more easily
-}
-
-impl RunInfo {
-    pub fn run_name(&self) -> String {
-        format!("{}-v{}", self.model_class, self.version)
-    }
-    
-    pub fn log(&mut self, log: Log) {
-
-    }
-
-    pub fn reset(&mut self) {}
-}
-
-
-#[test]
-fn serialize_test() {
-    #[derive(Default, Serialize, Deserialize)]
-    struct TestParams {
-        a: usize,
-        b: String,
-        c: f32
-    }
-
-    let a = TestParams::default();
-    let json = ron::to_string(&a).unwrap();
-    println!("{}", json);
-    let out: HashMap<String, String> = ron::from_str(&json).expect("unable to convert to hashmap");
-    println!("{:?}", out);
 }
