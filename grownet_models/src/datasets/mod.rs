@@ -1,21 +1,19 @@
 use std::marker::PhantomData;
 
+use anyhow::Result;
 /// This module only defines the dataset logic for loading and processing datasets
 /// This is separate from the data_ui module, which deals with integrating with the ui
 /// for visualizations, etc.
-/// 
+///
 /// Separating the logic can enable headlessmode which will be for future work
-
 use ndarray::prelude::*;
-use anyhow::Result;
 
-pub mod data;
 pub mod cifar;
+pub mod data;
 pub mod mnist;
 pub mod transforms;
 
 use super::Config;
-
 
 pub trait DatasetBuilder: Config {
     type Dataset: Dataset;
@@ -39,11 +37,14 @@ pub trait Transform<In, Out> {
 struct DataTransformer<D, T, Out> {
     dataset: D,
     transform: T,
-    _out: PhantomData<Out>
+    _out: PhantomData<Out>,
 }
 
 impl<In, Out, D, T> Dataset for DataTransformer<D, T, Out>
-where D: Dataset<DataPoint = In>, T: Transform<In, Out> {
+where
+    D: Dataset<DataPoint = In>,
+    T: Transform<In, Out>,
+{
     type DataPoint = Out;
 
     fn next(&mut self) -> Option<Self::DataPoint> {
@@ -65,10 +66,13 @@ where D: Dataset<DataPoint = In>, T: Transform<In, Out> {
 }
 
 fn compose<In, Out, D, T>(d: D, t: T) -> impl Dataset<DataPoint = Out>
-where D: Dataset<DataPoint = In>, T: Transform<In, Out> {
+where
+    D: Dataset<DataPoint = In>,
+    T: Transform<In, Out>,
+{
     DataTransformer {
         dataset: d,
         transform: t,
-        _out: PhantomData
+        _out: PhantomData,
     }
 }

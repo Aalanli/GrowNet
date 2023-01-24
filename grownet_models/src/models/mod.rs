@@ -1,9 +1,9 @@
 use crate::Config;
-use crossbeam::channel::{Sender, Receiver};
-use std::thread::{JoinHandle, spawn};
-use anyhow::{Result, Error};
-use serde::{Serialize, Deserialize};
+use anyhow::{Error, Result};
+use crossbeam::channel::{Receiver, Sender};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::thread::{spawn, JoinHandle};
 
 pub mod baseline;
 mod m1;
@@ -11,7 +11,7 @@ mod m2;
 
 pub enum TrainCommand {
     KILL,
-    OTHER(usize)
+    OTHER(usize),
 }
 
 #[derive(Clone)]
@@ -25,7 +25,7 @@ pub enum Log {
 pub struct TrainProcess {
     pub send: Sender<TrainCommand>,
     pub recv: Receiver<Log>,
-    pub handle: JoinHandle<()>
+    pub handle: JoinHandle<()>,
 }
 
 impl TrainProcess {
@@ -39,7 +39,7 @@ impl TrainProcess {
 /// configs gets 'collapsed' into a common dictionary representation for displaying purposes
 #[derive(Default, Serialize, Deserialize)]
 pub struct TrainLogs {
-    pub models: Vec<RunInfo> // flattened representation, small enough number of runs to justify not using hashmap
+    pub models: Vec<RunInfo>, // flattened representation, small enough number of runs to justify not using hashmap
 }
 
 /// This struct represents an individual training run
@@ -50,22 +50,18 @@ pub struct RunInfo {
     pub comments: String,
     pub dataset: String,
     pub plots: HashMap<String, Vec<(f32, f32)>>,
-    pub config: Option<HashMap<String, String>>  // TODO: convert types to this more easily
+    pub config: Option<HashMap<String, String>>, // TODO: convert types to this more easily
 }
 
 impl RunInfo {
     pub fn run_name(&self) -> String {
         format!("{}-v{}", self.model_class, self.version)
     }
-    
-    pub fn log(&mut self, log: Log) {
 
-    }
+    pub fn log(&mut self, log: Log) {}
 
     pub fn reset(&mut self) {}
 }
-
-
 
 pub trait Train {
     fn build(&self) -> TrainProcess;

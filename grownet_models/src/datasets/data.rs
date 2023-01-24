@@ -1,25 +1,26 @@
 /////////////////////////////////////////////////////////////////////////////////////////
 /// The Data types that the datasets output and transforms input.
-
 use tch;
 
-use ndarray::prelude::*;
-use anyhow::Result;
 use crate::ops;
+use anyhow::Result;
+use ndarray::prelude::*;
 
 /// Expect images to be normalized between [0, 1] and has a shape of NWHC
 #[derive(Clone)]
 pub struct Image {
-    pub image: Array4<f32>
+    pub image: Array4<f32>,
 }
 
 pub struct ImageTch {
-    pub image: tch::Tensor
+    pub image: tch::Tensor,
 }
 
 impl Clone for ImageTch {
     fn clone(&self) -> Self {
-        ImageTch { image: self.image.copy() }
+        ImageTch {
+            image: self.image.copy(),
+        }
     }
 }
 
@@ -28,12 +29,12 @@ impl Clone for ImageTch {
 #[derive(Clone)]
 pub struct ImClassify {
     pub image: Image,
-    pub label: Vec<u32>
+    pub label: Vec<u32>,
 }
 
 pub struct ImClassifyTch {
     pub image: ImageTch,
-    pub label: tch::Tensor
+    pub label: tch::Tensor,
 }
 
 // pub struct ObjDetectionDataPoint;
@@ -55,6 +56,4 @@ impl Image {
         let array = Array::from_shape_vec((1, w as usize, h as usize, 3), buf).unwrap();
         Self { image: array }
     }
-    
 }
-

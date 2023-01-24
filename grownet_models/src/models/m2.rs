@@ -2,15 +2,14 @@ use std::mem;
 use std::ops::Deref;
 use std::ptr::{self, null};
 
-use ndarray::prelude::*;
 use ndarray::prelude as np;
-use ndarray::{Axis};
-use ndarray_rand::{RandomExt, rand_distr::Normal, rand_distr::Uniform};
+use ndarray::prelude::*;
+use ndarray::Axis;
+use ndarray_rand::{rand_distr::Normal, rand_distr::Uniform, RandomExt};
 
 use num::Float;
-use rand::{thread_rng};
+use rand::thread_rng;
 use rand_distr::Distribution;
-
 
 pub fn l2_norm<T: Float>(a: &Array1<T>) -> T {
     a.fold(T::zero(), |acc, x| acc + *x * *x).sqrt()
@@ -52,15 +51,13 @@ pub struct Message(Array1<f32>);
 #[derive(Clone)]
 pub struct NodeMessage {
     msg: Message,
-    mag: f32
+    mag: f32,
 }
-
-
 
 impl Deref for Message {
     type Target = Array1<f32>;
     fn deref(&self) -> &Self::Target {
-        &self.0        
+        &self.0
     }
 }
 
@@ -76,8 +73,6 @@ impl NodeMessage {
         NodeMessage { msg, mag: norm }
     }
 }
-
-
 
 pub struct WeightedSigmoid {
     pub s: f32,
@@ -132,7 +127,6 @@ impl Relu {
     }
 }
 
-
 /// Each ComputeInstance represents the primary heavy computation
 /// performed by each node, this is the most computationally intensive
 /// part of a compute node
@@ -147,14 +141,14 @@ pub struct ComputeInstance {
 impl ComputeInstance {
     pub fn new(dim: usize) -> ComputeInstance {
         ComputeInstance {
-            w:  np::Array::random((dim, dim), Normal::new(0.0, 1.0).unwrap()),
-            b:  np::Array::random((dim,), Uniform::new(-1.0, 1.0)),
-            dw: np::Array::zeros((dim,dim)),
+            w: np::Array::random((dim, dim), Normal::new(0.0, 1.0).unwrap()),
+            b: np::Array::random((dim,), Uniform::new(-1.0, 1.0)),
+            dw: np::Array::zeros((dim, dim)),
             db: np::Array::zeros((dim,)),
-            act_fn: Relu{}
+            act_fn: Relu {},
         }
     }
-    pub fn forward(&mut self, msg: &Message ) -> np::Array1<f32> {
+    pub fn forward(&mut self, msg: &Message) -> np::Array1<f32> {
         // y = W*x + b
         let mut y: np::Array<f32, np::Dim<[usize; 1]>> = self.w.dot(&**msg);
         y += &self.b;
@@ -163,7 +157,11 @@ impl ComputeInstance {
         y
     }
 
-    pub fn backward(&mut self, grad_msg: &np::Array1<f32>, past_msg: &np::Array1<f32>) -> np::Array1<f32> {
+    pub fn backward(
+        &mut self,
+        grad_msg: &np::Array1<f32>,
+        past_msg: &np::Array1<f32>,
+    ) -> np::Array1<f32> {
         let dy_dx: np::Array1<f32> = grad_msg.mapv(|x| self.act_fn.backward(x));
         self.db += &dy_dx;
         let past_msg = past_msg.view().insert_axis(Axis(0));
@@ -205,7 +203,7 @@ pub struct ComputeNode {
 impl ComputeNode {
     pub fn new(params: &GlobalParams) -> ComputeNode {
         let mut rng = thread_rng();
-        let mut norm = |mu, si| {Normal::new(mu, si).unwrap().sample(&mut rng) };
+        let mut norm = |mu, si| Normal::new(mu, si).unwrap().sample(&mut rng);
         let act_fn = WeightedSigmoid {
             s: norm(params.s_mean, params.s_var),
             b: norm(params.b_mean, params.b_var),
@@ -215,10 +213,13 @@ impl ComputeNode {
             y: 0.0,
         };
         let msg_accum: np::Array1<f32> = np::Array1::zeros((params.compute_dim,));
-        
-        ComputeNode { 
-            act_fn, msg_accum: msg_accum.into(), 
-            mag: 0.0, compute: null::<ComputeInstance>() as *mut ComputeInstance, compute_initialized: false 
+
+        ComputeNode {
+            act_fn,
+            msg_accum: msg_accum.into(),
+            mag: 0.0,
+            compute: null::<ComputeInstance>() as *mut ComputeInstance,
+            compute_initialized: false,
         }
     }
 
@@ -254,31 +255,49 @@ impl ComputeNode {
         }
     }
 
-    pub fn forward(&mut self, msg: &NodeMessage, global_params: &GlobalParams) -> NodeResult<NodeMessage> {
+    pub fn forward(
+        &mut self,
+        msg: &NodeMessage,
+        global_params: &GlobalParams,
+    ) -> NodeResult<NodeMessage> {
         self.msg_accum.0 += &*msg.msg;
         self.mag = l2_norm(&self.msg_accum.0);
 
-        if !self.act_fn.is_underflow(self.mag, global_params.underflow_epsilon) {
+        if !self
+            .act_fn
+            .is_underflow(self.mag, global_params.underflow_epsilon)
+        {
             let norm_gate = self.act_fn.forward(self.mag);
             let scaled_msg = &self.msg_accum.0 * norm_gate;
             let out_msg = self.inner_compute_forward(&scaled_msg.into(), &global_params);
 
-            NodeResult::Msg(NodeMessage { msg: out_msg, mag: self.mag })
+            NodeResult::Msg(NodeMessage {
+                msg: out_msg,
+                mag: self.mag,
+            })
         } else {
             NodeResult::NoResult
         }
     }
 
-    pub fn backward(&mut self, grad_msg: &Message, _global_params: &GlobalParams) -> NodeResult<NodeMessage> {
+    pub fn backward(
+        &mut self,
+        grad_msg: &Message,
+        _global_params: &GlobalParams,
+    ) -> NodeResult<NodeMessage> {
         let mut dl_dyi = self.inner_compute_backward(grad_msg);
         let dy_dw = dl_dyi.0.dot(&*self.msg_accum);
         let dw_dt = self.act_fn.backward(dy_dw);
         dl_dyi.0.zip_mut_with(&self.msg_accum.0, |dl_dxi, xi| {
-            *dl_dxi = *dl_dxi * self.act_fn.y + dw_dt * xi / self.mag; } );
-        
+            *dl_dxi = *dl_dxi * self.act_fn.y + dw_dt * xi / self.mag;
+        });
+
         let grad_norm = l2_norm(&dl_dyi);
-        NodeResult::Msg(NodeMessage { msg: dl_dyi, mag: grad_norm })
-    } 
+        NodeResult::Msg(NodeMessage {
+            msg: dl_dyi,
+            mag: grad_norm,
+        })
+    }
 
     pub fn apply_grad(&mut self, global_params: &GlobalParams) {
         self.act_fn.apply_grad(global_params);
@@ -286,7 +305,7 @@ impl ComputeNode {
             if self.compute_initialized {
                 (*self.compute).apply_grad(global_params);
             }
-        } 
+        }
     }
 
     pub fn zero_grad(&mut self) {
@@ -302,15 +321,10 @@ impl ComputeNode {
         self.msg_accum.0.mapv_inplace(|_| 0.0);
         self.mag = 0.0
     }
-
-
 }
-
 
 impl Drop for ComputeNode {
     fn drop(&mut self) {
         self.drop_compute();
     }
 }
-
-

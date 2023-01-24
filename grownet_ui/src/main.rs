@@ -1,10 +1,9 @@
 #![allow(dead_code)]
 
-use bevy::{prelude::*, asset::AssetServerSettings};
+use bevy::{asset::AssetServerSettings, prelude::*};
 //use bevy_inspector_egui::WorldInspectorPlugin;
-use bevy_stl;
 use bevy_egui::EguiPlugin;
-
+use bevy_stl;
 
 use grownet_lib as lib;
 use lib::ui;
@@ -12,12 +11,11 @@ use lib::ui;
 /// the path at which the user config files are stored
 const ROOT_PATH: &str = "assets/config";
 
-
 fn main() {
     App::new()
         .insert_resource(DefaultTaskPoolOptions {
-                max_total_threads: 1,
-                ..default()
+            max_total_threads: 1,
+            ..default()
         })
         .insert_resource(AssetServerSettings {
             watch_for_changes: true,
@@ -45,7 +43,7 @@ fn setup_dataset_ui(mut commands: Commands) {
     use model_lib::datasets as data;
 
     let mut dataset_ui = ui::DatasetUI::default();
-        
+
     let cifar10 = data::cifar::Cifar10Params::default();
     let cifar_viewer = ui::data_ui::ClassificationViewer::new(cifar10);
     dataset_ui.push_viewer(cifar_viewer, "cifar10");

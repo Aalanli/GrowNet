@@ -1,15 +1,15 @@
 use std::mem;
 use std::ptr::{self, null};
 
+use ndarray::Axis;
+use ndarray::{prelude as np, Array2, Dimension};
+use ndarray_rand::{rand_distr::Normal, rand_distr::Uniform, RandomExt};
 use num::Float;
 use smallvec::SmallVec;
-use ndarray::{prelude as np, Dimension, Array2};
-use ndarray::{Axis};
-use ndarray_rand::{RandomExt, rand_distr::Normal, rand_distr::Uniform};
 
-use rand::{thread_rng};
-use rand_distr::Distribution;
 use crate::ops;
+use rand::thread_rng;
+use rand_distr::Distribution;
 
 pub struct Relu {}
 
@@ -24,19 +24,25 @@ impl Relu {
 
 pub struct GradientParams<'a> {
     pub param: &'a mut [f32],
-    grad: &'a mut [f32]
+    grad: &'a mut [f32],
 }
 
 impl<'a> GradientParams<'a> {
-    pub fn new<D: Dimension>(param: &'a mut np::Array<f32, D>, grad: &'a mut np::Array<f32, D>) -> Self {
-        Self { param: param.as_slice_mut().unwrap(), grad: grad.as_slice_mut().unwrap() }
+    pub fn new<D: Dimension>(
+        param: &'a mut np::Array<f32, D>,
+        grad: &'a mut np::Array<f32, D>,
+    ) -> Self {
+        Self {
+            param: param.as_slice_mut().unwrap(),
+            grad: grad.as_slice_mut().unwrap(),
+        }
     }
 }
 
 type Grads<'a> = Vec<GradientParams<'a>>;
 
 pub struct GridStats {
-    node_act: Array2<f32>
+    node_act: Array2<f32>,
 }
 
 pub struct Adam {
@@ -45,13 +51,20 @@ pub struct Adam {
     alpha: f32,
     beta1: f32,
     beta2: f32,
-    tracked_sizes: Vec<usize>
+    tracked_sizes: Vec<usize>,
 }
 
 impl Adam {
     const EPS: f32 = 1e-8;
     fn new(alpha: f32, beta1: f32, beta2: f32) -> Self {
-        Self { tracked_sizes: Vec::new(), mt: Vec::new(), vt: Vec::new(), alpha, beta1, beta2 }
+        Self {
+            tracked_sizes: Vec::new(),
+            mt: Vec::new(),
+            vt: Vec::new(),
+            alpha,
+            beta1,
+            beta2,
+        }
     }
 
     fn init<'a>(&mut self, grads: Grads<'a>) {
@@ -74,14 +87,17 @@ impl Adam {
             debug_assert!(gradpm.param.len() == self.tracked_sizes[i]);
             let mt = &mut self.mt[offset..offset + len];
             let vt = &mut self.vt[offset..offset + len];
-            mt.iter_mut().zip(vt.iter_mut()).zip(gradpm.grad.iter_mut()).zip(gradpm.param.iter_mut())
-            .for_each(|(((m, v), g), x)| {
-                *m = self.beta1 * *m + (1.0 - self.beta1) * *g;
-                *v = self.beta2 * *v + (1.0 - self.beta2) * (*g).powi(2);    
-                let alpha = self.alpha * (1.0 - self.beta2).sqrt() / (1.0 - self.beta1);
-                *x = *x - alpha * *m / ((*v).sqrt() + Self::EPS);
-                *g = 0.0;
-            });
+            mt.iter_mut()
+                .zip(vt.iter_mut())
+                .zip(gradpm.grad.iter_mut())
+                .zip(gradpm.param.iter_mut())
+                .for_each(|(((m, v), g), x)| {
+                    *m = self.beta1 * *m + (1.0 - self.beta1) * *g;
+                    *v = self.beta2 * *v + (1.0 - self.beta2) * (*g).powi(2);
+                    let alpha = self.alpha * (1.0 - self.beta2).sqrt() / (1.0 - self.beta1);
+                    *x = *x - alpha * *m / ((*v).sqrt() + Self::EPS);
+                    *g = 0.0;
+                });
             offset += len;
         }
     }
@@ -98,14 +114,14 @@ pub struct Linear {
 impl Linear {
     pub fn new(dim: usize) -> Linear {
         Linear {
-            w:  np::Array::random((dim, dim), Normal::new(0.0, 1.0).unwrap()),
-            b:  np::Array::zeros((1, dim)),
-            dw: np::Array::zeros((dim,dim)),
+            w: np::Array::random((dim, dim), Normal::new(0.0, 1.0).unwrap()),
+            b: np::Array::zeros((1, dim)),
+            dw: np::Array::zeros((dim, dim)),
             db: np::Array::zeros((1, dim)),
-            act_fn: Relu{}
+            act_fn: Relu {},
         }
     }
-    
+
     pub fn forward(&mut self, msg: &np::Array2<f32>) -> np::Array2<f32> {
         // y = W*x + b
         let mut y = msg.dot(&self.w);
@@ -115,7 +131,11 @@ impl Linear {
         y
     }
 
-    pub fn backward(&mut self, grad_msg: &np::Array2<f32>, input_msg: &np::Array2<f32>) -> np::Array2<f32> {
+    pub fn backward(
+        &mut self,
+        grad_msg: &np::Array2<f32>,
+        input_msg: &np::Array2<f32>,
+    ) -> np::Array2<f32> {
         let dy_dx = grad_msg.mapv(|x| self.act_fn.backward(x));
         self.db += &dy_dx.sum_axis(np::Axis(0));
         self.dw += &input_msg.t().dot(&dy_dx);
@@ -133,13 +153,17 @@ struct Node {
     linear: Linear,
     accum_msg: np::Array2<f32>,
     grad_accum: np::Array2<f32>,
-    temp_var: SmallVec<[np::Array2<f32>; 3]>
+    temp_var: SmallVec<[np::Array2<f32>; 3]>,
 }
 
 impl Node {
     fn new(dim: usize) -> Self {
-        Self { linear: Linear::new(dim), accum_msg: np::Array2::zeros((1, dim)), grad_accum: np::Array2::zeros((1, dim)),
-            temp_var: SmallVec::new() }
+        Self {
+            linear: Linear::new(dim),
+            accum_msg: np::Array2::zeros((1, dim)),
+            grad_accum: np::Array2::zeros((1, dim)),
+            temp_var: SmallVec::new(),
+        }
     }
 
     fn accum(&mut self, msg: &np::ArrayView2<f32>) {
@@ -158,38 +182,47 @@ impl Node {
 
     fn reset(&mut self) {
         self.temp_var.clear();
-        self.accum_msg.map_inplace(|x| {*x = 0.0});
-        self.grad_accum.map_inplace(|x| {*x = 0.0});
+        self.accum_msg.map_inplace(|x| *x = 0.0);
+        self.grad_accum.map_inplace(|x| *x = 0.0);
     }
 
     fn forward(&mut self) -> np::Array2<f32> {
         let (batch, hidden) = self.accum_msg.dim();
-        
+
         let arr = self.linear.forward(&self.accum_msg);
         let mut std = np::Array2::<f32>::zeros((1, batch));
         let mut mu = np::Array2::<f32>::zeros((1, batch));
         // the buffer containing the normalized version of arr
         let mut normed_arr = np::Array2::<f32>::zeros((batch, hidden));
         // normalize on each row of arr, storing the mean and standard deviation for efficiency
-        normed_arr.axis_iter_mut(np::Axis(0)).into_iter()
+        normed_arr
+            .axis_iter_mut(np::Axis(0))
+            .into_iter()
             .zip(arr.axis_iter(np::Axis(0)))
-            .zip(std.iter_mut()).zip(mu.iter_mut())
+            .zip(std.iter_mut())
+            .zip(mu.iter_mut())
             .for_each(|(((mut norm, x), std), mu)| {
-                let (mu0, std0) = ops::normalize(x.as_slice().unwrap(), norm.as_slice_mut().unwrap(), None, None);
+                let (mu0, std0) = ops::normalize(
+                    x.as_slice().unwrap(),
+                    norm.as_slice_mut().unwrap(),
+                    None,
+                    None,
+                );
                 *mu = mu0;
                 *std = std0;
             });
 
         // zero the accum buffer
-        self.accum_msg.map_inplace(|x| {*x = 0.0;});
-        
+        self.accum_msg.map_inplace(|x| {
+            *x = 0.0;
+        });
+
         self.temp_var.push(arr);
         self.temp_var.push(mu);
         self.temp_var.push(std);
         normed_arr
     }
 
-    
     fn backward(&mut self) -> np::Array2<f32> {
         let grad = self.grad_accum.view();
         let std = self.temp_var.pop().unwrap();
@@ -198,17 +231,26 @@ impl Node {
         let shape = grad.dim();
         let mut dy_dx = np::Array2::<f32>::zeros(shape);
 
-        dy_dx.axis_iter_mut(np::Axis(0)).into_iter()
+        dy_dx
+            .axis_iter_mut(np::Axis(0))
+            .into_iter()
             .zip(arr.axis_iter(np::Axis(0)).into_iter())
             .zip(grad.axis_iter(np::Axis(0)).into_iter())
             .zip(mu.iter())
             .zip(std.iter())
             .for_each(|((((mut dy_dx, x), grad), mu), std)| {
-                ops::dnormalize(grad.as_slice().unwrap(), x.as_slice().unwrap(), dy_dx.as_slice_mut().unwrap(), Some(*mu), Some(*std));
+                ops::dnormalize(
+                    grad.as_slice().unwrap(),
+                    x.as_slice().unwrap(),
+                    dy_dx.as_slice_mut().unwrap(),
+                    Some(*mu),
+                    Some(*std),
+                );
             });
 
-        
-        self.grad_accum.map_inplace(|x| {*x = 0.0;});
+        self.grad_accum.map_inplace(|x| {
+            *x = 0.0;
+        });
 
         self.linear.backward(&dy_dx, &self.accum_msg)
     }
@@ -223,7 +265,7 @@ pub struct Grid2D {
     index: [isize; 3],
     width: usize,
     depth: usize,
-    d_model: usize
+    d_model: usize,
 }
 
 impl Grid2D {
@@ -238,7 +280,13 @@ impl Grid2D {
         indices[1] = 0;
         indices[2] = 1;
 
-        Grid2D { grid, width, depth, d_model, index: indices }
+        Grid2D {
+            grid,
+            width,
+            depth,
+            d_model,
+            index: indices,
+        }
     }
 
     pub fn forward(&mut self, x: np::Array3<f32>) -> np::Array3<f32> {
@@ -263,9 +311,11 @@ impl Grid2D {
         let mut output = np::Array3::<f32>::ones((b, w, d));
         for i in 0..self.width {
             let val = &self.grid[(self.depth - 1, i + Self::PAD)].forward();
-            output.slice_mut(np::s![.., i, ..]).zip_mut_with(&val, |x, y| {
-                *x = *y;
-            });
+            output
+                .slice_mut(np::s![.., i, ..])
+                .zip_mut_with(&val, |x, y| {
+                    *x = *y;
+                });
         }
 
         output
@@ -286,16 +336,19 @@ impl Grid2D {
                 let msg = self.grid[(i, j + Self::PAD)].backward();
                 let view = msg.view();
                 for k in self.index {
-                    self.grid[(i + 1, ((j + Self::PAD) as isize + k) as usize)].accum_backward(&view);
+                    self.grid[(i + 1, ((j + Self::PAD) as isize + k) as usize)]
+                        .accum_backward(&view);
                 }
             }
         }
         let mut output = np::Array3::<f32>::ones((b, w, d));
         for i in 0..self.width {
             let val = &self.grid[(self.depth - 1, i + Self::PAD)].backward();
-            output.slice_mut(np::s![.., i, ..]).zip_mut_with(&val, |x, y| {
-                *x = *y;
-            });
+            output
+                .slice_mut(np::s![.., i, ..])
+                .zip_mut_with(&val, |x, y| {
+                    *x = *y;
+                });
         }
 
         output
@@ -311,14 +364,12 @@ impl Grid2D {
     }
 }
 
-
-
 #[test]
 fn test_linear() {
     let mut linear = Linear::new(16);
     let input = np::Array2::zeros((14, 16));
     let grad = np::Array2::ones((14, 16));
-    
+
     let y = linear.forward(&input);
     let _dx = linear.backward(&grad, &y);
 }
@@ -358,7 +409,7 @@ fn test_compute_grid() {
 
     let grad = np::Array3::random((4, 32, 4), Normal::new(0.0, 1.0).unwrap());
     let dx = grid.backward(grad);
-    
+
     let (max_magnitude, has_nan) = dx.fold((-f32::MAX, false), |a, b| {
         (a.0.max((*b).abs()), a.0.is_nan() || a.1)
     });

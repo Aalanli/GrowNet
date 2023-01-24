@@ -2,15 +2,14 @@
 #![allow(unused_imports)]
 #![allow(unused_macros)]
 
-use anyhow::{Result, Context};
-use serde::{Serialize, de::DeserializeOwned};
+use anyhow::{Context, Result};
 use ron;
+use serde::{de::DeserializeOwned, Serialize};
 
+pub mod allocator;
 pub mod datasets;
 pub mod models;
 pub mod ops;
-pub mod allocator;
-
 
 pub trait Config: Send + Sync {
     fn config(&self) -> String;
@@ -35,16 +34,19 @@ fn config_proc_macro_test() {
         a: f32,
         b: usize,
         #[no_op]
-        c: fn(usize) -> usize
+        c: fn(usize) -> usize,
     }
 
     impl Default for Test {
         fn default() -> Self {
-            Test { c: |x| x, a: 0.0, b: 1 }
+            Test {
+                c: |x| x,
+                a: 0.0,
+                b: 1,
+            }
         }
     }
 
     let t = Test::default();
     println!("{}", t.config());
 }
-

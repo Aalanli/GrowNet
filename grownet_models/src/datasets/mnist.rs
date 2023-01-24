@@ -1,13 +1,13 @@
-use std::{path::PathBuf, str::FromStr};
 use rand::seq::SliceRandom;
+use std::{path::PathBuf, str::FromStr};
 
-use ndarray::prelude::*;
-use serde::{Serialize, Deserialize};
+use anyhow::{Context, Error, Result};
 use image::io::Reader as ImageReader;
-use anyhow::{Context, Result, Error};
+use ndarray::prelude::*;
+use serde::{Deserialize, Serialize};
 
-use super::{Dataset, DatasetBuilder};
 use super::data::ImClassify;
+use super::{Dataset, DatasetBuilder};
 use crate::ops;
 
 /// Main configuration parameters for Mnist
@@ -42,9 +42,16 @@ impl MnistParams {
 
         for path in dir.read_dir()? {
             let a = path?;
-            let label = a.file_name().into_string().unwrap().parse::<u32>()
+            let label = a
+                .file_name()
+                .into_string()
+                .unwrap()
+                .parse::<u32>()
                 .with_context(|| format!("Dir {} is not a numeral", a.path().to_str().unwrap()))?;
-            let subpaths = a.path().read_dir().with_context(|| format!("No dir {} exists mnist", dir.to_str().unwrap()))?;
+            let subpaths = a
+                .path()
+                .read_dir()
+                .with_context(|| format!("No dir {} exists mnist", dir.to_str().unwrap()))?;
             for im_file in subpaths {
                 if let Ok(file) = im_file {
                     correct_paths.push((label, file.path()));
@@ -56,13 +63,18 @@ impl MnistParams {
     pub fn build_test(&self) -> Result<Mnist> {
         let trainset: PathBuf = self.path.join("testing");
         let test_paths = Self::read_subdirs(&trainset)?;
-        
+
         let mut test = ImClassifyData::new();
         test.push_raw(test_paths.iter().cloned());
 
         let order = (0..test.labels.len()).collect();
-        
-        let x = Mnist { data: test, shuffle: order, idx: 0, batch_size: self.test_batch_size };        
+
+        let x = Mnist {
+            data: test,
+            shuffle: order,
+            idx: 0,
+            batch_size: self.test_batch_size,
+        };
         Ok(x)
     }
 
@@ -74,10 +86,15 @@ impl MnistParams {
 
         let mut train = ImClassifyData::new();
         train.push_raw(train_paths.iter().cloned());
-        
+
         let order = (0..train.labels.len()).collect();
 
-        let x = Mnist { data: train, shuffle: order, idx: 0, batch_size: self.train_batch_size };
+        let x = Mnist {
+            data: train,
+            shuffle: order,
+            idx: 0,
+            batch_size: self.train_batch_size,
+        };
         Ok(x)
     }
 }
@@ -86,7 +103,7 @@ pub struct Mnist {
     data: ImClassifyData,
     shuffle: Vec<usize>,
     idx: usize,
-    batch_size: usize
+    batch_size: usize,
 }
 
 impl Dataset for Mnist {
@@ -96,14 +113,19 @@ impl Dataset for Mnist {
         if self.idx + self.batch_size >= self.shuffle.len() {
             return None;
         }
-        let img_slice: Vec<_> = (self.idx..self.batch_size + self.idx).map(|x| {
-            &self.data.data[self.shuffle[x]]
-        }).collect();
+        let img_slice: Vec<_> = (self.idx..self.batch_size + self.idx)
+            .map(|x| &self.data.data[self.shuffle[x]])
+            .collect();
         let img = ops::concat_im_size_eq(&img_slice);
-        let labels = (self.idx..self.batch_size + self.idx).map(|x| self.data.labels[self.shuffle[x]]).collect();
+        let labels = (self.idx..self.batch_size + self.idx)
+            .map(|x| self.data.labels[self.shuffle[x]])
+            .collect();
         self.idx += self.batch_size;
 
-        let img = ImClassify { image: img, label: labels };
+        let img = ImClassify {
+            image: img,
+            label: labels,
+        };
         Some(img)
     }
     fn shuffle(&mut self) {
@@ -123,16 +145,24 @@ struct ImClassifyData {
 
 impl ImClassifyData {
     fn new() -> Self {
-        ImClassifyData { data: Vec::new(), labels: Vec::new() }
+        ImClassifyData {
+            data: Vec::new(),
+            labels: Vec::new(),
+        }
     }
 
     fn push_raw<It>(&mut self, it: It)
-    where It: Iterator<Item = (u32, std::path::PathBuf)> 
+    where
+        It: Iterator<Item = (u32, std::path::PathBuf)>,
     {
         for (l, path) in it {
             let img = ImageReader::open(path).unwrap().decode().unwrap();
             let img = img.into_rgb8();
-            let arr = Array3::from_shape_vec((img.width() as usize, img.height() as usize, 3), img.to_vec()).unwrap();
+            let arr = Array3::from_shape_vec(
+                (img.width() as usize, img.height() as usize, 3),
+                img.to_vec(),
+            )
+            .unwrap();
             let arr = arr.mapv(|x| f32::from(x) / 255.0);
             self.data.push(arr);
             self.labels.push(l);

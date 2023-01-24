@@ -1,16 +1,16 @@
+use rand::seq::SliceRandom;
 use std::fs;
 use std::path;
-use rand::seq::SliceRandom;
 
+use anyhow::{Context, Error, Result};
 use ndarray::prelude::*;
 use serde::de::DeserializeOwned;
-use serde::{Serialize, Deserialize};
-use anyhow::{Result, Error, Context};
+use serde::{Deserialize, Serialize};
 
+use super::data::{ImClassify, Image};
 use super::Config;
 use super::Transform;
 use super::{Dataset, DatasetBuilder};
-use super::data::{ImClassify, Image};
 
 /// A struct containing image data, where all images are are the same size
 /// and stored contiguously next to each other
@@ -18,13 +18,19 @@ struct ContiguousStaticImage {
     images: Vec<f32>,
     width: usize,
     height: usize,
-    offset: usize, // width * height * 3 
-    num_images: usize
+    offset: usize, // width * height * 3
+    num_images: usize,
 }
 
 impl ContiguousStaticImage {
     pub fn new(width: usize, height: usize) -> Self {
-        Self { images: Vec::new(), width, height, offset: width * height * 3, num_images: 0 }
+        Self {
+            images: Vec::new(),
+            width,
+            height,
+            offset: width * height * 3,
+            num_images: 0,
+        }
     }
     pub fn push_images(&mut self, buf: &[f32]) {
         assert!(buf.len() % self.offset == 0);
@@ -47,11 +53,14 @@ impl ContiguousStaticImage {
         let buf_sz = indices.len() * self.offset;
         let mut buf = Vec::<f32>::new();
         buf.reserve_exact(buf_sz);
-        unsafe { buf.set_len(buf_sz); }
+        unsafe {
+            buf.set_len(buf_sz);
+        }
 
         for (i, j) in (0..indices.len()).zip(indices.iter()) {
             let j = *j;
-            buf[i*self.offset..(i+1)*self.offset].copy_from_slice(&self.images[j*self.offset..(j+1)*self.offset]);
+            buf[i * self.offset..(i + 1) * self.offset]
+                .copy_from_slice(&self.images[j * self.offset..(j + 1) * self.offset]);
         }
 
         let arr = Array::from_shape_vec((indices.len(), self.width, self.height, 3), buf).unwrap();
@@ -61,7 +70,7 @@ impl ContiguousStaticImage {
 
 #[derive(Serialize, Deserialize)]
 struct Test<T> {
-    t: T
+    t: T,
 }
 // main parameters driving the cifar10 dataset
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -73,8 +82,8 @@ pub struct Cifar10Params {
 /*
 impl<T: Transform> Config for Cifar10Params {
     fn config(&self) -> String {
-        let c = (self.path.to_str().unwrap(), 
-            ron::to_string(&self.train_batch_size).unwrap(), 
+        let c = (self.path.to_str().unwrap(),
+            ron::to_string(&self.train_batch_size).unwrap(),
             ron::to_string(&self.test_batch_size).unwrap(),
             self.transform.config());
         ron::to_string(&c).unwrap()
@@ -122,13 +131,15 @@ impl Cifar10 {
         for i in 0..10000 {
             let offset = i * 3073;
             labels.push(raw_buf[offset] as u32);
-            let iter = (0..1024).map(|j| {
-                let buf_ref = &raw_buf;
-                let temp = (0..3).map(move |k| {
-                    buf_ref[offset + 1 + j + k * 1024] as f32 / 255.0 // normalize between [0, 1]
-                });
-                temp  
-            }).flatten();
+            let iter = (0..1024)
+                .map(|j| {
+                    let buf_ref = &raw_buf;
+                    let temp = (0..3).map(move |k| {
+                        buf_ref[offset + 1 + j + k * 1024] as f32 / 255.0 // normalize between [0, 1]
+                    });
+                    temp
+                })
+                .flatten();
             images.extend_images(iter);
         }
     }
@@ -144,17 +155,27 @@ impl Cifar10 {
         test_images.reserve(10000);
         Self::insert_images(raw_buf, &mut test_labels, &mut test_images);
 
-        let class_names = fs::read_to_string(data_folder.join("batches.meta.txt")).context("meta file")?;
+        let class_names =
+            fs::read_to_string(data_folder.join("batches.meta.txt")).context("meta file")?;
         let label_names: Vec<String> = class_names.split("\n").map(|x| x.to_string()).collect();
 
         let test_shuffle = (0..10000).collect();
-        let x = Self { images: test_images, labels: test_labels, label_names, shuffle: test_shuffle, idx: 0, batch_size };
+        let x = Self {
+            images: test_images,
+            labels: test_labels,
+            label_names,
+            shuffle: test_shuffle,
+            idx: 0,
+            batch_size,
+        };
         Ok(x)
     }
 
     pub fn build_train(data_folder: &path::Path, batch_size: usize) -> Result<Self> {
-        let train_files = (1..6).map(|x| format!("data_batch_{x}.bin"))
-            .map(|f| data_folder.join(f)).filter(|f| f.exists());
+        let train_files = (1..6)
+            .map(|x| format!("data_batch_{x}.bin"))
+            .map(|f| data_folder.join(f))
+            .filter(|f| f.exists());
 
         let num_images = 50000;
         let mut train_images = ContiguousStaticImage::new(32, 32);
@@ -167,16 +188,23 @@ impl Cifar10 {
             Self::insert_images(raw_buf, &mut train_labels, &mut train_images);
         }
 
-        let class_names = fs::read_to_string(data_folder.join("batches.meta.txt")).context("meta file")?;
+        let class_names =
+            fs::read_to_string(data_folder.join("batches.meta.txt")).context("meta file")?;
         let label_names: Vec<String> = class_names.split("\n").map(|x| x.to_string()).collect();
 
         let train_shuffle = (0..num_images).collect();
 
-        let x = Self { images: train_images, labels: train_labels, label_names, shuffle: train_shuffle, idx: 0, batch_size };
+        let x = Self {
+            images: train_images,
+            labels: train_labels,
+            label_names,
+            shuffle: train_shuffle,
+            idx: 0,
+            batch_size,
+        };
         Ok(x)
     }
 }
-
 
 impl Dataset for Cifar10 {
     type DataPoint = ImClassify;
@@ -186,12 +214,19 @@ impl Dataset for Cifar10 {
         if self.idx + self.batch_size >= self.shuffle.len() {
             return None;
         }
-        let indices: Vec<_> = (self.idx..self.batch_size + self.idx).map(|i| self.shuffle[i]).collect();
+        let indices: Vec<_> = (self.idx..self.batch_size + self.idx)
+            .map(|i| self.shuffle[i])
+            .collect();
         let img_datapoint = self.images.index(&indices);
-        let labels = (self.idx..self.batch_size + self.idx).map(|x| self.labels[self.shuffle[x]]).collect();
+        let labels = (self.idx..self.batch_size + self.idx)
+            .map(|x| self.labels[self.shuffle[x]])
+            .collect();
         self.idx += self.batch_size;
 
-        let img = ImClassify { image: img_datapoint, label: labels };
+        let img = ImClassify {
+            image: img_datapoint,
+            label: labels,
+        };
         Some(img)
     }
 

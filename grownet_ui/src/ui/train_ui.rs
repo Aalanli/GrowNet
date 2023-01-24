@@ -1,26 +1,25 @@
 use std::collections::{HashMap, VecDeque};
 
-use anyhow::{Result, Error};
+use anyhow::{Error, Result};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
-use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use model_lib::models::{Train, TrainProcess, TrainCommand, Log};
-use super::{AppState, UIParams};
 use super::super::model_configs::baseline;
+use super::{AppState, UIParams};
 use crate::{Config, UI};
+use model_lib::models::{Log, Train, TrainCommand, TrainProcess};
 
-pub use model_lib::models::{TrainLogs, RunInfo};
+pub use model_lib::models::{RunInfo, TrainLogs};
 
 pub trait TrainConfig: Train + Config + UI {}
 impl<T: Train + Config + UI + Clone> TrainConfig for T {}
-
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TrainingUI {
     baseline: ModelEnviron<baseline::BaselineParams>,
     baseline_ver: u32,
-    model: Models
+    model: Models,
 }
 
 impl TrainingUI {
@@ -31,11 +30,9 @@ impl TrainingUI {
                 ui.selectable_value(&mut self.model, Models::BASELINE, "baseline");
             });
 
-            ui.vertical(|ui| {
-                match self.model {
-                    Models::BASELINE => {
-                        self.baseline.ui(ui);
-                    }
+            ui.vertical(|ui| match self.model {
+                Models::BASELINE => {
+                    self.baseline.ui(ui);
                 }
             });
         });
@@ -43,17 +40,15 @@ impl TrainingUI {
         // TODO: add some keybindings to certain buttons
         if ui.button("start training").clicked() {
             match self.model {
-                Models::BASELINE => {
-                    Some(
-                        TrainInstance { run: 
-                            RunInfo {
-                                model_class: "BASELINE".to_string(),
-                                version: self.baseline_ver,
-                                dataset: "CIFAR10".to_string(),
-                                ..default()
-                            }, run_starter: Box::new(self.baseline.config.clone()) }
-                    )
-                }
+                Models::BASELINE => Some(TrainInstance {
+                    run: RunInfo {
+                        model_class: "BASELINE".to_string(),
+                        version: self.baseline_ver,
+                        dataset: "CIFAR10".to_string(),
+                        ..default()
+                    },
+                    run_starter: Box::new(self.baseline.config.clone()),
+                }),
             }
         } else {
             None
@@ -75,7 +70,7 @@ pub enum TrainProcessSchedule {
 // A bevy event, used to kill training tasks
 pub struct StopTraining;
 
-// Bevy resource, holds 
+// Bevy resource, holds
 #[derive(Default)]
 pub struct TrainResource {
     cur_instance: Option<TrainInstance>,
@@ -95,7 +90,7 @@ impl TrainResource {
                     match log {
                         Log::KILLED => {
                             return Ok(());
-                        },
+                        }
                         _ => {}
                     }
                 }
@@ -112,7 +107,10 @@ pub struct Console {
 
 impl Console {
     fn new(n_logs: usize) -> Self {
-        Console { console_msgs: VecDeque::new(), max_console_msgs: n_logs }
+        Console {
+            console_msgs: VecDeque::new(),
+            max_console_msgs: n_logs,
+        }
     }
 
     fn insert_msg(&mut self, msg: String) {
@@ -133,7 +131,10 @@ impl Console {
 
 impl Default for Console {
     fn default() -> Self {
-        Self { console_msgs: VecDeque::new(), max_console_msgs: 50 }
+        Self {
+            console_msgs: VecDeque::new(),
+            max_console_msgs: 50,
+        }
     }
 }
 
@@ -141,7 +142,7 @@ impl Default for Console {
 /// menu and training pane regardless of models running,
 /// Consequently, this system handles logging from any active training processes.
 /// scheduling new processes, and killing old ones.
-/// 
+///
 /// This is setup so eventually, we can have hyperparmeter sweeps with relative ease,
 /// all the information for this is right here in this system, for max worker threads,
 /// gpu scheduling, etc.
@@ -150,20 +151,28 @@ pub fn handle_logging(
     mut train_res: ResMut<TrainResource>,
     mut logs: ResMut<TrainLogs>,
     params: Res<UIParams>,
-    mut stop_event: EventReader<StopTraining>
+    mut stop_event: EventReader<StopTraining>,
 ) {
     let TrainResource {
         cur_instance,
-        train_process, 
-        console, 
-        .. } = &mut *train_res;
+        train_process,
+        console,
+        ..
+    } = &mut *train_res;
 
     // A STOPTraining event is sent
     for _ in stop_event.iter() {
-        if train_process.is_some() { // if a process is running, kill it
+        if train_process.is_some() {
+            // if a process is running, kill it
             // TODO: handle this error better
-            train_process.as_mut().unwrap().send.send(TrainCommand::KILL).expect("unable to send kill command");
-        } else { // else remove front facing tasks in the queue
+            train_process
+                .as_mut()
+                .unwrap()
+                .send
+                .send(TrainCommand::KILL)
+                .expect("unable to send kill command");
+        } else {
+            // else remove front facing tasks in the queue
             run_queue.pop_front();
         }
     }
@@ -179,7 +188,7 @@ pub fn handle_logging(
                     *cur_instance = Some(task);
                 }
                 run_queue.clear();
-            },
+            }
             TrainProcessSchedule::LINE => {
                 // more than one training task is allowed to be in the queue at the same time,
                 // they are processed in order, first in first out
@@ -187,19 +196,17 @@ pub fn handle_logging(
                     *train_process = Some(task.run_starter.build());
                     *cur_instance = Some(task);
                 }
-            },
+            }
         }
     }
 
-    
     if train_process.is_some() {
         while let Ok(log) = train_process.as_mut().unwrap().recv.try_recv() {
-
             match &log {
                 Log::PLOT(name, x, y) => {
                     let msg = format!("plot {name}: x: {x}, y: {y}");
                     console.insert_msg(msg);
-                    
+
                     // TOOD: add log to logs
                 }
                 Log::KILLED => {
@@ -213,7 +220,6 @@ pub fn handle_logging(
                     // safe to free this since the process has already
                     // in the next frame, the if clause above will spawn a new task
                     *train_process = None;
-
                 }
             }
 
@@ -222,26 +228,22 @@ pub fn handle_logging(
     }
 }
 
-
 /// This system corresponds to the egui component of the training pane
 /// handling plots, etc.
 pub fn training_system(
     mut egui_context: ResMut<EguiContext>,
-    mut state: ResMut<State<AppState>>, 
+    mut state: ResMut<State<AppState>>,
     mut train_res: ResMut<TrainResource>,
-    mut logs: ResMut<TrainLogs>) {
-    
+    mut logs: ResMut<TrainLogs>,
+) {
     let logs = &mut *logs;
     egui::Window::new("train").show(egui_context.ctx_mut(), |ui| {
         // make it so that going back to menu does not suspend current training progress
         if ui.button("back to menu").clicked() {
             state.set(AppState::Menu).unwrap();
         }
-        if ui.button("stop training").clicked() {
-
-        }
+        if ui.button("stop training").clicked() {}
         if train_res.train_process.is_some() {
-
             // the console and log graphs are part of the fore-ground egui panel
             // while any background rendering stuff is happening in a separate system, taking TrainResource as a parameter
             ui.collapsing("console", |ui| {
@@ -252,22 +254,18 @@ pub fn training_system(
         } else {
             ui.label("no models selected");
         }
-
     });
 }
 
-
-
-
 #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
 pub enum Models {
-    BASELINE
+    BASELINE,
 }
 
 impl std::fmt::Display for Models {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Models::BASELINE => write!(f, "baseline")
+            Models::BASELINE => write!(f, "baseline"),
         }
     }
 }
@@ -287,13 +285,17 @@ pub struct ModelEnviron<Config> {
     config: Config,
     runs: Vec<Config>,
     pub_runs: Vec<Config>, // dumb method, since we need ui method to display, but can also mutate this, so we keep backup
-    checked: isize, // each vec has a checkbox, this is the index which is checked
-    version_num: u32
+    checked: isize,        // each vec has a checkbox, this is the index which is checked
+    version_num: u32,
 }
 
 impl<C: TrainConfig + Default + Clone> ModelEnviron<C> {
     fn new(name: String) -> Self {
-        Self { name: name.to_string(), checked: -1, ..default() }
+        Self {
+            name: name.to_string(),
+            checked: -1,
+            ..default()
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui) {
@@ -301,12 +303,17 @@ impl<C: TrainConfig + Default + Clone> ModelEnviron<C> {
         self.config.ui(ui);
         ui.separator();
         // reset config
-        if self.checked < 0 { // nothing is checked, reset to default
+        if self.checked < 0 {
+            // nothing is checked, reset to default
             if ui.button("reset config").clicked() {
                 self.config = C::default();
             }
-        } else { // something is checked, default to past config
-            if ui.button(format!("reset config with checked option {}", self.checked)).clicked() {
+        } else {
+            // something is checked, default to past config
+            if ui
+                .button(format!("reset config with checked option {}", self.checked))
+                .clicked()
+            {
                 if let Some(a) = self.runs.get(self.checked as usize) {
                     self.config = a.clone()
                 }
@@ -336,9 +343,7 @@ impl<C: TrainConfig + Default + Clone> ModelEnviron<C> {
                 });
             });
         });
-
     }
-
 }
 
 /// The struct to pass to the training phase, which contains the senders and receivers

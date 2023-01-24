@@ -1,2 +1,2 @@
-pub mod render3d;
 mod motion;
+pub mod render3d;
