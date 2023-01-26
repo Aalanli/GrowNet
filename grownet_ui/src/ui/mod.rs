@@ -25,16 +25,16 @@ pub struct UIPlugin;
 
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<train_ui::StopTraining>()
-            .insert_resource(train_ui::RunQueue::default())
+        app
             .add_startup_system_to_stage(StartupStage::Startup, setup_ui)
             .add_system(save_ui)
             .add_state(AppState::Menu)
             .add_system_set(SystemSet::on_update(AppState::Menu).with_system(menu_ui))
-            .add_system(train_ui::handle_logging)
-            .add_system_set(
-                SystemSet::on_enter(AppState::Trainer).with_system(train_ui::training_system),
-            );
+            //.add_system(train_ui::handle_logging)
+            //.add_system_set(
+            //    SystemSet::on_enter(AppState::Trainer).with_system(train_ui::training_system),
+            //);
+            ;
     }
 }
 
@@ -44,8 +44,6 @@ fn menu_ui(
     mut dataset_state: ResMut<DatasetUI>,
     mut train_state: ResMut<train_ui::TrainingUI>,
     mut app_state: ResMut<State<AppState>>,
-    mut run_queue: ResMut<train_ui::RunQueue>,
-    logs: Res<train_ui::TrainLogs>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         ui.add(egui::Label::new("Data Explorer"));
@@ -61,11 +59,11 @@ fn menu_ui(
 
         match params.open_panel {
             OpenPanel::Models => {
-                let training = train_state.ui(ui, &logs);
-                if let Some(run) = training {
-                    run_queue.push_back(run);
-                    app_state.set(AppState::Trainer).unwrap();
-                }
+                //let training = train_state.ui(ui, &logs);
+                //if let Some(run) = training {
+                //    run_queue.push_back(run);
+                //    app_state.set(AppState::Trainer).unwrap();
+                //}
             }
             OpenPanel::Datasets => dataset_state.ui(ui),
             OpenPanel::Misc => params.update_misc(ui),
@@ -140,7 +138,6 @@ pub struct UIParams {
     pub root_path: String,
     pub font_delta: f32,
     open_panel: OpenPanel,
-    pub train_schedule: train_ui::TrainProcessSchedule,
 }
 
 /// The state for the entire app, which characterizes the two main modes of operation
@@ -190,62 +187,10 @@ impl Default for UIParams {
             open_panel: OpenPanel::Models,
             font_delta: 4.0,
             root_path: "".to_string(),
-            train_schedule: train_ui::TrainProcessSchedule::ONE,
         }
     }
 }
 
-/*
-impl<T: Param> Param for Vec<T> {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        for (i, transform) in (0..self.len()).zip(self.iter_mut()) {
-            ui.label(format!("transform {}", i));
-            ui.end_row();
-            transform.ui(ui);
-        }
-    }
-
-    fn config(&self) -> String {
-        let temp: Vec<String> = self.iter().map(|x| x.config()).collect();
-        ron::to_string(&temp).unwrap()
-    }
-
-    fn load_config(&mut self, config: &str) -> Result<()> {
-        let temp: Vec<String> = ron::from_str(config).context("Param Trait: unable to serialize from vec")?;
-        for (x, y) in self.iter_mut().zip(temp.iter()) {
-            x.load_config(y)?;
-        }
-        Ok(())
-    }
-}
-
-
-impl<K, V> Param for HashMap<K, V>
-where K: Serialize + DeserializeOwned + Hash + Eq + Send + Sync + Display + Clone, V: Param {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        for (k, v) in self.iter_mut() {
-            ui.label(format!("id {}", k));
-            v.ui(ui);
-            ui.end_row();
-        }
-    }
-
-    fn config(&self) -> String {
-        let temp: HashMap<K, String>  = self.iter().map(|(k, v)| (k.clone(), v.config())).collect();
-        ron::to_string(&temp).unwrap()
-    }
-
-    fn load_config(&mut self, config: &str) -> Result<()> {
-        let temp: HashMap<K, String> = ron::from_str(config).context("Param Trait: unable to load from HashMap")?;
-        for (k, v) in self.iter_mut() {
-            if let Some(s) = temp.get(k) {
-                v.load_config(s)?;
-            }
-        }
-        Ok(())
-    }
-}
-*/
 
 fn change_font_size(font_delta: f32, ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();

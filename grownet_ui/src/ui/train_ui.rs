@@ -8,12 +8,23 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use super::super::model_configs::baseline;
 use super::{AppState, UIParams};
 use crate::{Config, UI};
-use model_lib::models::{Log, Train, TrainCommand, TrainProcess};
+use model_lib::models::{self, Log, TrainCommand, TrainProcess, Models};
 
-pub use model_lib::models::{RunInfo, TrainLogs};
+pub use model_lib::models::{RunInfo};
 
-pub trait TrainConfig: Train + Config + UI {}
-impl<T: Train + Config + UI + Clone> TrainConfig for T {}
+
+
+
+fn console_ui(console: &models::Console, ui: &mut egui::Ui) {
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for text in &console.console_msgs {
+            ui.label(text);
+        }
+    });
+}
+
+fn plot_ui() { todo!() }
+
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TrainingUI {
@@ -23,7 +34,7 @@ pub struct TrainingUI {
 }
 
 impl TrainingUI {
-    pub fn ui(&mut self, ui: &mut egui::Ui, logs: &TrainLogs) -> Option<TrainInstance> {
+    pub fn ui(&mut self, ui: &mut egui::Ui, logs: &models::TrainEnviron) {
         ui.horizontal(|ui| {
             // the left most panel showing a list of model options
             ui.vertical(|ui| {
@@ -40,103 +51,44 @@ impl TrainingUI {
         // TODO: add some keybindings to certain buttons
         if ui.button("start training").clicked() {
             match self.model {
-                Models::BASELINE => Some(TrainInstance {
-                    run: RunInfo {
-                        model_class: "BASELINE".to_string(),
-                        version: self.baseline_ver,
-                        dataset: "CIFAR10".to_string(),
-                        ..default()
-                    },
-                    run_starter: Box::new(self.baseline.config.clone()),
-                }),
+                Models::BASELINE => {}
             }
+        }
+    }
+}
+
+
+/// This system corresponds to the egui component of the training pane
+/// handling plots, etc.
+pub fn training_system(
+    mut egui_context: ResMut<EguiContext>,
+    mut state: ResMut<State<AppState>>,
+    mut train_res: ResMut<models::TrainEnviron>,
+) {
+    egui::Window::new("train").show(egui_context.ctx_mut(), |ui| {
+        // make it so that going back to menu does not suspend current training progress
+        if ui.button("back to menu").clicked() {
+            state.set(AppState::Menu).unwrap();
+        }
+        if ui.button("stop training").clicked() {
+            // TODO: handle error
+            let _e = train_res.kill();
+        }
+        if train_res.is_running() {
+            // the console and log graphs are part of the fore-ground egui panel
+            // while any background rendering stuff is happening in a separate system, taking TrainResource as a parameter
+            ui.collapsing("console", |ui| {
+                console_ui(&train_res.console, ui);
+            });
+
+            // TODO: Add plotting utilites
         } else {
-            None
+            ui.label("no models selected");
         }
-    }
+    });
 }
 
-// Bevy resource, holds training tasks
-#[derive(Default, Deref, DerefMut)]
-pub struct RunQueue(VecDeque<TrainInstance>);
-
-// The different behaviors when spawning new tasks
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum TrainProcessSchedule {
-    ONE,
-    LINE,
-}
-
-// A bevy event, used to kill training tasks
-pub struct StopTraining;
-
-// Bevy resource, holds
-#[derive(Default)]
-pub struct TrainResource {
-    cur_instance: Option<TrainInstance>,
-    train_process: Option<TrainProcess>,
-    console: Console,
-    // TODO: vis: Visuals
-}
-
-impl TrainResource {
-    /// kills current active run if any
-    /// blocks until the current active process (if any) is killed
-    pub fn clean_runs(&mut self) -> Result<()> {
-        if let Some(t) = &mut self.train_process {
-            t.send.send(TrainCommand::KILL)?;
-            loop {
-                if let Ok(log) = t.recv.try_recv() {
-                    match log {
-                        Log::KILLED => {
-                            return Ok(());
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-pub struct Console {
-    console_msgs: VecDeque<String>,
-    max_console_msgs: usize,
-}
-
-impl Console {
-    fn new(n_logs: usize) -> Self {
-        Console {
-            console_msgs: VecDeque::new(),
-            max_console_msgs: n_logs,
-        }
-    }
-
-    fn insert_msg(&mut self, msg: String) {
-        self.console_msgs.push_back(msg);
-        if self.console_msgs.len() > self.max_console_msgs {
-            self.console_msgs.pop_front();
-        }
-    }
-
-    fn ui(&self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for text in &self.console_msgs {
-                ui.label(text);
-            }
-        });
-    }
-}
-
-impl Default for Console {
-    fn default() -> Self {
-        Self {
-            console_msgs: VecDeque::new(),
-            max_console_msgs: 50,
-        }
-    }
-}
+/*
 
 /// This system is run regardless of AppState, as we want to switch between
 /// menu and training pane regardless of models running,
@@ -149,7 +101,7 @@ impl Default for Console {
 pub fn handle_logging(
     mut run_queue: ResMut<RunQueue>,
     mut train_res: ResMut<TrainResource>,
-    mut logs: ResMut<TrainLogs>,
+    mut logs: ResMut<ModelLogs>,
     params: Res<UIParams>,
     mut stop_event: EventReader<StopTraining>,
 ) {
@@ -228,53 +180,8 @@ pub fn handle_logging(
     }
 }
 
-/// This system corresponds to the egui component of the training pane
-/// handling plots, etc.
-pub fn training_system(
-    mut egui_context: ResMut<EguiContext>,
-    mut state: ResMut<State<AppState>>,
-    mut train_res: ResMut<TrainResource>,
-    mut logs: ResMut<TrainLogs>,
-) {
-    let logs = &mut *logs;
-    egui::Window::new("train").show(egui_context.ctx_mut(), |ui| {
-        // make it so that going back to menu does not suspend current training progress
-        if ui.button("back to menu").clicked() {
-            state.set(AppState::Menu).unwrap();
-        }
-        if ui.button("stop training").clicked() {}
-        if train_res.train_process.is_some() {
-            // the console and log graphs are part of the fore-ground egui panel
-            // while any background rendering stuff is happening in a separate system, taking TrainResource as a parameter
-            ui.collapsing("console", |ui| {
-                train_res.console.ui(ui);
-            });
+*/
 
-            // TODO: Add plotting utilites
-        } else {
-            ui.label("no models selected");
-        }
-    });
-}
-
-#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
-pub enum Models {
-    BASELINE,
-}
-
-impl std::fmt::Display for Models {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Models::BASELINE => write!(f, "baseline"),
-        }
-    }
-}
-
-impl Default for Models {
-    fn default() -> Self {
-        Models::BASELINE
-    }
-}
 
 /// Environment responsible for tracking past configs, and producing a new training instance
 /// from a config snapshot
@@ -289,7 +196,7 @@ pub struct ModelEnviron<Config> {
     version_num: u32,
 }
 
-impl<C: TrainConfig + Default + Clone> ModelEnviron<C> {
+impl<C: UI + Config + Default + Clone> ModelEnviron<C> {
     fn new(name: String) -> Self {
         Self {
             name: name.to_string(),
@@ -344,11 +251,4 @@ impl<C: TrainConfig + Default + Clone> ModelEnviron<C> {
             });
         });
     }
-}
-
-/// The struct to pass to the training phase, which contains the senders and receivers
-/// for the various rendering stages
-pub struct TrainInstance {
-    run: RunInfo,
-    run_starter: Box<dyn TrainConfig>,
 }

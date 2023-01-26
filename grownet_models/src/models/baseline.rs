@@ -1,13 +1,13 @@
 /// This code is taken from https://github.com/LaurentMazare/tch-rs/blob/main/examples/cifar/main.rs
 /// with minor adjustments
-use anyhow::Result;
+use anyhow::{Result, Error};
 use crossbeam::channel::unbounded;
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use tch::nn::{FuncT, ModuleT, OptimizerConfig, SequentialT};
 use tch::{nn, Device};
 
-use super::{Log, Train, TrainCommand, TrainProcess};
+use super::{Log, TrainCommand, TrainProcess};
 
 fn conv_bn(vs: &nn::Path, c_in: i64, c_out: i64) -> SequentialT {
     let conv2d_cfg = nn::ConvConfig {
@@ -89,11 +89,13 @@ pub struct BaselineParams {
     pub epochs: u32,
     #[derivative(Default(value = "4"))]
     pub batch_size: u32,
+    #[derivative(Default(value = "100"))]
+    pub steps_per_log: usize,
     pub data_path: String,
 }
 
-impl Train for BaselineParams {
-    fn build(&self) -> TrainProcess {
+impl BaselineParams {
+    pub fn build(&self) -> TrainProcess {
         let (command_sender, command_recv) = unbounded::<TrainCommand>();
         let (log_sender, log_recv) = unbounded::<Log>();
 
@@ -112,8 +114,12 @@ impl Train for BaselineParams {
             }
             .build(&vs, params.lr)
             .unwrap();
+
+            let mut steps: usize = 0;
+
             for epoch in 1..(params.epochs as i64) {
                 opt.set_lr(learning_rate(epoch));
+                
                 for (bimages, blabels) in m
                     .train_iter(params.batch_size as i64)
                     .shuffle()
@@ -129,10 +135,19 @@ impl Train for BaselineParams {
                         .forward_t(&bimages, true)
                         .cross_entropy_for_logits(&blabels);
                     opt.backward_step(&loss);
+                    steps += 1;
+
+                    if steps % params.steps_per_log == 0 {
+                        let loss = f64::from(loss.to_device(tch::Device::Cpu)) / params.batch_size as f64;
+                        let acc = net.batch_accuracy_for_logits(&bimages, &blabels, vs.device(), params.batch_size.into());
+                        sender.send(Log::PLOT("train loss".to_string(), steps as f32, loss as f32)).unwrap();
+                        sender.send(Log::PLOT("train accuracy".to_string(), steps as f32, acc as f32)).unwrap();
+                    }
 
                     match recv.recv().unwrap() {
                         TrainCommand::KILL => {
-                            return ();
+                            sender.send(Log::KILLED).unwrap();
+                            return;
                         }
                         _ => {}
                     }
@@ -147,6 +162,7 @@ impl Train for BaselineParams {
                     ))
                     .unwrap();
             }
+            sender.send(Log::KILLED).unwrap();
         });
 
         TrainProcess {
@@ -156,6 +172,8 @@ impl Train for BaselineParams {
         }
     }
 }
+
+
 
 #[test]
 fn cifar_test() {
