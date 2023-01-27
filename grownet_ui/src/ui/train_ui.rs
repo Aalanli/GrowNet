@@ -8,7 +8,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use super::super::model_configs::baseline;
 use super::{AppState, UIParams};
 use crate::{Config, UI};
-use model_lib::models::{self, Log, TrainCommand, TrainProcess, Models};
+use model_lib::models::{self, TrainRecv, TrainSend, TrainProcess, Models};
 
 pub use model_lib::models::{RunInfo};
 
@@ -28,13 +28,13 @@ fn plot_ui() { todo!() }
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct TrainingUI {
-    baseline: ModelEnviron<baseline::BaselineParams>,
+    baseline: ConfigEnviron<baseline::BaselineParams>,
     baseline_ver: u32,
     model: Models,
 }
 
 impl TrainingUI {
-    pub fn ui(&mut self, ui: &mut egui::Ui, logs: &models::TrainEnviron) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, train_env: &mut models::TrainEnviron, app_state: &mut State<AppState>) {
         ui.horizontal(|ui| {
             // the left most panel showing a list of model options
             ui.vertical(|ui| {
@@ -51,19 +51,38 @@ impl TrainingUI {
         // TODO: add some keybindings to certain buttons
         if ui.button("start training").clicked() {
             match self.model {
-                Models::BASELINE => {}
+                // TODO: check if current model is running
+                Models::BASELINE => {
+                    let config = self.baseline.get_config();
+                    train_env.baseline.set_config(config);
+                    
+                }
             }
         }
     }
 }
 
+pub fn handle_logs(
+    mut train_env: ResMut<models::TrainEnviron>,
+    mut train_data: ResMut<models::TrainData>,
+) {
+    if train_env.is_running() {
+        match train_env.selected() {
+            Models::BASELINE => {
+                let logs = train_env.baseline.run_data();
+                train_data.handle_baseline_logs(&logs);
+            }
+        }
+    }
+}
 
 /// This system corresponds to the egui component of the training pane
 /// handling plots, etc.
 pub fn training_system(
     mut egui_context: ResMut<EguiContext>,
     mut state: ResMut<State<AppState>>,
-    mut train_res: ResMut<models::TrainEnviron>,
+    mut train_env: ResMut<models::TrainEnviron>,
+    mut train_data: ResMut<models::TrainData>,
 ) {
     egui::Window::new("train").show(egui_context.ctx_mut(), |ui| {
         // make it so that going back to menu does not suspend current training progress
@@ -71,123 +90,32 @@ pub fn training_system(
             state.set(AppState::Menu).unwrap();
         }
         if ui.button("stop training").clicked() {
-            // TODO: handle error
-            let _e = train_res.kill();
+            match train_env.selected() {
+                Models::BASELINE => {
+                    let logs = train_env.baseline.kill_blocking().expect("unable to kill task");
+                    train_data.handle_baseline_logs(&logs);
+                }
+            }
         }
-        if train_res.is_running() {
+        if train_env.is_running() {
             // the console and log graphs are part of the fore-ground egui panel
             // while any background rendering stuff is happening in a separate system, taking TrainResource as a parameter
             ui.collapsing("console", |ui| {
-                console_ui(&train_res.console, ui);
+                console_ui(&train_data.console, ui);
             });
-
+            
             // TODO: Add plotting utilites
         } else {
-            ui.label("no models selected");
+            state.set(AppState::Menu).unwrap();
         }
     });
 }
 
-/*
 
-/// This system is run regardless of AppState, as we want to switch between
-/// menu and training pane regardless of models running,
-/// Consequently, this system handles logging from any active training processes.
-/// scheduling new processes, and killing old ones.
-///
-/// This is setup so eventually, we can have hyperparmeter sweeps with relative ease,
-/// all the information for this is right here in this system, for max worker threads,
-/// gpu scheduling, etc.
-pub fn handle_logging(
-    mut run_queue: ResMut<RunQueue>,
-    mut train_res: ResMut<TrainResource>,
-    mut logs: ResMut<ModelLogs>,
-    params: Res<UIParams>,
-    mut stop_event: EventReader<StopTraining>,
-) {
-    let TrainResource {
-        cur_instance,
-        train_process,
-        console,
-        ..
-    } = &mut *train_res;
-
-    // A STOPTraining event is sent
-    for _ in stop_event.iter() {
-        if train_process.is_some() {
-            // if a process is running, kill it
-            // TODO: handle this error better
-            train_process
-                .as_mut()
-                .unwrap()
-                .send
-                .send(TrainCommand::KILL)
-                .expect("unable to send kill command");
-        } else {
-            // else remove front facing tasks in the queue
-            run_queue.pop_front();
-        }
-    }
-
-    // this part is for spawning processes if there isn't one already spawned
-    if train_process.is_none() {
-        match params.train_schedule {
-            TrainProcessSchedule::ONE => {
-                // only one process allowed in the queue at a time,
-                // if more than one, kills the current task and spawns the last from the queue
-                if let Some(task) = run_queue.pop_back() {
-                    *train_process = Some(task.run_starter.build());
-                    *cur_instance = Some(task);
-                }
-                run_queue.clear();
-            }
-            TrainProcessSchedule::LINE => {
-                // more than one training task is allowed to be in the queue at the same time,
-                // they are processed in order, first in first out
-                if let Some(task) = run_queue.pop_front() {
-                    *train_process = Some(task.run_starter.build());
-                    *cur_instance = Some(task);
-                }
-            }
-        }
-    }
-
-    if train_process.is_some() {
-        while let Ok(log) = train_process.as_mut().unwrap().recv.try_recv() {
-            match &log {
-                Log::PLOT(name, x, y) => {
-                    let msg = format!("plot {name}: x: {x}, y: {y}");
-                    console.insert_msg(msg);
-
-                    // TOOD: add log to logs
-                }
-                Log::KILLED => {
-                    let training_name = cur_instance.as_ref().unwrap().run.run_name();
-                    console.insert_msg(format!("killed successfully {}", training_name));
-
-                    // after the process has died, we add its logged results to logs
-                    // and replace it with None
-                    let last_instace = std::mem::replace(cur_instance, None).unwrap();
-                    logs.as_mut().models.push(last_instace.run);
-                    // safe to free this since the process has already
-                    // in the next frame, the if clause above will spawn a new task
-                    *train_process = None;
-                }
-            }
-
-            cur_instance.as_mut().unwrap().run.log(log);
-        }
-    }
-}
-
-*/
-
-
-/// Environment responsible for tracking past configs, and producing a new training instance
-/// from a config snapshot
-/// TODO: make this store checkpoints as well, so that models can be 'restored' from a checkpoint
+/// Environment responsible for manipulating various configs, and passing them to TrainEnviron to train,
+/// this does not know any low-level details about the configs.
 #[derive(Serialize, Deserialize, Default)]
-pub struct ModelEnviron<Config> {
+pub struct ConfigEnviron<Config> {
     name: String,
     config: Config,
     runs: Vec<Config>,
@@ -196,8 +124,8 @@ pub struct ModelEnviron<Config> {
     version_num: u32,
 }
 
-impl<C: UI + Config + Default + Clone> ModelEnviron<C> {
-    fn new(name: String) -> Self {
+impl<C: UI + Config + Default + Clone> ConfigEnviron<C> {
+    pub fn new(name: String) -> Self {
         Self {
             name: name.to_string(),
             checked: -1,
@@ -205,7 +133,11 @@ impl<C: UI + Config + Default + Clone> ModelEnviron<C> {
         }
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn get_config(&self) -> C {
+        self.config.clone()
+    }
+
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.label(format!("config for {}", self.name));
         self.config.ui(ui);
         ui.separator();

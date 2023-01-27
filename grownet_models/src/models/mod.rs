@@ -11,7 +11,7 @@ pub mod baseline;
 mod m1;
 mod m2;
 
-#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum Models {
     BASELINE,
 }
@@ -30,42 +30,55 @@ impl Default for Models {
     }
 }
 
-
-#[derive(Default, Serialize, Deserialize)]
-pub struct TrainEnviron {
-    pub baseline: SimpleEnviron<baseline::BaselineParams>,
-    pub selected: Models,
+pub struct TrainData {
     pub plots: ModelPlots,
     pub console: Console,
     pub past_runs: ModelRuns,
 }
 
+impl TrainData {
+    pub fn handle_baseline_logs(&mut self, logs: &[Log]) {
+        for log in logs {
+            match log.clone() {
+                Log::PLOT(name, run_name, x, y) => {
+                    self.plots.add_plot(&name, &run_name, x, y);
+                }
+                Log::CONSOLE(msg) => {
+                    self.console.log(msg);
+                }
+                Log::RUNINFO(info) => {
+                    self.past_runs.insert(info);
+                }
+            }
+        }
+    }    
+}
+
+/// TrainEnviron is responsible for training the various models given a config,
+/// it knows all the low level implementation details of the config, and can access the config fields.
+/// It converts these low level detains and outputs a (unified?) Log, which the various UI elements
+/// consume. The UI is not responsible for knowing configs, only adjusting the parameters and giving it
+/// to TrainEnviron to train, receiving Logs and updating visualizations.
+/// This is made this way for future work in distributed computing, where TrainEnviron may run on a 
+/// headless server, without the bevy stuff.
+#[derive(Default, Serialize, Deserialize)]
+pub struct TrainEnviron {
+    pub baseline: SimpleEnviron<baseline::BaselineParams>,
+    selected: Models
+}
+
 impl TrainEnviron {
+    pub fn selected(&self) -> Models { return self.selected; }
+
     pub fn is_running(&self) -> bool {
         match self.selected {
             Models::BASELINE => { self.baseline.is_running() }
         }
     }
 
-    pub fn kill(&mut self) -> Result<()> {
-        match self.selected {
-            Models::BASELINE => { 
-                if let Err(e) = self.baseline.kill() {
-                    self.console.log(format!("unable to kill baseline due to {}", e.to_string()));
-                    Err(e)
-                } else {
-                    self.console.log(format!("successfully killed baseline"));
-                    let mut run = std::mem::replace(&mut self.baseline.run_info, None).unwrap();
-                    run.err_status = false;
-                    self.past_runs.insert(run);
-                    Ok(()) // TODO: can be better, since we could be throwing away some logs
-                }
-            }
-        }
-    }
-
-    pub fn run(&mut self) -> Result<()> {
-        match self.selected {
+    pub fn run(&mut self, model: Models) -> Result<()> {
+        self.selected = model.clone();
+        match model {
             Models::BASELINE => {
                 if self.baseline.is_running() {
                     return Err(Error::msg("baseline is already running"))
@@ -84,57 +97,65 @@ impl TrainEnviron {
         }
     }
 
-    pub fn update_data(&mut self) {
-        if !self.is_running() { return; }
-        match self.selected {
-            Models::BASELINE => {
-                let recv = self.baseline.run.as_mut().unwrap();
-                while let Ok(log) = recv.recv.try_recv() {
-                    match log {
-                        Log::PLOT(name, x, y) => {
-                            self.console.log(format!("Logged plot name: {}, x: {}, y: {}", &name, x, y));
-                            self.plots.add_plot(&name, &self.baseline.run_info.as_ref().unwrap().run_name(), x, y);
-                        }
-                        Log::KILLED => {
-                            self.baseline.run_info = None;
-                            self.console.log(format!("{} finished training", &self.baseline.run_info.as_ref().unwrap().run_name()));
-                            let mut run = std::mem::replace(&mut self.baseline.run_info, None).unwrap();
-                            run.err_status = true;
-                            self.past_runs.insert(run);
-                        }
-                    }
-                }
-            }
-        }
-    }    
 }
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct SimpleEnviron<T> {
-    pub config: T,
-    pub past_configs: Vec<T>,
-    pub past_configs_cache: Vec<T>,
-    pub runs: usize,
+    config: T,
+    runs: usize,
     #[serde(skip)]
-    pub run: Option<TrainProcess>,
-    pub run_info: Option<RunInfo>
+    run: Option<TrainProcess>,
+    run_info: Option<RunInfo>,
 }
 
 impl<T> SimpleEnviron<T> {
     pub fn is_running(&self) -> bool { self.run.is_some() }
 
-    pub fn kill(&mut self) -> Result<Vec<Log>> {
-        if let Some(t) = &mut self.run {
-            t.kill()
-        } else {
-            Ok(Vec::new())
-        }
-    }
-
     pub fn run_name(&self) -> Option<String> {
         self.run_info.as_ref().and_then(|x| Some(x.run_name()) )
     }
 
+    pub fn set_config(&mut self, config: T) {
+        self.config = config;
+    } 
+
+    pub fn kill_blocking(&mut self) -> Result<Vec<Log>> {
+        if let Some(t) = &mut self.run {
+            t.kill().and_then(|x| Ok(self.convert_recv(&x)) )
+        } else {
+            Err(Error::msg("Nothing to kill"))
+        }
+    }
+
+    pub fn run_data(&mut self) -> Vec<Log> {
+        let mut logs = Vec::new();
+        if self.is_running() { 
+            while let Ok(log) = self.run.as_mut().unwrap().recv.try_recv() {
+                logs.extend(self.convert_recv(&[log]));
+            }
+        }
+        logs
+    }
+
+    pub fn convert_recv(&mut self, recv: &[TrainRecv]) -> Vec<Log> {
+        let mut logs = Vec::new();
+        for log in recv {
+            match log.clone() {
+                TrainRecv::KILLED => {
+                    logs.push(Log::CONSOLE(format!("{} finished training", &self.run_info.as_ref().unwrap().run_name())));
+                    let mut run_info = std::mem::replace(&mut self.run_info, None).unwrap();
+                    run_info.err_status = true;
+                    logs.push(Log::RUNINFO(run_info));
+                    self.run = None;
+                }
+                TrainRecv::PLOT(name, x, y) => {
+                    logs.push(Log::CONSOLE(format!("Logged plot name: {}, x: {}, y: {}", &name, x, y)));
+                    logs.push(Log::PLOT(name, self.run_name().unwrap(), x, y));
+                }
+            }
+        }
+        logs
+    }
 }
 
 
@@ -198,7 +219,7 @@ impl ModelRuns {
 }
 
 /// This struct represents an individual training run
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct RunInfo {
     pub model_class: String, // name for the class of models this falls under
     pub version: usize,        // id for this run
@@ -245,35 +266,49 @@ impl Default for Console {
     }
 }
 
-pub enum TrainCommand {
+pub enum TrainSend {
     KILL,
     OTHER(usize),
 }
 
+/// The reason there is a TrainRecv and a Log, with the two being nearly identical
+/// is that the TrainRecv is the direct output of the training process, which does not
+/// have information, as it does not concern itself, with various details such as model version
+/// etc. As its only responsibility is to train the model and output raw data. This raw data
+/// is TrainRecv, and is processed by TrainEnviron, which does concern itself with details such as
+/// model version number, etc, and converts/integrates this information to Log.
 #[derive(Clone)]
-pub enum Log {
+pub enum TrainRecv {
     PLOT(String, f32, f32), // key, x, y
     KILLED,
+}
+
+/// The (unified?) Log which visualization utilities consume
+#[derive(Clone)]
+pub enum Log {
+    PLOT(String, String, f32, f32),
+    RUNINFO(RunInfo),
+    CONSOLE(String)
 }
 
 
 /// The handle to the process running the training, interact with that process
 /// through this struct by sending commands and receiving logs
 pub struct TrainProcess {
-    pub send: Sender<TrainCommand>,
-    pub recv: Receiver<Log>,
+    pub send: Sender<TrainSend>,
+    pub recv: Receiver<TrainRecv>,
     pub handle: JoinHandle<()>,
 }
 
 impl TrainProcess {
     /// blocks until process is killed
-    pub fn kill(&mut self) -> Result<Vec<Log>> {
-        self.send.send(TrainCommand::KILL)?;
+    pub fn kill(&mut self) -> Result<Vec<TrainRecv>> {
+        self.send.send(TrainSend::KILL)?;
         let mut log_msgs = Vec::new();
         loop {
             let msg = self.recv.try_recv()?;
             match msg {
-                Log::KILLED => { return Ok(log_msgs); }
+                TrainRecv::KILLED => { return Ok(log_msgs); }
                 x => {
                     log_msgs.push(x);
                 }

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use tch::nn::{FuncT, ModuleT, OptimizerConfig, SequentialT};
 use tch::{nn, Device};
 
-use super::{Log, TrainCommand, TrainProcess};
+use super::{TrainRecv, TrainSend, TrainProcess};
 
 fn conv_bn(vs: &nn::Path, c_in: i64, c_out: i64) -> SequentialT {
     let conv2d_cfg = nn::ConvConfig {
@@ -96,8 +96,8 @@ pub struct BaselineParams {
 
 impl BaselineParams {
     pub fn build(&self) -> TrainProcess {
-        let (command_sender, command_recv) = unbounded::<TrainCommand>();
-        let (log_sender, log_recv) = unbounded::<Log>();
+        let (command_sender, command_recv) = unbounded::<TrainSend>();
+        let (log_sender, log_recv) = unbounded::<TrainRecv>();
 
         let params = self.clone();
         let handle = std::thread::spawn(move || {
@@ -140,13 +140,13 @@ impl BaselineParams {
                     if steps % params.steps_per_log == 0 {
                         let loss = f64::from(loss.to_device(tch::Device::Cpu)) / params.batch_size as f64;
                         let acc = net.batch_accuracy_for_logits(&bimages, &blabels, vs.device(), params.batch_size.into());
-                        sender.send(Log::PLOT("train loss".to_string(), steps as f32, loss as f32)).unwrap();
-                        sender.send(Log::PLOT("train accuracy".to_string(), steps as f32, acc as f32)).unwrap();
+                        sender.send(TrainRecv::PLOT("train loss".to_string(), steps as f32, loss as f32)).unwrap();
+                        sender.send(TrainRecv::PLOT("train accuracy".to_string(), steps as f32, acc as f32)).unwrap();
                     }
 
                     match recv.recv().unwrap() {
-                        TrainCommand::KILL => {
-                            sender.send(Log::KILLED).unwrap();
+                        TrainSend::KILL => {
+                            sender.send(TrainRecv::KILLED).unwrap();
                             return;
                         }
                         _ => {}
@@ -155,14 +155,14 @@ impl BaselineParams {
                 let test_accuracy =
                     net.batch_accuracy_for_logits(&m.test_images, &m.test_labels, vs.device(), 512);
                 sender
-                    .send(Log::PLOT(
+                    .send(TrainRecv::PLOT(
                         "test accuracy".to_string(),
                         epoch as f32,
                         100. * test_accuracy as f32,
                     ))
                     .unwrap();
             }
-            sender.send(Log::KILLED).unwrap();
+            sender.send(TrainRecv::KILLED).unwrap();
         });
 
         TrainProcess {
