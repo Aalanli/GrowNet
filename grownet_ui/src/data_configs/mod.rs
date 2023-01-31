@@ -1,7 +1,7 @@
 use crate::UI;
+use datasets::Transform;
 use grownet_macros::derive_ui;
 use model_lib::{datasets, Config};
-use datasets::Transform;
 
 use datasets::mnist::MnistParams;
 derive_ui!(
@@ -37,4 +37,3 @@ derive_ui!(
         pub cutout: i64,
     }
 );
-

@@ -1,13 +1,12 @@
 use std::marker::PhantomData;
 
-use serde::{Serialize, de::DeserializeOwned, Deserialize};
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tch::Tensor;
 
+use super::{data, Transform};
 use crate::ops;
 use crate::Config;
-use super::{Transform, data};
-
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Normalize {
@@ -17,7 +16,10 @@ pub struct Normalize {
 
 impl Default for Normalize {
     fn default() -> Self {
-        Normalize { mu: 0.0, range: 2.0 }
+        Normalize {
+            mu: 0.0,
+            range: 2.0,
+        }
     }
 }
 
@@ -31,9 +33,7 @@ impl Transform<data::Image, data::Image> for Normalize {
         });
         let width = self.range / (max - min);
         let center = (max + min) / 2.0;
-        data.image.mapv_inplace(|x| {
-            (x - center + self.mu) / width
-        });
+        data.image.mapv_inplace(|x| (x - center + self.mu) / width);
         data
     }
 }
@@ -48,7 +48,6 @@ impl Transform<Tensor, Tensor> for Normalize {
     }
 }
 
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BasicImAugumentation {
     pub flip: bool,
@@ -59,12 +58,16 @@ pub struct BasicImAugumentation {
 impl BasicImAugumentation {
     pub fn transform(&self, x: &Tensor) -> Tensor {
         tch::vision::dataset::augmentation(x, self.flip, self.crop, self.cutout)
-    } 
+    }
 }
 
 impl Default for BasicImAugumentation {
     fn default() -> Self {
-        Self { flip: true, crop: 4, cutout: 8 }
+        Self {
+            flip: true,
+            crop: 4,
+            cutout: 8,
+        }
     }
 }
 

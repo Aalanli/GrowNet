@@ -2,18 +2,17 @@
 #![allow(unused_imports)]
 #![allow(unused_macros)]
 
-
+pub mod data_configs;
+pub mod model_configs;
 pub mod ui;
 pub mod visualizations;
-pub mod model_configs;
-pub mod data_configs;
 
+use anyhow::{Context, Result};
 use bevy_egui::egui;
-use anyhow::{Result, Context};
-use serde::{Serialize, de::DeserializeOwned, Deserialize};
-use num::Num;
-use model_lib::Config;
 use grownet_macros::{Config, UI};
+use model_lib::Config;
+use num::Num;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub trait UI: Config {
     fn ui(&mut self, ui: &mut egui::Ui);
@@ -58,11 +57,10 @@ impl UI for std::path::PathBuf {
     }
 }
 
-
 #[derive(Default, Serialize, Deserialize)]
 pub struct DragConfig<T> {
     pub val: T,
-    pub speed: f64
+    pub speed: f64,
 }
 
 impl<T: Sync + Send + Serialize + DeserializeOwned + egui::emath::Numeric> UI for DragConfig<T> {
@@ -89,7 +87,7 @@ fn test_derive_ui_macro() {
     struct Test {
         batch_size: u32,
         eps: f32,
-        path: String
+        path: String,
     }
 
     let t = Test::default();

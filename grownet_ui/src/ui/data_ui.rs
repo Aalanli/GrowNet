@@ -3,19 +3,18 @@ use std::sync::Mutex;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use itertools::Itertools;
-use ndarray::{Array3, Array, Ix4};
+use ndarray::{Array, Array3, Ix4};
 
 use crate::{Config, UI};
-use model_lib::datasets::{Dataset, DatasetBuilder, data};
+use model_lib::datasets::{data, Dataset, DatasetBuilder};
 
-use anyhow::{Result, Context, Error};
-
+use anyhow::{Context, Error, Result};
 
 #[derive(Default)]
 pub struct DatasetUI {
     cur_active: usize,
     viewers: Vec<Box<dyn Viewer>>,
-    names: Vec<&'static str>
+    names: Vec<&'static str>,
 }
 
 impl DatasetUI {
@@ -68,7 +67,6 @@ pub trait Viewer: Config + UI {
     fn drop_dataset(&mut self);
 }
 
-
 /// Viewer for the Classification dataset type
 pub struct ClassificationViewer<D: DatasetBuilder> {
     train_data: Option<Mutex<D::Dataset>>,
@@ -76,17 +74,26 @@ pub struct ClassificationViewer<D: DatasetBuilder> {
     params: D,
     train_texture: Option<Vec<egui::TextureHandle>>,
     test_texture: Option<Vec<egui::TextureHandle>>,
-    im_scale: f32
+    im_scale: f32,
 }
 
 unsafe impl<D: DatasetBuilder> Send for ClassificationViewer<D> {}
 unsafe impl<D: DatasetBuilder> Sync for ClassificationViewer<D> {}
 
-
 impl<D, B> ClassificationViewer<B>
-where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> {
+where
+    D: Dataset<DataPoint = data::ImClassify>,
+    B: DatasetBuilder<Dataset = D>,
+{
     pub fn new(builder: B) -> Self {
-        Self { train_data: None, test_data: None, params: builder, train_texture: None, test_texture: None, im_scale: 1.0 }
+        Self {
+            train_data: None,
+            test_data: None,
+            params: builder,
+            train_texture: None,
+            test_texture: None,
+            im_scale: 1.0,
+        }
     }
 
     fn load_texture(data: &mut Mutex<D>, ui: &mut egui::Ui) -> Vec<egui::TextureHandle> {
@@ -101,33 +108,51 @@ where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> {
 
         let batch_size = data_point.image.image.dim().0;
 
-        let mut pixels: Vec<Vec<_>> = (0..batch_size).map(|batch| {
-            data_point.image.image
-            .index_axis(Axis(0), batch)
-            .as_slice()
-            .unwrap()
-            .chunks_exact(3)
-            .map(|x| {
-                egui::Color32::from_rgb((x[0] * 255.0) as u8, (x[1] * 255.0) as u8, (x[2] * 255.0) as u8)
-            }).collect() 
-        }).collect();
+        let mut pixels: Vec<Vec<_>> = (0..batch_size)
+            .map(|batch| {
+                data_point
+                    .image
+                    .image
+                    .index_axis(Axis(0), batch)
+                    .as_slice()
+                    .unwrap()
+                    .chunks_exact(3)
+                    .map(|x| {
+                        egui::Color32::from_rgb(
+                            (x[0] * 255.0) as u8,
+                            (x[1] * 255.0) as u8,
+                            (x[2] * 255.0) as u8,
+                        )
+                    })
+                    .collect()
+            })
+            .collect();
 
         let size = data_point.image.size();
-        let handles = (0..batch_size).map(|_| {
-            let color_image = egui::ColorImage { size, pixels: pixels.pop().unwrap() };
-            ui.ctx().load_texture("im sample", color_image, egui::TextureFilter::Nearest)
-        }).collect();
+        let handles = (0..batch_size)
+            .map(|_| {
+                let color_image = egui::ColorImage {
+                    size,
+                    pixels: pixels.pop().unwrap(),
+                };
+                ui.ctx()
+                    .load_texture("im sample", color_image, egui::TextureFilter::Nearest)
+            })
+            .collect();
         handles
     }
 
     fn loading_logic(&mut self, ui: &mut egui::Ui) {
         let err_ui = |err: Error, ui: &mut egui::Ui| -> Option<D> {
-            ui.label(format!("Error loading dataset {}", err.to_string())); 
+            ui.label(format!("Error loading dataset {}", err.to_string()));
             None
         };
         // load the datasets if not loaded already
         if let None = self.train_data {
-            let train_data = self.params.build_train().map_or_else(|e| err_ui(e, ui), |x| Some(x));
+            let train_data = self
+                .params
+                .build_train()
+                .map_or_else(|e| err_ui(e, ui), |x| Some(x));
             self.train_data = train_data.map(|x| Mutex::new(x));
         }
         if let None = self.test_data {
@@ -157,13 +182,16 @@ where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> {
                 let mut size = im.size_vec2();
                 size *= im_scale;
                 ui.image(im, size);
-            } 
+            }
         }
     }
 }
 
 impl<D, B> UI for ClassificationViewer<B>
-where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> + UI {
+where
+    D: Dataset<DataPoint = data::ImClassify>,
+    B: DatasetBuilder<Dataset = D> + UI,
+{
     fn ui(&mut self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             self.params.ui(ui);
@@ -196,10 +224,9 @@ where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> +
                     //    .show(ui, |ui| {
                     //    self.display_im_if_any(&self.test_texture, ui);
                     //});
-
                 });
             });
-            
+
             egui::containers::panel::SidePanel::right("train images").show(ui.ctx(), |ui| {
                 ui.vertical(|ui| {
                     egui::containers::ScrollArea::vertical()
@@ -221,28 +248,26 @@ where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> +
                                 self.train_texture = None;
                             }
                         });
-    
+
                     //egui::CollapsingHeader::new("train images")
                     //    .default_open(true)
                     //    .show(ui, |ui| {
                     //    self.display_im_if_any(&self.train_texture, ui);
                     //});
-
-                }); 
+                });
             });
-    
-            ui.label("image scale");
-            ui.add(
-                egui::Slider::new(&mut self.im_scale, 0.1..=10.0)
-            );
 
+            ui.label("image scale");
+            ui.add(egui::Slider::new(&mut self.im_scale, 0.1..=10.0));
         });
-        
     }
 }
 
 impl<D, B> Config for ClassificationViewer<B>
-where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> {
+where
+    D: Dataset<DataPoint = data::ImClassify>,
+    B: DatasetBuilder<Dataset = D>,
+{
     fn config(&self) -> String {
         let self_params = ron::to_string(&self.im_scale).unwrap();
         let data_params = self.params.config();
@@ -250,16 +275,22 @@ where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> {
     }
 
     fn load_config(&mut self, config: &str) -> Result<()> {
-        let (self_params, data_params): (String, String) = ron::from_str(config).context("Classification Viewer")?;
+        let (self_params, data_params): (String, String) =
+            ron::from_str(config).context("Classification Viewer")?;
         let scale: f32 = ron::from_str(&self_params).context("Classification Viewer")?;
-        self.params.load_config(&data_params).context("Classification viewer dataset parameters")?;
+        self.params
+            .load_config(&data_params)
+            .context("Classification viewer dataset parameters")?;
         self.im_scale = scale;
         Ok(())
     }
 }
 
 impl<D, B> Viewer for ClassificationViewer<B>
-where D: Dataset<DataPoint = data::ImClassify>, B: DatasetBuilder<Dataset = D> + UI {
+where
+    D: Dataset<DataPoint = data::ImClassify>,
+    B: DatasetBuilder<Dataset = D> + UI,
+{
     fn drop_dataset(&mut self) {
         self.train_data = None;
         self.test_data = None;

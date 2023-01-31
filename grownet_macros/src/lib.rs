@@ -1,5 +1,5 @@
-use proc_macro::TokenStream;
 use grownet_macro_core as macros;
+use proc_macro::TokenStream;
 
 #[proc_macro_derive(Config, attributes(no_op))]
 pub fn derive_macro_config(input: TokenStream) -> TokenStream {
