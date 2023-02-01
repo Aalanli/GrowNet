@@ -45,9 +45,16 @@ pub fn derive_macro_ui(input: TokenStream) -> Result<TokenStream> {
         impl #generics UI for #struct_name #stripped_generics
         #where_clause {
             fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
+                use bevy_egui::egui;
                 ui.vertical(|ui| {
-                    ui.label(stringify!(#struct_name));
-                    #(ui.label(stringify!(#named_field_idents)); self.#named_field_idents.ui(ui);) *
+                    egui::CollapsingHeader::new(stringify!(#struct_name)).default_open(true).show(ui, |ui| {
+                        #(
+                            ui.horizontal(|ui| {
+                                ui.label(stringify!(#named_field_idents)); 
+                                self.#named_field_idents.ui(ui);
+                            });
+                        ) *
+                    });
                 });
             }
         }
@@ -255,13 +262,14 @@ mod config_derive {
 
     #[test]
     fn test_config_generics2() {
+        struct S;
         let tokens = quote!(
             struct T<'a, S: Copy>
             where
                 S: Clone,
             {
                 #[tag = "1 + 2"]
-                a: f32,
+                a: S,
             }
         );
 

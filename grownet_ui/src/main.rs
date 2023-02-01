@@ -18,7 +18,6 @@ fn main() {
             watch_for_changes: true,
             ..default()
         }))
-        .add_plugins(DefaultPlugins)
         .add_plugin(EguiPlugin)
         //.add_plugin(WorldInspectorPlugin::new())
         .add_plugin(bevy_stl::StlPlugin)

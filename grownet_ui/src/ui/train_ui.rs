@@ -105,30 +105,36 @@ pub struct TrainingUI {
 
 impl TrainingUI {
     pub fn ui(&mut self, ui: &mut egui::Ui, train_env: &mut models::TrainEnviron, app_state: &mut State<AppState>) {
+        // ui.horizontal squashes the vertical height for some reason
+        let space = ui.available_size();
         ui.horizontal(|ui| {
-            // the left most panel showing a list of model options
-            ui.vertical(|ui| {
-                ui.selectable_value(&mut self.model, Models::BASELINE, "baseline");
-            });
+            // to this to prevent that
+            ui.allocate_ui(space, |ui| {
+                // the left most panel showing a list of model options
+                ui.vertical(|ui| {
+                    ui.selectable_value(&mut self.model, Models::BASELINE, "baseline");
 
-            ui.vertical(|ui| match self.model {
-                Models::BASELINE => {
-                    self.baseline.ui(ui);
-                }
+                    // TODO: add some keybindings to certain buttons
+                    if ui.button("start training").clicked() {
+                        match self.model {
+                            // TODO: check if current model is running
+                            Models::BASELINE => {
+                                let config = self.baseline.get_config();
+                                train_env.baseline.set_config(config);
+                                app_state.set(AppState::Trainer).unwrap();
+                            }
+                        }
+                    }
+                });
+    
+                ui.vertical(|ui| match self.model {
+                    Models::BASELINE => {
+                        self.baseline.ui(ui);
+                    }
+                });
             });
         });
 
-        // TODO: add some keybindings to certain buttons
-        if ui.button("start training").clicked() {
-            match self.model {
-                // TODO: check if current model is running
-                Models::BASELINE => {
-                    let config = self.baseline.get_config();
-                    train_env.baseline.set_config(config);
-                    
-                }
-            }
-        }
     }
 }
 
@@ -190,7 +196,7 @@ pub struct ConfigEnviron<Config> {
     config: Config,
     runs: Vec<Config>,
     pub_runs: Vec<Config>, // dumb method, since we need ui method to display, but can also mutate this, so we keep backup
-    checked: isize,        // each vec has a checkbox, this is the index which is checked
+    checked: Option<usize>,        // each vec has a checkbox, this is the index which is checked
     version_num: u32,
 }
 
@@ -198,7 +204,7 @@ impl<C: UI + Config + Default + Clone> ConfigEnviron<C> {
     pub fn new(name: String) -> Self {
         Self {
             name: name.to_string(),
-            checked: -1,
+            checked: None,
             ..default()
         }
     }
@@ -208,51 +214,56 @@ impl<C: UI + Config + Default + Clone> ConfigEnviron<C> {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.collapsing(format!("config for {}", self.name), |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                self.config.ui(ui);
-            });
-            ui.separator();
-            // reset config
-            if self.checked < 0 {
-                // nothing is checked, reset to default
-                if ui.button("reset config").clicked() {
-                    self.config = C::default();
-                }
-            } else {
-                // something is checked, default to past config
-                if ui
-                    .button(format!("reset config with checked option {}", self.checked))
-                    .clicked()
-                {
-                    if let Some(a) = self.runs.get(self.checked as usize) {
-                        self.config = a.clone()
-                    }
-                }
-            }
-        });
-
-        // implement adding and deletion from config stack
-        ui.vertical(|ui| {
-            ui.collapsing("past configs", |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    // use pub_runs as dummy display
-                    for (i, c) in &mut self.pub_runs.iter_mut().enumerate() {
-                        // allow checked to be negative so it becomes possible for no
-                        // option to be checked
-                        let mut checked = i as isize == self.checked;
-                        ui.checkbox(&mut checked, format!("config {}", i));
-                        c.ui(ui);
-                        // we don't want past configs to change, so we have an immutable copy
-                        *c = self.runs[i].clone();
-                        // only one option can be checked at a time
-                        if checked {
-                            self.checked = i as isize;
-                        } else {
-                            self.checked = -1;
+        let space = ui.available_size();
+        ui.horizontal(|ui| {
+            ui.allocate_ui(space, |ui| {
+                ui.vertical(|ui| {
+                    if self.checked.is_none() {
+                        // nothing is checked, reset to default
+                        if ui.button("reset config").clicked() {
+                            self.config = C::default();
+                        }
+                    } else {
+                        // something is checked, default to past config
+                        let checked = self.checked.as_mut().unwrap();
+                        if ui
+                            .button(format!("reset config with past config {}", checked))
+                            .clicked()
+                        {
+                            if let Some(a) = self.runs.get(*checked) {
+                                self.config = a.clone()
+                            }
                         }
                     }
+                    egui::ScrollArea::vertical().id_source("configs").show(ui, |ui| {
+                        self.config.ui(ui);
+                    });
                 });
+                
+                // implement adding and deletion from config stack
+                ui.vertical(|ui| {
+                    
+                    egui::ScrollArea::vertical().id_source("past configs").show(ui, |ui| {
+                        // use pub_runs as dummy display
+                        for (i, c) in &mut self.pub_runs.iter_mut().enumerate() {
+                            // allow checked to be negative so it becomes possible for no
+                            // option to be checked
+                            let mut checked = self.checked.is_some() && i == self.checked.unwrap();
+                            eprintln!("checked {}", checked);
+                            ui.checkbox(&mut checked, format!("config {}", i));
+                            c.ui(ui);
+                            // we don't want past configs to change, so we have an immutable copy
+                            *c = self.runs[i].clone();
+                            // only one option can be checked at a time
+                            if checked {
+                                self.checked = Some(i);
+                            } else {
+                                self.checked = None;
+                            }
+                        }
+                    });
+                    
+                }); 
             });
         });
     }
