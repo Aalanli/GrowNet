@@ -226,7 +226,7 @@ struct Field;
 #[derive(Component)]
 pub struct Vector;
 
-#[derive(Clone)]
+#[derive(Clone, Resource)]
 struct FieldDescriptor {
     bases: Vec<Vec3>,
     point: Vec<Vec3>,

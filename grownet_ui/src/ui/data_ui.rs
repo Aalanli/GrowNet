@@ -1,16 +1,75 @@
 use std::sync::Mutex;
 
+use anyhow::{Context, Error, Result};
 use bevy::prelude::*;
 use bevy_egui::egui;
 use itertools::Itertools;
 use ndarray::{Array, Array3, Ix4};
 
 use crate::{Config, UI};
+use super::{AppState, UIParams, ROOT_PATH};
 use model_lib::datasets::{data, Dataset, DatasetBuilder};
 
-use anyhow::{Context, Error, Result};
 
-#[derive(Default)]
+pub struct DatasetUIPlugin;
+impl Plugin for DatasetUIPlugin {
+    fn build(&self, app: &mut App) {
+        app
+            .add_startup_system(setup_dataset_ui)
+            .add_system_set(SystemSet::on_update(AppState::Close).with_system(save_dataset_ui));
+    }
+}
+
+fn setup_dataset_ui(mut commands: Commands, params: Res<UIParams>) {
+    use model_lib::datasets as data;
+
+    let mut dataset_ui = DatasetUI::default();
+
+    let cifar10 = data::cifar::Cifar10Params::default();
+    let cifar_viewer = ClassificationViewer::new(cifar10);
+    dataset_ui.push_viewer(cifar_viewer, "cifar10");
+
+    let mnist = data::mnist::MnistParams::default();
+    let mnist_viewer = ClassificationViewer::new(mnist);
+    dataset_ui.push_viewer(mnist_viewer, "mnist");
+
+    // load configurations from disk
+    let root_path: std::path::PathBuf = params.root_path.clone().into();
+    let config_file = root_path.join("data_ui_config").with_extension("ron");
+
+    if config_file.exists() {
+        eprintln!("loading from config file {}", config_file.to_str().unwrap());
+        let config: String =
+            ron::from_str(&std::fs::read_to_string(&config_file).unwrap()).unwrap();
+        if let Err(e) = dataset_ui.load_config(&config) {
+            eprintln!("failed to load data config\n{}", e);
+        }
+    }
+
+    commands.insert_resource(dataset_ui);
+}
+
+fn save_dataset_ui(
+    params: Res<UIParams>,
+    dataset_params: Res<DatasetUI>
+) {
+    eprintln!("saving data_ui params");
+    let data_ui_config = dataset_params.config();
+    eprintln!("data ui params {}", data_ui_config);
+
+    let root_path: std::path::PathBuf = params.root_path.clone().into();
+    if !root_path.exists() {
+        std::fs::create_dir_all(&root_path).unwrap();
+    }
+
+    let config_file = root_path.join("data_ui_config").with_extension("ron");
+
+    let serialized = ron::to_string(&data_ui_config).unwrap();
+    std::fs::write(&config_file, serialized).unwrap();
+}
+
+
+#[derive(Default, Resource)]
 pub struct DatasetUI {
     cur_active: usize,
     viewers: Vec<Box<dyn Viewer>>,
@@ -136,7 +195,7 @@ where
                     pixels: pixels.pop().unwrap(),
                 };
                 ui.ctx()
-                    .load_texture("im sample", color_image, egui::TextureFilter::Nearest)
+                    .load_texture("im sample", color_image, egui::TextureOptions::NEAREST)
             })
             .collect();
         handles

@@ -4,21 +4,22 @@ use std::fmt::Display;
 use std::fs;
 use std::path;
 
-use anyhow::Context;
+use anyhow::{Context, Result};
+use bincode;
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy::window::{WindowCloseRequested, WindowClosed};
 use bevy_egui::{egui, EguiContext};
 
-use anyhow::Result;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use crate::{Config, UI};
 
-/// Defines everything that gets the dataset viewer to work
 pub mod data_ui;
 pub mod train_ui;
-pub use data_ui::DatasetUI;
+
+/// the path at which the user config files are stored
+const ROOT_PATH: &str = "assets/config";
 
 /// The ui plugin, the entry point for the ui
 pub struct UIPlugin;
@@ -26,14 +27,13 @@ pub struct UIPlugin;
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app
-            .add_startup_system_to_stage(StartupStage::Startup, setup_ui)
+            .insert_resource(UIParams::default())
+            .add_startup_system(setup_ui)
             .add_system(save_ui)
             .add_state(AppState::Menu)
+            .add_plugin(data_ui::DatasetUIPlugin)
+            .add_plugin(train_ui::TrainUIPlugin)
             .add_system_set(SystemSet::on_update(AppState::Menu).with_system(menu_ui))
-            //.add_system(train_ui::handle_logging)
-            //.add_system_set(
-            //    SystemSet::on_enter(AppState::Trainer).with_system(train_ui::training_system),
-            //);
             ;
     }
 }
@@ -41,8 +41,9 @@ impl Plugin for UIPlugin {
 fn menu_ui(
     mut egui_context: ResMut<EguiContext>,
     mut params: ResMut<UIParams>,
-    mut dataset_state: ResMut<DatasetUI>,
+    mut dataset_state: ResMut<data_ui::DatasetUI>,
     mut train_state: ResMut<train_ui::TrainingUI>,
+    mut train_env: ResMut<train_ui::TrainEnviron>,
     mut app_state: ResMut<State<AppState>>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
@@ -58,13 +59,7 @@ fn menu_ui(
         ui.separator();
 
         match params.open_panel {
-            OpenPanel::Models => {
-                //let training = train_state.ui(ui, &logs);
-                //if let Some(run) = training {
-                //    run_queue.push_back(run);
-                //    app_state.set(AppState::Trainer).unwrap();
-                //}
-            }
+            OpenPanel::Models => { train_state.ui(ui, &mut train_env, &mut *app_state); }
             OpenPanel::Datasets => dataset_state.ui(ui),
             OpenPanel::Misc => params.update_misc(ui),
         }
@@ -73,33 +68,33 @@ fn menu_ui(
 
 fn setup_ui(
     mut params: ResMut<UIParams>,
-    mut data_param: ResMut<DatasetUI>,
     mut egui_context: ResMut<EguiContext>,
 ) {
+    params.root_path = ROOT_PATH.to_string();
+    
     let root_path: path::PathBuf = params.root_path.clone().into();
     let config_file = root_path.join("ui_config").with_extension("ron");
     // loading configurations of main ui components
     if config_file.exists() {
         eprintln!("loading from config file {}", config_file.to_str().unwrap());
-        let config: (String, String) =
-            ron::from_str(&fs::read_to_string(&config_file).unwrap()).unwrap();
-        params.load_config(&config.0);
-
-        if let Err(e) = data_param.load_config(&config.1) {
-            eprintln!("Unable to load dataset parameters due to {}", e.to_string());
+        let result: Result<String, _> = ron::from_str(&fs::read_to_string(&config_file).unwrap());
+        match result {
+            Ok(config) => { params.load_config(&config); },
+            Err(e) => { eprintln!("unable to deserialize ui_params {}", e); }
         }
     }
 
     // startup tasks that one must do to update the ui
     change_font_size(params.font_delta, egui_context.ctx_mut());
+
 }
 
 fn save_ui(
     mut exit: EventReader<AppExit>,
     mut closed: EventReader<WindowClosed>,
     mut closed2: EventReader<WindowCloseRequested>,
+    mut app_state: ResMut<State<AppState>>,
     params: Res<UIParams>,
-    dataset_params: Res<DatasetUI>,
 ) {
     let mut exited = false;
     for _ in exit.iter() {
@@ -118,22 +113,21 @@ fn save_ui(
             fs::create_dir_all(&root_path).unwrap();
         }
 
-        eprintln!("saving config");
+        eprintln!("saving ui config");
         let config_file = root_path.join("ui_config").with_extension("ron");
 
-        // getting configurations of main ui components
         let main_ui_config = params.config();
-        let data_ui_config = dataset_params.config();
-        eprintln!("data ui params {}", data_ui_config);
 
-        let serialized = ron::to_string(&(main_ui_config, data_ui_config)).unwrap();
+        let serialized = ron::to_string(&main_ui_config).unwrap();
         fs::write(&config_file, serialized).unwrap();
+
+        app_state.set(AppState::Close).expect("failed to send app close msg");
     }
 }
 
 /// Main configuration state for the entire ui
 /// as in, the ui can be constructed solely from these parameters
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Resource, Serialize, Deserialize)]
 pub struct UIParams {
     pub root_path: String,
     pub font_delta: f32,
@@ -147,6 +141,7 @@ pub struct UIParams {
 pub enum AppState {
     Menu,
     Trainer,
+    Close,
 }
 
 /// State for panel opened in the ui

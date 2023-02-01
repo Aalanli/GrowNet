@@ -30,6 +30,7 @@ impl Default for Models {
     }
 }
 
+#[derive(Serialize, Deserialize, Default)]
 pub struct TrainData {
     pub plots: ModelPlots,
     pub console: Console,

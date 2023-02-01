@@ -42,3 +42,4 @@ __pycache__
 data
 .ipynb_checkpoints
 ml_datasets
+assets/config

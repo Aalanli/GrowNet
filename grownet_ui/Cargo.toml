@@ -23,10 +23,10 @@ rand = "0.8.5"
 ndarray-rand = "0.14.0"
 rand_distr = "0.4.3"
 
-bevy = { version = "0.8.1", features = ["dynamic"] }
-bevy_egui = "0.16.1"
-bevy-inspector-egui = "0.12.1"
-bevy_stl = "0.6.0"
+bevy = { version = "0.9", features = ["dynamic"] }
+bevy_egui = "0.19"
+bevy-inspector-egui = "0.17.0"
+bevy_stl = "0.7.0"
 
 crossbeam = "0.8.2"
 itertools = "0.10.5"

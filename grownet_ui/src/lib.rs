@@ -14,6 +14,7 @@ use model_lib::Config;
 use num::Num;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+// TODO: Get rid of Config, it simply isn't necessary
 pub trait UI: Config {
     fn ui(&mut self, ui: &mut egui::Ui);
 }

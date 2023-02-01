@@ -8,11 +8,81 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use super::super::model_configs::baseline;
 use super::{AppState, UIParams};
 use crate::{Config, UI};
-use model_lib::models::{self, TrainRecv, TrainSend, TrainProcess, Models};
-
-pub use model_lib::models::{RunInfo};
+use model_lib::models::{self, Models};
 
 
+
+#[derive(Resource, Deref, DerefMut, Default, Serialize, Deserialize)]
+pub struct TrainData(models::TrainData);
+
+
+#[derive(Resource, Deref, DerefMut, Default, Serialize, Deserialize)]
+pub struct TrainEnviron(models::TrainEnviron);
+
+
+
+pub struct TrainUIPlugin;
+impl Plugin for TrainUIPlugin {
+    fn build(&self, app: &mut App) {
+        app
+            .insert_resource(TrainData::default())
+            .insert_resource(TrainEnviron::default())
+            .insert_resource(TrainingUI::default())
+            .add_startup_system(setup_train_ui)
+            .add_system_set(SystemSet::on_update(AppState::Close).with_system(save_train_ui));
+    }
+}
+
+/// possibly load any training state from disk
+fn setup_train_ui(
+    params: Res<UIParams>,
+    mut train_data: ResMut<TrainData>,
+    mut train_environ: ResMut<TrainEnviron>,
+    mut train_ui: ResMut<TrainingUI>,
+) {
+    // load config files if any
+    fn try_deserialize<T: DeserializeOwned>(x: &mut T, path: &std::path::PathBuf) {
+        if path.exists() {
+            eprintln!("deserializing {}", path.to_str().unwrap());
+            let reader = std::fs::File::open(path).expect("unable to open file");
+            match bincode::deserialize_from(reader) {
+                Ok(y) => { *x = y; },
+                Err(e) => { eprintln!("unable to deserialize\n{}", e); }
+            }
+        } else {
+            eprintln!("{} does not exist", path.to_str().unwrap());
+        }
+    }
+    let root_path: std::path::PathBuf = params.root_path.clone().into();
+    try_deserialize(&mut *train_data, &root_path.join("train_ui_data").with_extension("config"));
+    try_deserialize(&mut *train_environ, &root_path.join("train_ui_environ").with_extension("config"));
+    try_deserialize(&mut *train_ui, &root_path.join("train_ui").with_extension("config"));
+}
+
+/// write train state to disk
+fn save_train_ui(
+    params: Res<UIParams>,
+    train_data: Res<TrainData>,
+    train_environ: Res<TrainEnviron>,
+    train_ui: Res<TrainingUI>,
+) {
+    // load configurations from disk
+    let root_path: std::path::PathBuf = params.root_path.clone().into();
+    
+    eprintln!("serializing train_ui");
+    // save config files to disk
+    let config_file = root_path.join("train_ui_data").with_extension("config");
+    let train_data_writer = std::fs::File::create(config_file).unwrap();
+    bincode::serialize_into(train_data_writer, &*train_data).expect("unable to serialize train_data");
+
+    let config_file = root_path.join("train_ui_environ").with_extension("config");
+    let train_data_writer = std::fs::File::create(config_file).unwrap();
+    bincode::serialize_into(train_data_writer, &*train_environ).expect("unable to serialize train_environ");
+
+    let config_file = root_path.join("train_ui").with_extension("config");
+    let train_data_writer = std::fs::File::create(config_file).unwrap();
+    bincode::serialize_into(train_data_writer, &*train_ui).expect("unable to serialize train_ui");
+}
 
 
 fn console_ui(console: &models::Console, ui: &mut egui::Ui) {
@@ -26,7 +96,7 @@ fn console_ui(console: &models::Console, ui: &mut egui::Ui) {
 fn plot_ui() { todo!() }
 
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Resource)]
 pub struct TrainingUI {
     baseline: ConfigEnviron<baseline::BaselineParams>,
     baseline_ver: u32,
@@ -63,8 +133,8 @@ impl TrainingUI {
 }
 
 pub fn handle_logs(
-    mut train_env: ResMut<models::TrainEnviron>,
-    mut train_data: ResMut<models::TrainData>,
+    mut train_env: ResMut<TrainEnviron>,
+    mut train_data: ResMut<TrainData>,
 ) {
     if train_env.is_running() {
         match train_env.selected() {
@@ -81,8 +151,8 @@ pub fn handle_logs(
 pub fn training_system(
     mut egui_context: ResMut<EguiContext>,
     mut state: ResMut<State<AppState>>,
-    mut train_env: ResMut<models::TrainEnviron>,
-    mut train_data: ResMut<models::TrainData>,
+    mut train_env: ResMut<TrainEnviron>,
+    mut train_data: ResMut<TrainData>,
 ) {
     egui::Window::new("train").show(egui_context.ctx_mut(), |ui| {
         // make it so that going back to menu does not suspend current training progress
@@ -138,26 +208,29 @@ impl<C: UI + Config + Default + Clone> ConfigEnviron<C> {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.label(format!("config for {}", self.name));
-        self.config.ui(ui);
-        ui.separator();
-        // reset config
-        if self.checked < 0 {
-            // nothing is checked, reset to default
-            if ui.button("reset config").clicked() {
-                self.config = C::default();
-            }
-        } else {
-            // something is checked, default to past config
-            if ui
-                .button(format!("reset config with checked option {}", self.checked))
-                .clicked()
-            {
-                if let Some(a) = self.runs.get(self.checked as usize) {
-                    self.config = a.clone()
+        ui.collapsing(format!("config for {}", self.name), |ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                self.config.ui(ui);
+            });
+            ui.separator();
+            // reset config
+            if self.checked < 0 {
+                // nothing is checked, reset to default
+                if ui.button("reset config").clicked() {
+                    self.config = C::default();
+                }
+            } else {
+                // something is checked, default to past config
+                if ui
+                    .button(format!("reset config with checked option {}", self.checked))
+                    .clicked()
+                {
+                    if let Some(a) = self.runs.get(self.checked as usize) {
+                        self.config = a.clone()
+                    }
                 }
             }
-        }
+        });
 
         // implement adding and deletion from config stack
         ui.vertical(|ui| {
