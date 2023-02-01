@@ -63,16 +63,19 @@ Then, say task $T$ is too hard; the behavior $B$ cannot some constraints of task
 $$x \xrightarrow{T} y \equiv x \xrightarrow{T_1} \tilde y_1 \xrightarrow{T_2} y$$
 Then how to we pick $\tilde y_1$? How to optimize this thing?
 
-![[DIagram1.png]]
+[[DIagram1.png]]
 [link](https://tikzcd.yichuanshen.de/#N4Igdg9gJgpgziAXAbVABwnAlgFyxMJZABgBpiBdUkANwEMAbAVxiRAA8QBfU9TXfIRQBGclVqMWbADrSAFnRwACAJ4B9Yd14gM2PASIAmMdXrNWiELLwNYqjVr57BRAMwmJ5mfMX3DjnX59IWQAFg8zKUsVAN0BAxRjYXFIiytpAFtFOQBjRmAAJS41fy5xGCgAc3giUAAzACcIDKQyEBwIJFFPKPSsnFz8gCENLhBqBjoAIxgGAAUgl0sGGDqcAMbmruoOpGMetNl+wYZgABFizQnp2YXnBJAVtfGQORg6KDZIMFZqGbBPohXMQePUmi1EPtdkDTJJDplsnlTiNDGNrjN5osHk91qCQJsIe52p1EABWWFeRBgJgMBjo25YoSPVa47QEpBE6HhA7eY5I87Ffz0zH3Jk4l5vD5fAi-ED-QHAvHssk7En7VJIam04V3eJilncChcIA)
 *Kind of awkward, but Obsidian does not have commutative diagrams*
 Note that $\mathcal{R}_2 = \text{id}$, and is omitted, since task2's representative is just $y$.
 
 So we train $\mathcal{B}_1$ with standard gradient descent on $\mathcal{D_1}$ letting $\tilde y_1$ be the 'label', if it were supervised learning.
 $$\begin{align} \hat y_1 &= \mathcal{B}_1(\theta_1, x) \\ \tilde y_1 &= \mathcal{R}_1(\theta_{r_1},y) \\ \hat y_2 &= \mathcal{B}_2 (\theta_2, \tilde y_1) \\ L_1 &= \mathcal{D}_1(\hat y_1, \tilde y_1) \\ &= ||\hat y - \tilde y_1 ||_2 \\ L_2 &= \mathcal{D}_2(\hat y_2, y) \\ &= ||\hat y_2 - y ||_2 \end{align}$$
+
 Then,
 $$\begin{align} \frac{\partial L_1}{\partial \theta_1} &= \frac{\partial L_1}{\partial \hat y_1}\frac{\partial\hat y_1}{\partial \theta_1} \\ \frac{\partial L_2}{\partial\theta_2} &= \frac{\partial L_2}{\partial \hat y_2}\frac{\partial\hat y_2}{\partial \theta_2} \end{align}$$
-and $$L_{r_1} = d(L_1, L_2)$$Where $d$ is some function which ideally minimizes both $L_1$ and $L_2$.
+
+and $$L_{r_1} = d(L_1, L_2)$$
+Where $d$ is some function which ideally minimizes both $L_1$ and $L_2$.
 $$\begin{align} \frac{\partial L_1}{\partial \theta_{r_1}} &= \frac{\partial L_{r_1}}{\partial L_1}\frac{\partial L_1}{\partial \tilde y_1}\frac{\partial \tilde y_1}{\partial \theta_{r_1}} + \frac{\partial L_{r_1}}{\partial L_2}\frac{\partial L_2}{\partial \tilde y_1}\frac{\partial \tilde y_1}{\partial \theta_{r_1}} \end{align}$$
 So that the the maximum depth of gradient computation is $\mathcal{B_2}$, which already is happening anyways, we just need $\frac{\partial L_2}{\partial \tilde y_1}$
 
