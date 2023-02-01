@@ -63,7 +63,7 @@ Then, say task $T$ is too hard; the behavior $B$ cannot some constraints of task
 $$x \xrightarrow{T} y \equiv x \xrightarrow{T_1} \tilde y_1 \xrightarrow{T_2} y$$
 Then how to we pick $\tilde y_1$? How to optimize this thing?
 
-![Diagram1](https://github.com/Aalanli/GrowNet/Diagram1.png)
+![Diagram1](https://github.com/Aalanli/GrowNet/blob/main/Diagram1.png)
 
 [link](https://tikzcd.yichuanshen.de/#N4Igdg9gJgpgziAXAbVABwnAlgFyxMJZABgBpiBdUkANwEMAbAVxiRAA8QBfU9TXfIRQBGclVqMWbADrSAFnRwACAJ4B9Yd14gM2PASIAmMdXrNWiELLwNYqjVr57BRAMwmJ5mfMX3DjnX59IWQAFg8zKUsVAN0BAxRjYXFIiytpAFtFOQBjRmAAJS41fy5xGCgAc3giUAAzACcIDKQyEBwIJFFPKPSsnFz8gCENLhBqBjoAIxgGAAUgl0sGGDqcAMbmruoOpGMetNl+wYZgABFizQnp2YXnBJAVtfGQORg6KDZIMFZqGbBPohXMQePUmi1EPtdkDTJJDplsnlTiNDGNrjN5osHk91qCQJsIe52p1EABWWFeRBgJgMBjo25YoSPVa47QEpBE6HhA7eY5I87Ffz0zH3Jk4l5vD5fAi-ED-QHAvHssk7En7VJIam04V3eJilncChcIA)
 
