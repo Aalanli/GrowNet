@@ -86,7 +86,9 @@ $$\frac{\partial L_2}{\partial\theta_2} = \frac{\partial L_2}{\partial \hat y_2}
 
 and $$L_{r_1} = d(L_1, L_2)$$
 Where $d$ is some function which ideally minimizes both $L_1$ and $L_2$.
-$$\begin{align} \frac{\partial L_1}{\partial \theta_{r_1}} &= \frac{\partial L_{r_1}}{\partial L_1}\frac{\partial L_1}{\partial \tilde y_1}\frac{\partial \tilde y_1}{\partial \theta_{r_1}} + \frac{\partial L_{r_1}}{\partial L_2}\frac{\partial L_2}{\partial \tilde y_1}\frac{\partial \tilde y_1}{\partial \theta_{r_1}} \end{align}$$
+
+$$\frac{\partial L_1}{\partial \theta_{r_1}} = \frac{\partial L_{r_1}}{\partial L_1}\frac{\partial L_1}{\partial \tilde y_1}\frac{\partial \tilde y_1}{\partial \theta_{r_1}} + \frac{\partial L_{r_1}}{\partial L_2}\frac{\partial L_2}{\partial \tilde y_1}\frac{\partial \tilde y_1}{\partial \theta_{r_1}}$$
+
 So that the the maximum depth of gradient computation is $\mathcal{B_2}$, which already is happening anyways, we just need $\frac{\partial L_2}{\partial \tilde y_1}$
 
 ## Relevant sources
