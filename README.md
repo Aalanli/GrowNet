@@ -92,13 +92,13 @@ $$\frac{\partial L_1}{\partial \theta_{r_1}} = \frac{\partial L_{r_1}}{\partial 
 So that the the maximum depth of gradient computation is $\mathcal{B_2}$, which already is happening anyways, we just need $\frac{\partial L_2}{\partial \tilde y_1}$
 
 ## Relevant sources
-[Towards Biologically Plausible Deep Learning](https://arxiv.org/pdf/1502.04156.pdf)
-[Decoupled Neural Interfaces using Synthetic Gradients](https://arxiv.org/pdf/1608.05343.pdf)
-[Beyond Backprop: Online Alternating Minimization with Auxiliary Variables](https://arxiv.org/pdf/1806.09077.pdf)
-[Difference Target Propagation](https://arxiv.org/pdf/1412.7525.pdf)
-[Deep Learning With Spiking Neurons: Opportunities and Challenges](https://www.frontiersin.org/articles/10.3389/fnins.2018.00774/full)
-[The Forward Forward Algorithm](https://arxiv.org/abs/2212.13345)
-[Biologically inspired alternatives to backpropagation through time](https://arxiv.org/abs/1901.09049)
+- [Towards Biologically Plausible Deep Learning](https://arxiv.org/pdf/1502.04156.pdf)
+- [Decoupled Neural Interfaces using Synthetic Gradients](https://arxiv.org/pdf/1608.05343.pdf)
+- [Beyond Backprop: Online Alternating Minimization with Auxiliary Variables](https://arxiv.org/pdf/1806.09077.pdf)
+- [Difference Target Propagation](https://arxiv.org/pdf/1412.7525.pdf)
+- [Deep Learning With Spiking Neurons: Opportunities and Challenges](https://www.frontiersin.org/articles/10.3389/fnins.2018.00774/full)
+- [The Forward Forward Algorithm](https://arxiv.org/abs/2212.13345)
+- [Biologically inspired alternatives to backpropagation through time](https://arxiv.org/abs/1901.09049)
 
 
 
