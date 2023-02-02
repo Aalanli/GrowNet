@@ -262,7 +262,6 @@ mod config_derive {
 
     #[test]
     fn test_config_generics2() {
-        struct S;
         let tokens = quote!(
             struct T<'a, S: Copy>
             where

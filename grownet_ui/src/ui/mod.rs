@@ -28,7 +28,7 @@ impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app
             .insert_resource(UIParams::default())
-            .add_startup_system(setup_ui)
+            .add_startup_system_to_stage(StartupStage::Startup,setup_ui)
             .add_system(save_ui)
             .add_state(AppState::Menu)
             .add_plugin(data_ui::DatasetUIPlugin)

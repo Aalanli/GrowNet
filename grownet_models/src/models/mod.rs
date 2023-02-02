@@ -35,10 +35,12 @@ pub struct TrainData {
     pub plots: ModelPlots,
     pub console: Console,
     pub past_runs: ModelRuns,
+    pub error_msg: String,
 }
 
 impl TrainData {
-    pub fn handle_baseline_logs(&mut self, logs: &[Log]) {
+    pub fn handle_baseline_logs(&mut self, logs: &[Log]) -> Result<()> {
+        let mut some_err = Ok(());
         for log in logs {
             match log.clone() {
                 Log::PLOT(name, run_name, x, y) => {
@@ -50,8 +52,13 @@ impl TrainData {
                 Log::RUNINFO(info) => {
                     self.past_runs.insert(info);
                 }
+                Log::ERROR(err_msg) => {
+                    self.error_msg = err_msg.clone();
+                    some_err = Err(Error::msg(err_msg)); 
+                }
             }
         }
+        some_err
     }    
 }
 
@@ -93,6 +100,7 @@ impl TrainEnviron {
                     ..Default::default() 
                 });
                 self.baseline.runs += 1;
+                self.baseline.run_err = None;
                 Ok(())
             }
         }
@@ -107,10 +115,19 @@ pub struct SimpleEnviron<T> {
     #[serde(skip)]
     run: Option<TrainProcess>,
     run_info: Option<RunInfo>,
+    run_err: Option<String>
 }
 
 impl<T> SimpleEnviron<T> {
     pub fn is_running(&self) -> bool { self.run.is_some() }
+
+    pub fn run_status(&self) -> Result<()> {
+        if let Some(e) = &self.run_err {
+            Err(Error::msg(e.clone()))
+        } else {
+            Ok(())
+        }
+    }
 
     pub fn run_name(&self) -> Option<String> {
         self.run_info.as_ref().and_then(|x| Some(x.run_name()) )
@@ -120,32 +137,38 @@ impl<T> SimpleEnviron<T> {
         self.config = config;
     } 
 
-    pub fn kill_blocking(&mut self) -> Result<Vec<Log>> {
+    
+    pub fn run_data(&mut self) -> Vec<Log> {
+        let mut logs = Vec::new();
+        if self.is_running() { 
+            while let Ok(log) = self.run.as_mut().unwrap().recv.try_recv() {
+                self.convert_recv(&[log], &mut logs);
+            }
+        }
+        logs
+    }
+    
+    pub fn kill_blocking(&mut self, logs: &mut Vec<Log>) -> Result<()> {
         if let Some(t) = &mut self.run {
-            t.kill().and_then(|x| Ok(self.convert_recv(&x)) )
+            match t.kill() {
+                Ok(x) => {
+                    self.convert_recv(&x, logs);
+                    Ok(())
+                }
+                Err(e) => Err(e)
+            }
         } else {
             Err(Error::msg("Nothing to kill"))
         }
     }
 
-    pub fn run_data(&mut self) -> Vec<Log> {
-        let mut logs = Vec::new();
-        if self.is_running() { 
-            while let Ok(log) = self.run.as_mut().unwrap().recv.try_recv() {
-                logs.extend(self.convert_recv(&[log]));
-            }
-        }
-        logs
-    }
-
-    pub fn convert_recv(&mut self, recv: &[TrainRecv]) -> Vec<Log> {
-        let mut logs = Vec::new();
+    pub fn convert_recv(&mut self, recv: &[TrainRecv], logs: &mut Vec<Log>) {
         for log in recv {
             match log.clone() {
                 TrainRecv::KILLED => {
                     logs.push(Log::CONSOLE(format!("{} finished training", &self.run_info.as_ref().unwrap().run_name())));
                     let mut run_info = std::mem::replace(&mut self.run_info, None).unwrap();
-                    run_info.err_status = true;
+                    run_info.err_status = false;
                     logs.push(Log::RUNINFO(run_info));
                     self.run = None;
                 }
@@ -153,9 +176,21 @@ impl<T> SimpleEnviron<T> {
                     logs.push(Log::CONSOLE(format!("Logged plot name: {}, x: {}, y: {}", &name, x, y)));
                     logs.push(Log::PLOT(name, self.run_name().unwrap(), x, y));
                 }
+                TrainRecv::FAILED(error_msg) => {
+                    logs.push(Log::CONSOLE(format!("Err {} while training {}", error_msg, &self.run_info.as_ref().unwrap().run_name())));
+                    let mut run_info = std::mem::replace(&mut self.run_info, None).unwrap();
+                    run_info.err_status = false;
+                    logs.push(Log::RUNINFO(run_info));
+                    self.run = None;
+                    logs.push(Log::ERROR(error_msg));
+                }
+                TrainRecv::CHECKPOINT(stepno, path) => {
+                    if self.run_info.is_some() {
+                        self.run_info.as_mut().unwrap().checkpoints.push((stepno, path));
+                    }
+                }
             }
         }
-        logs
     }
 }
 
@@ -226,7 +261,8 @@ pub struct RunInfo {
     pub version: usize,        // id for this run
     pub comments: String,
     pub dataset: String,
-    pub config: HashMap<String, String>, // TODO: convert types to this more easily
+    pub checkpoints: Vec<(f32, std::path::PathBuf)>,
+    pub config: HashMap<String, String>, // TODO: convert types to this more easily,
     pub err_status: bool, // True is returned successfully, false if Killed mid-run
 }
 
@@ -281,6 +317,8 @@ pub enum TrainSend {
 #[derive(Clone)]
 pub enum TrainRecv {
     PLOT(String, f32, f32), // key, x, y
+    CHECKPOINT(f32, std::path::PathBuf),
+    FAILED(String),
     KILLED,
 }
 
@@ -289,7 +327,8 @@ pub enum TrainRecv {
 pub enum Log {
     PLOT(String, String, f32, f32),
     RUNINFO(RunInfo),
-    CONSOLE(String)
+    CONSOLE(String),
+    ERROR(String),
 }
 
 

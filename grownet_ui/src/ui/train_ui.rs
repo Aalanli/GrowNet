@@ -25,6 +25,7 @@ pub struct TrainUIPlugin;
 impl Plugin for TrainUIPlugin {
     fn build(&self, app: &mut App) {
         app
+            .add_event::<TrainError>()
             .insert_resource(TrainData::default())
             .insert_resource(TrainEnviron::default())
             .insert_resource(TrainingUI::default())
@@ -95,6 +96,8 @@ fn console_ui(console: &models::Console, ui: &mut egui::Ui) {
 
 fn plot_ui() { todo!() }
 
+/// A fatal training error has occurred
+struct TrainError(String);
 
 #[derive(Serialize, Deserialize, Default, Resource)]
 pub struct TrainingUI {
@@ -138,15 +141,18 @@ impl TrainingUI {
     }
 }
 
-pub fn handle_logs(
+fn handle_logs(
     mut train_env: ResMut<TrainEnviron>,
     mut train_data: ResMut<TrainData>,
+    mut err_ev: EventWriter<TrainError>,
 ) {
     if train_env.is_running() {
         match train_env.selected() {
             Models::BASELINE => {
                 let logs = train_env.baseline.run_data();
-                train_data.handle_baseline_logs(&logs);
+                if let Err(e) = train_data.handle_baseline_logs(&logs) {
+                    err_ev.send(TrainError(format!("{e}")));
+                }
             }
         }
     }
@@ -154,11 +160,12 @@ pub fn handle_logs(
 
 /// This system corresponds to the egui component of the training pane
 /// handling plots, etc.
-pub fn training_system(
+fn training_system(
     mut egui_context: ResMut<EguiContext>,
     mut state: ResMut<State<AppState>>,
     mut train_env: ResMut<TrainEnviron>,
     mut train_data: ResMut<TrainData>,
+    mut err_ev: EventWriter<TrainError>,
 ) {
     egui::Window::new("train").show(egui_context.ctx_mut(), |ui| {
         // make it so that going back to menu does not suspend current training progress
@@ -168,8 +175,12 @@ pub fn training_system(
         if ui.button("stop training").clicked() {
             match train_env.selected() {
                 Models::BASELINE => {
-                    let logs = train_env.baseline.kill_blocking().expect("unable to kill task");
-                    train_data.handle_baseline_logs(&logs);
+                    let mut log_buf = Vec::new();
+                    train_env.baseline.kill_blocking(&mut log_buf).expect("unable to kill task");
+                    // TODO: not so sure about the error handling
+                    if let Err(e) = train_data.handle_baseline_logs(&log_buf) {
+                        err_ev.send(TrainError(format!("{e}")));
+                    }
                 }
             }
         }
@@ -218,23 +229,31 @@ impl<C: UI + Config + Default + Clone> ConfigEnviron<C> {
         ui.horizontal(|ui| {
             ui.allocate_ui(space, |ui| {
                 ui.vertical(|ui| {
-                    if self.checked.is_none() {
-                        // nothing is checked, reset to default
-                        if ui.button("reset config").clicked() {
-                            self.config = C::default();
-                        }
-                    } else {
-                        // something is checked, default to past config
-                        let checked = self.checked.as_mut().unwrap();
-                        if ui
-                            .button(format!("reset config with past config {}", checked))
-                            .clicked()
-                        {
-                            if let Some(a) = self.runs.get(*checked) {
-                                self.config = a.clone()
+                    ui.horizontal(|ui| {
+                        // reset current config logic
+                        if self.checked.is_none() {
+                            // nothing is checked, reset to default
+                            if ui.button("reset config").clicked() {
+                                self.config = C::default();
+                            }
+                        } else {
+                            // something is checked, default to past config
+                            let checked = self.checked.as_mut().unwrap();
+                            if ui
+                                .button(format!("reset config with past config {}", checked))
+                                .clicked()
+                            {
+                                if let Some(a) = self.runs.get(*checked) {
+                                    self.config = a.clone()
+                                }
                             }
                         }
-                    }
+                        // save current config logic
+                        if ui.button("save config").clicked() {
+                            self.pub_runs.push(self.config.clone());
+                            self.runs.push(self.config.clone());
+                        }
+                    });
                     egui::ScrollArea::vertical().id_source("configs").show(ui, |ui| {
                         self.config.ui(ui);
                     });
@@ -242,24 +261,42 @@ impl<C: UI + Config + Default + Clone> ConfigEnviron<C> {
                 
                 // implement adding and deletion from config stack
                 ui.vertical(|ui| {
-                    
+                    // TODO: Add checkpoints
                     egui::ScrollArea::vertical().id_source("past configs").show(ui, |ui| {
                         // use pub_runs as dummy display
-                        for (i, c) in &mut self.pub_runs.iter_mut().enumerate() {
+                        let mut i = 0;
+                        while i < self.pub_runs.len() {
                             // allow checked to be negative so it becomes possible for no
                             // option to be checked
-                            let mut checked = self.checked.is_some() && i == self.checked.unwrap();
-                            eprintln!("checked {}", checked);
-                            ui.checkbox(&mut checked, format!("config {}", i));
-                            c.ui(ui);
+                            let mut cur_check = self.checked.is_some() && i == self.checked.unwrap();
+                            let mut removed_run = false;
+                            ui.horizontal(|ui| {
+                                ui.checkbox(&mut cur_check, format!("config {}", i));
+                                if ui.button("delete config").clicked() {
+                                    self.pub_runs.remove(i);
+                                    self.runs.remove(i);
+                                    removed_run = true;
+                                    if cur_check {
+                                        self.checked = None;
+                                    }
+                                }
+                            });
+                            if removed_run {
+                                continue;
+                            }
+                            ui.push_id(format!("config panel checked {}", i), |ui| {
+                                self.pub_runs[i].ui(ui);
+                            });
                             // we don't want past configs to change, so we have an immutable copy
-                            *c = self.runs[i].clone();
+                            self.pub_runs[i] = self.runs[i].clone();
                             // only one option can be checked at a time
-                            if checked {
+                            let checked = self.checked.is_some() && i == self.checked.unwrap();
+                            if cur_check {
                                 self.checked = Some(i);
-                            } else {
+                            } else if checked {
                                 self.checked = None;
                             }
+                            i += 1;
                         }
                     });
                     

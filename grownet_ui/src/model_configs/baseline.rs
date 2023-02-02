@@ -46,6 +46,12 @@ derive_ui!(
         pub epochs: u32,
         #[derivative(Default(value = "4"))]
         pub batch_size: u32,
+        #[derivative(Default(value = "100"))]
+        pub steps_per_log: usize,
+        #[derivative(Default(value = "500"))]
+        pub steps_per_checkpoint: usize,
         pub data_path: String,
+        pub checkpoint_path: std::path::PathBuf,
+        pub run_name: String,
     }
 );

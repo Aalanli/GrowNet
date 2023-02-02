@@ -91,7 +91,11 @@ pub struct BaselineParams {
     pub batch_size: u32,
     #[derivative(Default(value = "100"))]
     pub steps_per_log: usize,
+    #[derivative(Default(value = "500"))]
+    pub steps_per_checkpoint: usize,
     pub data_path: String,
+    pub checkpoint_path: std::path::PathBuf,
+    pub run_name: String,
 }
 
 impl BaselineParams {
@@ -142,6 +146,15 @@ impl BaselineParams {
                         let acc = net.batch_accuracy_for_logits(&bimages, &blabels, vs.device(), params.batch_size.into());
                         sender.send(TrainRecv::PLOT("train loss".to_string(), steps as f32, loss as f32)).unwrap();
                         sender.send(TrainRecv::PLOT("train accuracy".to_string(), steps as f32, acc as f32)).unwrap();
+                    }
+
+                    if steps % params.steps_per_checkpoint == 0 {
+                        if let Err(e) = vs.save(params.checkpoint_path.join(&params.run_name)) {
+                            sender.send(TrainRecv::FAILED(format!("failed to write checkpoint, {}", e))).unwrap();
+                            return;
+                        } else {
+                            sender.send(TrainRecv::CHECKPOINT(steps as f32, params.checkpoint_path.join(&params.run_name))).unwrap();
+                        }
                     }
 
                     match recv.recv().unwrap() {
