@@ -13,7 +13,7 @@ use bevy_egui::{egui, EguiContext};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::{Config, UI};
+use crate::{Configure, UI};
 
 pub mod data_ui;
 pub mod train_ui;

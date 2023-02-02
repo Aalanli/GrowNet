@@ -6,7 +6,7 @@ use bevy_egui::egui;
 use itertools::Itertools;
 use ndarray::{Array, Array3, Ix4};
 
-use crate::{Config, UI};
+use crate::{Configure, UI};
 use super::{AppState, UIParams, ROOT_PATH};
 use model_lib::datasets::{data, Dataset, DatasetBuilder};
 
@@ -107,7 +107,7 @@ impl UI for DatasetUI {
     }
 }
 
-impl Config for DatasetUI {
+impl Configure for DatasetUI {
     fn config(&self) -> String {
         let viewers: Vec<_> = self.viewers.iter().map(|v| v.config()).collect_vec();
         ron::to_string(&viewers).unwrap()
@@ -122,7 +122,7 @@ impl Config for DatasetUI {
     }
 }
 
-pub trait Viewer: Config + UI {
+pub trait Viewer: Configure + UI {
     fn drop_dataset(&mut self);
 }
 
@@ -322,7 +322,7 @@ where
     }
 }
 
-impl<D, B> Config for ClassificationViewer<B>
+impl<D, B> Configure for ClassificationViewer<B>
 where
     D: Dataset<DataPoint = data::ImClassify>,
     B: DatasetBuilder<Dataset = D>,

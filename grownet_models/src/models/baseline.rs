@@ -1,13 +1,31 @@
+use std::fmt::Display;
+
 /// This code is taken from https://github.com/LaurentMazare/tch-rs/blob/main/examples/cifar/main.rs
 /// with minor adjustments
 use anyhow::{Result, Error};
 use crossbeam::channel::unbounded;
 use derivative::Derivative;
+use derive_more::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
 use tch::nn::{FuncT, ModuleT, OptimizerConfig, SequentialT};
 use tch::{nn, Device};
 
+use crate::config;
+use crate::configs::{Config, cast};
+
 use super::{TrainRecv, TrainSend, TrainProcess};
+
+pub fn check_default(org: &Config, y: &Config) -> Result<()> {
+    if !org.subset(&y) {
+        return Err(Error::msg(format!("Given config is not subset of expected config\ngiven:\n{y}\nexpected:\n{org}")));
+    }
+    Ok(())
+}
+
+pub trait CBuilder {
+    type Output;
+    fn build(&self) -> Result<Self::Output>;
+}
 
 fn conv_bn(vs: &nn::Path, c_in: i64, c_out: i64) -> SequentialT {
     let conv2d_cfg = nn::ConvConfig {
@@ -67,6 +85,39 @@ pub struct SGD {
     pub nesterov: bool,
 }
 
+#[derive(Serialize, Deserialize, Deref, DerefMut)]
+pub struct SGDConfig(Config);
+
+impl Default for SGDConfig {
+    fn default() -> Self {
+        use crate::{Configure, Options, opt};
+        SGDConfig(
+            config!(
+                ("momentum", 0.9),
+                ("dampening", 0.0),
+                ("wd", 5e-4),
+                ("nesterov", true)
+            )
+        )
+    }
+}
+
+#[derive(Serialize, Deserialize, Deref, DerefMut)]
+pub struct CheckpointConfig(Config);
+
+impl Default for CheckpointConfig {
+    fn default() -> Self {
+        use crate::{Configure, Options, opt};
+        CheckpointConfig (
+            config!(
+                ("steps_per_checkpoint", 500),
+                ("checkpoint_path", Path("")),
+                ("checkpoint_basename", "")
+            )
+        )
+    }
+}
+
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
 #[derivative(Default)]
 pub struct ImTransform {
@@ -77,6 +128,23 @@ pub struct ImTransform {
     #[derivative(Default(value = "8"))]
     pub cutout: i64,
 }
+
+#[derive(Serialize, Deserialize, Deref, DerefMut)]
+pub struct ImTransformConfig(Config);
+
+impl Default for ImTransformConfig {
+    fn default() -> Self {
+        use crate::{Configure, Options, opt};
+        ImTransformConfig (
+            config!(
+                ("flip", true),
+                ("crop", 4),
+                ("cutout", 8)
+            )
+        )
+    }
+}
+
 
 #[derive(Debug, Clone, Derivative, Serialize, Deserialize)]
 #[derivative(Default)]
@@ -96,6 +164,138 @@ pub struct BaselineParams {
     pub data_path: String,
     pub checkpoint_path: std::path::PathBuf,
     pub run_name: String,
+}
+
+#[derive(Serialize, Deserialize, Deref, DerefMut)]
+pub struct BaselineConfig(Config);
+
+impl Default for BaselineConfig {
+    fn default() -> Self {
+        use crate::{Configure, Options, opt};
+        let mut config = config!(
+            ("epochs", 100),
+            ("batch_size", 4),
+            ("lr", 1.0),
+            ("steps_per_log", 100),
+            ("steps_per_checkpoint", 500),
+            ("data_path", Path(""))
+        );
+
+        config.add("sgd", SGDConfig::default().0).unwrap();
+        config.add("transform", ImTransformConfig::default().0).unwrap();
+        config.add("checkpoint", CheckpointConfig::default().0).unwrap();
+
+        BaselineConfig (
+            config    
+        )
+    }
+}
+
+
+
+impl BaselineConfig {
+    pub fn build(&self) -> Result<TrainProcess> {
+        check_default(&Self::default(), self)?;
+        let params = self.0.clone();
+        let (command_sender, command_recv) = unbounded::<TrainSend>();
+        let (log_sender, log_recv) = unbounded::<TrainRecv>();
+
+        let handle = std::thread::spawn(move || {
+            let params_ = params;
+            let params = &params_;
+            let sender = log_sender;
+            let recv = command_recv;
+            let m = tch::vision::cifar::load_dir(params / "data_path" / cast::Path).unwrap();
+            let vs = nn::VarStore::new(Device::cuda_if_available());
+            let net = fast_resnet(&vs.root());
+            let mut opt = nn::Sgd {
+                momentum: (params / "sgd" / "momentum" / 0.0),
+                dampening: params / "sgd" / "dampening" / 0.0,
+                wd: params / "sgd" / "wd" / 0.0,
+                nesterov: params / "sgd" / "nesterov" / true,
+            }
+            .build(&vs, params / "lr" / 0.0)
+            .unwrap();
+
+            let mut steps: usize = 0;
+
+            let flip = params / "transform" / "flip" / true;
+            let crop = params / "transform" / "crop" / 0i64;
+            let cutout = params / "transform" / "cutout" / 0i64;
+
+            let steps_per_log = params / "steps_per_log" / 0usize;
+            let epochs = params / "epochs" / 0i64;
+            let batch_size = params / "batch_size" / 0i64;
+
+            let steps_per_checkpoint = params / "checkpoint" / "steps_per_checkpoint" / 0usize;
+            let checkpoint_path = params / "checkpoint" / "checkpoint_path" / cast::Path;
+            let checkpoint_basename = (params / "checkpoint" / "checkpoint_basename" / cast::Str).clone();
+
+            for epoch in 1..epochs {
+                opt.set_lr(learning_rate(epoch));
+                
+                for (bimages, blabels) in m
+                    .train_iter(batch_size)
+                    .shuffle()
+                    .to_device(vs.device())
+                {
+                    let bimages = tch::vision::dataset::augmentation(
+                        &bimages,
+                        flip,
+                        crop,
+                        cutout
+                    );
+                    let loss = net
+                        .forward_t(&bimages, true)
+                        .cross_entropy_for_logits(&blabels);
+                    opt.backward_step(&loss);
+                    steps += 1;
+
+                    if steps % steps_per_log == 0 {
+                        let loss = f64::from(loss.to_device(tch::Device::Cpu)) / batch_size as f64;
+                        let acc = net.batch_accuracy_for_logits(&bimages, &blabels, vs.device(), batch_size.into());
+                        sender.send(TrainRecv::PLOT("train loss".to_string(), steps as f32, loss as f32)).unwrap();
+                        sender.send(TrainRecv::PLOT("train accuracy".to_string(), steps as f32, acc as f32)).unwrap();
+                    }
+
+                    if steps % steps_per_checkpoint == 0 {
+                        let run_path = checkpoint_path.join(format!("{}-step{steps}", checkpoint_basename));
+                        if let Err(e) = vs.save(&run_path) {
+                            sender.send(TrainRecv::FAILED(format!("failed to write checkpoint, {}", e))).unwrap();
+                            return;
+                        } else {
+                            sender.send(TrainRecv::CHECKPOINT(steps as f32, run_path)).unwrap();
+                        }
+                    }
+
+                    match recv.recv().unwrap() {
+                        TrainSend::KILL => {
+                            sender.send(TrainRecv::KILLED).unwrap();
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+                let test_accuracy =
+                    net.batch_accuracy_for_logits(&m.test_images, &m.test_labels, vs.device(), 512);
+                sender
+                    .send(TrainRecv::PLOT(
+                        "test accuracy".to_string(),
+                        epoch as f32,
+                        100. * test_accuracy as f32,
+                    ))
+                    .unwrap();
+            }
+            sender.send(TrainRecv::KILLED).unwrap();
+        });
+
+        Ok(TrainProcess {
+            send: command_sender,
+            recv: log_recv,
+            handle: Some(handle),
+        })
+    }
+    
 }
 
 impl BaselineParams {

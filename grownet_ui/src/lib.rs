@@ -10,12 +10,12 @@ pub mod visualizations;
 use anyhow::{Context, Result};
 use bevy_egui::egui;
 use grownet_macros::{Config, UI};
-use model_lib::Config;
+use model_lib::Configure;
 use num::Num;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 // TODO: Get rid of Config, it simply isn't necessary
-pub trait UI: Config {
+pub trait UI: Configure {
     fn ui(&mut self, ui: &mut egui::Ui);
 }
 

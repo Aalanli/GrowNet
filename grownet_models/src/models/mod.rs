@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::thread::{spawn, JoinHandle};
 
-use crate::Config;
+use crate::Configure;
 pub mod baseline;
 mod m1;
 mod m2;

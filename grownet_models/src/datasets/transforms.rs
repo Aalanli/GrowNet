@@ -6,7 +6,7 @@ use tch::Tensor;
 
 use super::{data, Transform};
 use crate::ops;
-use crate::Config;
+use crate::Configure;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Normalize {

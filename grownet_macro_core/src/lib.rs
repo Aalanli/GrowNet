@@ -13,7 +13,7 @@ pub fn derive_macro_config(input: TokenStream) -> Result<TokenStream> {
     let stripped_generics = data_fields.stripped_generics;
     let named_field_idents: Vec<_> = data_fields.fields.iter().map(|x| x.0.clone()).collect();
     let tokens = quote! {
-        impl #generics Config for #struct_name #stripped_generics
+        impl #generics Configure for #struct_name #stripped_generics
         #where_clause {
             fn config(&self) -> String {
                 use std::collections::HashMap;

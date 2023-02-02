@@ -7,7 +7,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::super::model_configs::baseline;
 use super::{AppState, UIParams};
-use crate::{Config, UI};
+use crate::{Configure, UI};
 use model_lib::models::{self, Models};
 
 
@@ -217,7 +217,7 @@ pub struct ConfigEnviron<Config> {
     version_num: u32,
 }
 
-impl<C: UI + Config + Default + Clone> ConfigEnviron<C> {
+impl<C: UI + Configure + Default + Clone> ConfigEnviron<C> {
     pub fn new(name: String) -> Self {
         Self {
             name: name.to_string(),
