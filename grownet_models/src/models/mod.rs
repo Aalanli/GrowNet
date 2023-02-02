@@ -96,7 +96,7 @@ impl TrainEnviron {
                     model_class: "baseline".into(), 
                     version: self.baseline.runs, 
                     dataset: "cifar10".into(),
-                    err_status: true,
+                    err_status: None,
                     ..Default::default() 
                 });
                 self.baseline.runs += 1;
@@ -119,7 +119,9 @@ pub struct SimpleEnviron<T> {
 }
 
 impl<T> SimpleEnviron<T> {
-    pub fn is_running(&self) -> bool { self.run.is_some() }
+    pub fn has_msg_channel(&self) -> bool { self.run.is_some() }
+
+    pub fn is_running(&self) -> bool { self.run.is_some() && self.run.as_ref().unwrap().is_running() }
 
     pub fn run_status(&self) -> Result<()> {
         if let Some(e) = &self.run_err {
@@ -141,56 +143,51 @@ impl<T> SimpleEnviron<T> {
     pub fn run_data(&mut self) -> Vec<Log> {
         let mut logs = Vec::new();
         if self.is_running() { 
+            let mut recv = Vec::new();
             while let Ok(log) = self.run.as_mut().unwrap().recv.try_recv() {
-                self.convert_recv(&[log], &mut logs);
+                recv.push(log);
+            }
+
+            // separately, since convert_recv may mutate self.run
+            for log in recv {
+                self.convert_recv(log, &mut logs);
             }
         }
         logs
     }
     
-    pub fn kill_blocking(&mut self, logs: &mut Vec<Log>) -> Result<()> {
-        if let Some(t) = &mut self.run {
-            match t.kill() {
-                Ok(x) => {
-                    self.convert_recv(&x, logs);
-                    Ok(())
-                }
-                Err(e) => Err(e)
-            }
-        } else {
-            Err(Error::msg("Nothing to kill"))
-        }
+    pub fn kill_blocking(&mut self) {
+        if self.run.is_some() { self.run.as_mut().unwrap().kill_blocking() }
     }
 
-    pub fn convert_recv(&mut self, recv: &[TrainRecv], logs: &mut Vec<Log>) {
-        for log in recv {
-            match log.clone() {
-                TrainRecv::KILLED => {
-                    logs.push(Log::CONSOLE(format!("{} finished training", &self.run_info.as_ref().unwrap().run_name())));
-                    let mut run_info = std::mem::replace(&mut self.run_info, None).unwrap();
-                    run_info.err_status = false;
-                    logs.push(Log::RUNINFO(run_info));
-                    self.run = None;
-                }
-                TrainRecv::PLOT(name, x, y) => {
-                    logs.push(Log::CONSOLE(format!("Logged plot name: {}, x: {}, y: {}", &name, x, y)));
-                    logs.push(Log::PLOT(name, self.run_name().unwrap(), x, y));
-                }
-                TrainRecv::FAILED(error_msg) => {
-                    logs.push(Log::CONSOLE(format!("Err {} while training {}", error_msg, &self.run_info.as_ref().unwrap().run_name())));
-                    let mut run_info = std::mem::replace(&mut self.run_info, None).unwrap();
-                    run_info.err_status = false;
-                    logs.push(Log::RUNINFO(run_info));
-                    self.run = None;
-                    logs.push(Log::ERROR(error_msg));
-                }
-                TrainRecv::CHECKPOINT(stepno, path) => {
-                    if self.run_info.is_some() {
-                        self.run_info.as_mut().unwrap().checkpoints.push((stepno, path));
-                    }
+    fn convert_recv(&mut self, recv: TrainRecv, logs: &mut Vec<Log>) {
+        match recv {
+            TrainRecv::KILLED => {
+                logs.push(Log::CONSOLE(format!("{} finished training", &self.run_info.as_ref().unwrap().run_name())));
+                let mut run_info = std::mem::replace(&mut self.run_info, None).unwrap();
+                run_info.err_status = None;
+                logs.push(Log::RUNINFO(run_info));
+                self.run = None;
+            }
+            TrainRecv::PLOT(name, x, y) => {
+                logs.push(Log::CONSOLE(format!("Logged plot name: {}, x: {}, y: {}", &name, x, y)));
+                logs.push(Log::PLOT(name, self.run_name().unwrap(), x, y));
+            }
+            TrainRecv::FAILED(error_msg) => {
+                logs.push(Log::CONSOLE(format!("Err {} while training {}", error_msg, &self.run_info.as_ref().unwrap().run_name())));
+                let mut run_info = std::mem::replace(&mut self.run_info, None).unwrap();
+                run_info.err_status = Some(error_msg.clone());
+                logs.push(Log::RUNINFO(run_info));
+                self.run = None;
+                logs.push(Log::ERROR(error_msg));
+            }
+            TrainRecv::CHECKPOINT(stepno, path) => {
+                if self.run_info.is_some() {
+                    self.run_info.as_mut().unwrap().checkpoints.push((stepno, path));
                 }
             }
         }
+        
     }
 }
 
@@ -263,7 +260,7 @@ pub struct RunInfo {
     pub dataset: String,
     pub checkpoints: Vec<(f32, std::path::PathBuf)>,
     pub config: HashMap<String, String>, // TODO: convert types to this more easily,
-    pub err_status: bool, // True is returned successfully, false if Killed mid-run
+    pub err_status: Option<String>, // True is returned successfully, false if Killed mid-run
 }
 
 impl RunInfo {
@@ -337,22 +334,18 @@ pub enum Log {
 pub struct TrainProcess {
     pub send: Sender<TrainSend>,
     pub recv: Receiver<TrainRecv>,
-    pub handle: JoinHandle<()>,
+    handle: Option<JoinHandle<()>>,
 }
 
 impl TrainProcess {
+    pub fn is_running(&self) -> bool {
+        self.handle.is_some() && self.handle.as_ref().unwrap().is_finished()
+    }
+
     /// blocks until process is killed
-    pub fn kill(&mut self) -> Result<Vec<TrainRecv>> {
-        self.send.send(TrainSend::KILL)?;
-        let mut log_msgs = Vec::new();
-        loop {
-            let msg = self.recv.try_recv()?;
-            match msg {
-                TrainRecv::KILLED => { return Ok(log_msgs); }
-                x => {
-                    log_msgs.push(x);
-                }
-            }
-        }
+    pub fn kill_blocking(&mut self) {
+        self.send.send(TrainSend::KILL).expect("unable to send kill msg");
+        let handle = std::mem::replace(&mut self.handle, None).unwrap();
+        handle.join().expect("trouble joining thread");
     }
 }

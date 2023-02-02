@@ -181,7 +181,7 @@ impl BaselineParams {
         TrainProcess {
             send: command_sender,
             recv: log_recv,
-            handle: handle,
+            handle: Some(handle),
         }
     }
 }

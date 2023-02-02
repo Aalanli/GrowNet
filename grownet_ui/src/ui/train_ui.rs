@@ -97,6 +97,7 @@ fn console_ui(console: &models::Console, ui: &mut egui::Ui) {
 fn plot_ui() { todo!() }
 
 /// A fatal training error has occurred
+#[derive(Deref, DerefMut)]
 struct TrainError(String);
 
 #[derive(Serialize, Deserialize, Default, Resource)]
@@ -164,27 +165,33 @@ fn training_system(
     mut egui_context: ResMut<EguiContext>,
     mut state: ResMut<State<AppState>>,
     mut train_env: ResMut<TrainEnviron>,
-    mut train_data: ResMut<TrainData>,
-    mut err_ev: EventWriter<TrainError>,
+    mut err_ev: EventReader<TrainError>,
+    mut local_errors: Local<Vec<String>>, // some local error messages possibly relayed by err_ev
+    train_data: Mut<TrainData>,
 ) {
     egui::Window::new("train").show(egui_context.ctx_mut(), |ui| {
         // make it so that going back to menu does not suspend current training progress
-        if ui.button("back to menu").clicked() {
-            state.set(AppState::Menu).unwrap();
-        }
-        if ui.button("stop training").clicked() {
-            match train_env.selected() {
-                Models::BASELINE => {
-                    let mut log_buf = Vec::new();
-                    train_env.baseline.kill_blocking(&mut log_buf).expect("unable to kill task");
-                    // TODO: not so sure about the error handling
-                    if let Err(e) = train_data.handle_baseline_logs(&log_buf) {
-                        err_ev.send(TrainError(format!("{e}")));
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            if ui.button("back to menu").clicked() {
+                state.set(AppState::Menu).unwrap();
+            }
+            if ui.button("stop training").clicked() {
+                match train_env.selected() {
+                    Models::BASELINE => {
+                        train_env.baseline.kill_blocking();
                     }
                 }
             }
-        }
-        if train_env.is_running() {
+            for msg in err_ev.iter() {
+                local_errors.push((*msg).clone());
+            }
+    
+            if local_errors.len() > 0 {
+                for i in &*local_errors {
+                    ui.label(i);
+                }
+            }
+
             // the console and log graphs are part of the fore-ground egui panel
             // while any background rendering stuff is happening in a separate system, taking TrainResource as a parameter
             ui.collapsing("console", |ui| {
@@ -192,9 +199,8 @@ fn training_system(
             });
             
             // TODO: Add plotting utilites
-        } else {
-            state.set(AppState::Menu).unwrap();
-        }
+            
+        });
     });
 }
 
