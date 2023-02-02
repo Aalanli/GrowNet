@@ -10,6 +10,7 @@ pub mod allocator;
 pub mod datasets;
 pub mod models;
 pub mod ops;
+pub mod configs;
 
 pub trait Config: Send + Sync {
     fn config(&self) -> String;
