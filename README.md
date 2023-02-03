@@ -1,4 +1,4 @@
-To [[setup]]
+To [setup](https://github.com/Aalanli/GrowNet/blob/main/setup.md)
 
 ## Timeline
 - [ ] Get basic baseline model working
