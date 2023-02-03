@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 /// This code is taken from https://github.com/LaurentMazare/tch-rs/blob/main/examples/cifar/main.rs
-/// with minor adjustments
+/// with adjustments
 use anyhow::{Result, Error};
 use crossbeam::channel::unbounded;
 use derivative::Derivative;
@@ -385,7 +385,6 @@ impl BaselineParams {
         }
     }
 }
-
 
 
 #[test]

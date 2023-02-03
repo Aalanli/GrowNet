@@ -1,19 +1,51 @@
-- [ ] # GrowNet
+To [[setup]]
+
 ## Timeline
+- [ ] Get basic baseline model working
+	- [ ] checkpointing
+	- [ ] loss plotting 
+	- [ ] First class configurations
+- [ ] Implement grid model in $\mathbb{R}^2$ and $\mathbb{R}^3$
+	- [ ] Vector field plot
+	- [ ] Grid intensity plot
+	- [ ] Sparse variations
+	- [ ] ODE
+- [ ] Implement unstructured growing model
+	- [ ] Sync time backprop
+	- [ ] Continuous time ODE
+	- [ ] Path tracing, PCA
+- [ ] Implement Subloss decomposition
+	- [ ] On grid model
+	- [ ] On Discrete Growing model
+- [ ] Implement Symbolic ODE model, GNN, continuous space continuous time models
+- [ ] Implement Hebbian, STDP, FF, alternative learning rules
+
 While this project originally was created to test my ideas in growing neural net architectures, involving sparsity, it has since grown (intended :), mainly fueled by the richness in the design space, into a simulation suite of sorts. 
+
 A lot of what is currently in place is the scafolding for a simulation gui built on top of the bevy game engine, in rust. As current ml-tools for visualization in python are too slow, and julia makie is not flexible enough for gui development. 
+
 The core idea is around the concept of associating the nodes in a computation graph to a physical space, akin to the neurons of the brain embedded in $\mathbb{R}^3$, so that this extra structure gives better properties in inducing sparsity and causality of information flow. As well, this setup is well attuned to visualization, as individual neurons are low-dimensional. But since then, lots of new architectures has come to my attention, and I envision this project capturing them and expanding them.
 
 There are three core problems this project aims to tackle
 1. How to decompose losses into subtasks, to tackle the credit assignment problem
+	- See below
 2. In a related note, how to propagate errors through the network without back-propagation
-3. Related, how to model long temporal dynamics without storing intermediate activations, perhaps in a biological plausible way, or at least amendable to efficient analogue hardware
+	- This one's tough, I need some visualizations to better intuit this problem, which is the point of the GUI.
+3. Related, how to model long temporal dynamics without storing intermediate activations, or 'going back'/unrolling. Preferably in a biologically plausable way. Perferably implementable efficiently in hardware.
+	- This one is possibly the hardest, since memory is an emergent phenomenon. The question is, do we need to see what we did in the past to correct our present and better calculate the future?
 
-Additional problems
-1. What is the intersection between discrete symbols (in symbolic AI) and continuous representations in deep learning
+Additional problems:
+1. What is the intersection between discrete symbols (in symbolic AI) and continuous representations in deep learning. 
+	- I have a suspicion that the bridge lies in the realm of differential equations; discrete symbol manipulation can be expressed/formalized through ODEs
+	- Perhaps super criticality has something to do with this? (which can also be captured naturally with ODEs)
 2. How to make distributed representations (continous) more interpretable
+	- Kind of related to core problem no. 1 and no. 1 above
+	- Solving both would get closer to solving this.
+	- See the notion of of a 'Representative' of a task below
 3. Continual learning, transfer learning and tackling catastrophic forgetting
+	- I have a suspicion that restricting models to bijective functions would make continual learning much easier. Then you would have per-task non-bijective adaptors which are small neural networks for finetuning.
 4. Internal world model
+	- Related to interpretability
 
 # Ideas
 To tackle these three problems, I picture the potential solution as decomposed into two categories, that of the structured approach and the unstructured approach.
