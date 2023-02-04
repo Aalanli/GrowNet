@@ -7,11 +7,11 @@ use ron;
 use serde::{de::DeserializeOwned, Serialize};
 
 pub mod allocator;
+pub mod configs;
 pub mod datasets;
 pub mod models;
 pub mod ops;
-pub mod configs;
-pub use configs::{Options, Config};
+pub use configs::{Config, Options};
 
 pub trait Configure: Send + Sync {
     fn config(&self) -> String;

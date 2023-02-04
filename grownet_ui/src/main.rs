@@ -22,8 +22,6 @@ fn main() {
         //.add_plugin(WorldInspectorPlugin::new())
         .add_plugin(bevy_stl::StlPlugin)
         .add_system(bevy::window::close_when_requested)
-        
         .add_plugin(ui::UIPlugin)
         .run();
 }
-

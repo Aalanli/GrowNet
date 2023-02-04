@@ -6,16 +6,14 @@ use bevy_egui::egui;
 use itertools::Itertools;
 use ndarray::{Array, Array3, Ix4};
 
-use crate::{Configure, UI};
 use super::{AppState, UIParams, ROOT_PATH};
+use crate::{Configure, UI};
 use model_lib::datasets::{data, Dataset, DatasetBuilder};
-
 
 pub struct DatasetUIPlugin;
 impl Plugin for DatasetUIPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .add_startup_system(setup_dataset_ui)
+        app.add_startup_system(setup_dataset_ui)
             .add_system_set(SystemSet::on_update(AppState::Close).with_system(save_dataset_ui));
     }
 }
@@ -49,10 +47,7 @@ fn setup_dataset_ui(mut commands: Commands, params: Res<UIParams>) {
     commands.insert_resource(dataset_ui);
 }
 
-fn save_dataset_ui(
-    params: Res<UIParams>,
-    dataset_params: Res<DatasetUI>
-) {
+fn save_dataset_ui(params: Res<UIParams>, dataset_params: Res<DatasetUI>) {
     eprintln!("saving data_ui params");
     let data_ui_config = dataset_params.config();
     eprintln!("data ui params {}", data_ui_config);
@@ -67,7 +62,6 @@ fn save_dataset_ui(
     let serialized = ron::to_string(&data_ui_config).unwrap();
     std::fs::write(&config_file, serialized).unwrap();
 }
-
 
 #[derive(Default, Resource)]
 pub struct DatasetUI {

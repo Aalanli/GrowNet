@@ -50,7 +50,7 @@ pub fn derive_macro_ui(input: TokenStream) -> Result<TokenStream> {
                     egui::CollapsingHeader::new(stringify!(#struct_name)).default_open(true).show(ui, |ui| {
                         #(
                             ui.horizontal(|ui| {
-                                ui.label(stringify!(#named_field_idents)); 
+                                ui.label(stringify!(#named_field_idents));
                                 self.#named_field_idents.ui(ui);
                             });
                         ) *

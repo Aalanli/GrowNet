@@ -5,11 +5,11 @@ use std::fs;
 use std::path;
 
 use anyhow::{Context, Result};
-use bincode;
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy::window::{WindowCloseRequested, WindowClosed};
 use bevy_egui::{egui, EguiContext};
+use bincode;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -26,15 +26,13 @@ pub struct UIPlugin;
 
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
-        app
-            .insert_resource(UIParams::default())
-            .add_startup_system_to_stage(StartupStage::Startup,setup_ui)
+        app.insert_resource(UIParams::default())
+            .add_startup_system_to_stage(StartupStage::Startup, setup_ui)
             .add_system(save_ui)
             .add_state(AppState::Menu)
             .add_plugin(data_ui::DatasetUIPlugin)
             .add_plugin(train_ui::TrainUIPlugin)
-            .add_system_set(SystemSet::on_update(AppState::Menu).with_system(menu_ui))
-            ;
+            .add_system_set(SystemSet::on_update(AppState::Menu).with_system(menu_ui));
     }
 }
 
@@ -43,7 +41,6 @@ fn menu_ui(
     mut params: ResMut<UIParams>,
     mut dataset_state: ResMut<data_ui::DatasetUI>,
     mut train_state: ResMut<train_ui::TrainingUI>,
-    mut train_env: ResMut<train_ui::TrainEnviron>,
     mut app_state: ResMut<State<AppState>>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
@@ -59,19 +56,18 @@ fn menu_ui(
         ui.separator();
 
         match params.open_panel {
-            OpenPanel::Models => { train_state.ui(ui, &mut train_env, &mut *app_state); }
+            OpenPanel::Models => {
+                train_state.ui(ui, &mut *app_state);
+            }
             OpenPanel::Datasets => dataset_state.ui(ui),
             OpenPanel::Misc => params.update_misc(ui),
         }
     });
 }
 
-fn setup_ui(
-    mut params: ResMut<UIParams>,
-    mut egui_context: ResMut<EguiContext>,
-) {
+fn setup_ui(mut params: ResMut<UIParams>, mut egui_context: ResMut<EguiContext>) {
     params.root_path = ROOT_PATH.to_string();
-    
+
     let root_path: path::PathBuf = params.root_path.clone().into();
     let config_file = root_path.join("ui_config").with_extension("ron");
     // loading configurations of main ui components
@@ -79,14 +75,17 @@ fn setup_ui(
         eprintln!("loading from config file {}", config_file.to_str().unwrap());
         let result: Result<String, _> = ron::from_str(&fs::read_to_string(&config_file).unwrap());
         match result {
-            Ok(config) => { params.load_config(&config); },
-            Err(e) => { eprintln!("unable to deserialize ui_params {}", e); }
+            Ok(config) => {
+                params.load_config(&config);
+            }
+            Err(e) => {
+                eprintln!("unable to deserialize ui_params {}", e);
+            }
         }
     }
 
     // startup tasks that one must do to update the ui
     change_font_size(params.font_delta, egui_context.ctx_mut());
-
 }
 
 fn save_ui(
@@ -121,7 +120,9 @@ fn save_ui(
         let serialized = ron::to_string(&main_ui_config).unwrap();
         fs::write(&config_file, serialized).unwrap();
 
-        app_state.set(AppState::Close).expect("failed to send app close msg");
+        app_state
+            .set(AppState::Close)
+            .expect("failed to send app close msg");
     }
 }
 
@@ -181,11 +182,10 @@ impl Default for UIParams {
         UIParams {
             open_panel: OpenPanel::Models,
             font_delta: 4.0,
-            root_path: "".to_string(),
+            root_path: ROOT_PATH.to_string(),
         }
     }
 }
-
 
 fn change_font_size(font_delta: f32, ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();

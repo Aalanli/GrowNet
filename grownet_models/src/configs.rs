@@ -1,21 +1,11 @@
-use std::fmt::{Display, format};
-use std::ops::{Deref, DerefMut, Div, Shr, AddAssign};
 use std::collections::HashMap;
+use std::fmt::{format, Display};
+use std::ops::{AddAssign, Deref, DerefMut, Div, Index, IndexMut, Shr};
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use anyhow::{Error, Result, Context};
-use serde::{Serialize, Deserialize};
-
-
-pub mod cast {
-    pub struct Path;
-    pub struct Int;
-    pub struct Float;
-    pub struct Str;
-    pub struct Bool;
-    pub struct Config;
-}
+use anyhow::{Context, Error, Result};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Options {
@@ -24,10 +14,10 @@ pub enum Options {
     STR(String),
     BOOL(bool),
     PATH(PathBuf),
-    CONFIG(Config)
+    CONFIG(Config),
 }
 
-/// From overloads for various types
+/// Wrap basetype to Options type
 macro_rules! from_overloads {
     ($otype:tt, $cast_to:tt, $opt:ident) => {
         impl From<$otype> for Options {
@@ -47,159 +37,6 @@ from_overloads!(usize, isize, INT);
 from_overloads!(f32, f64, FLOAT);
 from_overloads!(f64, f64, FLOAT);
 from_overloads!(bool, bool, BOOL);
-
-macro_rules! div_overloads {
-    ($cast_ty:ty, $opt:ident) => {
-        impl<'a> Div<$cast_ty> for &'a Options {
-            type Output = $cast_ty;
-            fn div(self, _rhs: $cast_ty) -> Self::Output {
-                match self {
-                    Options::$opt(i) => i.clone() as $cast_ty,
-                    _ => panic!("Div op: not an {}!", stringify!(opt))
-                }
-            }
-        }
-    };
-    ($cast_ty:ty, $out_ty:ty, $opt:ident) => {
-        impl<'a> Div<$cast_ty> for &'a Options {
-            type Output = &'a $out_ty;
-            fn div(self, _rhs: $cast_ty) -> Self::Output {
-                match self {
-                    Options::$opt(i) => i,
-                    _ => panic!("Div op: not an {}!", stringify!(opt))
-                }
-            }
-        }
-        impl<'a> Div<$cast_ty> for &'a mut Options {
-            type Output = &'a mut $out_ty;
-            fn div(self, _rhs: $cast_ty) -> Self::Output {
-                match self {
-                    Options::$opt(i) => i,
-                    _ => panic!("Div op: not an {}!", stringify!(opt))
-                }
-            }
-        }
-    };
-}
-
-
-div_overloads!(i32, INT);
-div_overloads!(i64, INT);
-div_overloads!(u32, INT);
-div_overloads!(u64, INT);
-div_overloads!(isize, INT);
-div_overloads!(usize, INT);
-div_overloads!(f32, FLOAT);
-div_overloads!(f64, FLOAT);
-div_overloads!(bool, BOOL);
-
-div_overloads!(cast::Int, isize, INT);
-div_overloads!(cast::Float, f64, FLOAT);
-div_overloads!(cast::Bool, bool, BOOL);
-div_overloads!(cast::Str, str, STR);
-div_overloads!(cast::Path, PathBuf, PATH);
-div_overloads!(cast::Config, Config, CONFIG);
-
-
-impl Options {
-    pub fn is_int(&self) -> bool {
-        if let Options::INT(_) = self { true } else { false }
-    }
-
-    pub fn is_float(&self) -> bool {
-        if let Options::FLOAT(_) = self { true } else { false }
-    }
-
-    pub fn is_str(&self) -> bool {
-        if let Options::STR(_) = self { true } else { false }
-    }
-
-    pub fn is_bool(&self) -> bool {
-        if let Options::BOOL(_) = self { true } else { false }
-    }
-
-    pub fn is_path(&self) -> bool {
-        if let Options::PATH(_) = self { true } else { false }
-    }
-
-    pub fn is_config(&self) -> bool {
-        if let Options::CONFIG(_) = self { true } else { false }
-    }
-
-    pub fn is_same(&self, other: &Options) -> bool {
-        std::mem::discriminant(self) == std::mem::discriminant(other)
-    }
-
-    /// Not allowed the change the variant, only updates what's inside
-    pub fn update(&mut self, val: &Options) -> Result<()> {
-        if !self.is_same(val) {
-            return Err(Error::msg(format!("Error updating, not the same variant \nself: {:?}, \nother: {:?}", self, val)));
-        }
-
-        match (self, val) {
-            (Options::CONFIG(a), Options::CONFIG(b)) => {
-                a.update(b).context("CONFIG")?;
-            }
-            (a, b) => { *a = b.clone(); }
-        }
-        Ok(())
-    }
-
-    fn display_(&self, padding: usize, name: Option<&str>, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let pad = " ".repeat(padding);
-        match self {
-            Options::INT(i)     => {
-                if let Some(name) = name {
-                    writeln!(f, "{pad}{}: {}", name, i)
-                } else {
-                    writeln!(f, "{pad}i: {}", i)                    
-                }
-            },
-            Options::FLOAT(i)     => {
-                if let Some(name) = name {
-                    writeln!(f, "{pad}{}: {}", name, i)
-                } else {
-                    writeln!(f, "{pad}f: {}", i)                    
-                }
-            }
-            Options::STR(i)    => {
-                if let Some(name) = name {
-                    writeln!(f, "{pad}{}: {}", name, i)
-                } else {
-                    writeln!(f, "{pad}s: {}", i)                    
-                }
-            }
-            Options::BOOL(i)     => {
-                if let Some(name) = name {
-                    writeln!(f, "{pad}{}: {}", name, i)
-                } else {
-                    writeln!(f, "{pad}b: {}", i)                    
-                }
-            },
-            Options::PATH(i)  => {
-                if let Some(name) = name {
-                    writeln!(f, "{pad}{}: {}", name, i.to_str().unwrap())
-                } else {
-                      
-                    writeln!(f, "{pad}p: {}", i.to_str().unwrap())
-                }
-            }
-            Options::CONFIG(i) => {
-                if let Some(name) = name {
-                    writeln!(f, "{pad}config: {}", name)?; i.display_(padding + 2, f) 
-                } else {
-                    writeln!(f, "{pad}config: ")?; i.display_(padding + 2, f) 
-                }
-            }
-        }
-    }
-}
-
-impl Display for Options {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.display_(0, None, f)
-    }
-}
 
 impl From<String> for Options {
     fn from(i: String) -> Self {
@@ -225,10 +62,200 @@ impl From<Vec<(String, Options)>> for Options {
     }
 }
 
+/// Unwrap Options type to base type, cloning each time
+macro_rules! into_owned_overloads {
+    ($to_type:ty, $opt:ident) => {
+        impl From<&Options> for $to_type {
+            fn from(i: &Options) -> Self {
+                if let Options::$opt(i) = i {
+                    i.clone() as $to_type
+                } else {
+                    panic!("Not variant {}", stringify!(opt));
+                }
+            }
+        }
+    };
+}
+
+into_owned_overloads!(i32, INT);
+into_owned_overloads!(i64, INT);
+into_owned_overloads!(u32, INT);
+into_owned_overloads!(u64, INT);
+into_owned_overloads!(isize, INT);
+into_owned_overloads!(usize, INT);
+into_owned_overloads!(f32, FLOAT);
+into_owned_overloads!(f64, FLOAT);
+into_owned_overloads!(bool, BOOL);
+into_owned_overloads!(String, STR);
+into_owned_overloads!(PathBuf, PATH);
+
+/// Unwrap Options type to a reference of a base type,
+macro_rules! into_ref_overloads {
+    ($to_type:ty, $opt:ident, $($imut:tt)*) => {
+        impl<'a> From<&'a $($imut)* Options> for &'a $($imut)* $to_type {
+            fn from(i: &'a $($imut)* Options) -> Self {
+                if let Options::$opt(i) = i {
+                    i
+                } else {
+                    panic!("Not variant {}", stringify!(opt));
+                }
+            }
+        }
+    };
+}
+
+into_ref_overloads!(isize, INT, mut);
+into_ref_overloads!(f64, FLOAT, mut);
+into_ref_overloads!(bool, BOOL, mut);
+into_ref_overloads!(str, STR, mut);
+into_ref_overloads!(String, STR, mut);
+into_ref_overloads!(PathBuf, PATH, mut);
+into_ref_overloads!(isize, INT,);
+into_ref_overloads!(f64, FLOAT,);
+into_ref_overloads!(bool, BOOL,);
+into_ref_overloads!(str, STR,);
+into_ref_overloads!(String, STR,);
+into_ref_overloads!(PathBuf, PATH,);
+
+impl Options {
+    pub fn is_int(&self) -> bool {
+        if let Options::INT(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_float(&self) -> bool {
+        if let Options::FLOAT(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_str(&self) -> bool {
+        if let Options::STR(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_bool(&self) -> bool {
+        if let Options::BOOL(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_path(&self) -> bool {
+        if let Options::PATH(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_config(&self) -> bool {
+        if let Options::CONFIG(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn is_same(&self, other: &Options) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+
+    /// Not allowed the change the variant, only updates what's inside
+    pub fn update(&mut self, val: &Options) -> Result<()> {
+        if !self.is_same(val) {
+            return Err(Error::msg(format!(
+                "Error updating, not the same variant \nself: {:?}, \nother: {:?}",
+                self, val
+            )));
+        }
+
+        match (self, val) {
+            (Options::CONFIG(a), Options::CONFIG(b)) => {
+                a.update(b).context("CONFIG")?;
+            }
+            (a, b) => {
+                *a = b.clone();
+            }
+        }
+        Ok(())
+    }
+
+    fn display_(
+        &self,
+        padding: usize,
+        name: Option<&str>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        let pad = " ".repeat(padding);
+        match self {
+            Options::INT(i) => {
+                if let Some(name) = name {
+                    writeln!(f, "{pad}{}: {}", name, i)
+                } else {
+                    writeln!(f, "{pad}i: {}", i)
+                }
+            }
+            Options::FLOAT(i) => {
+                if let Some(name) = name {
+                    writeln!(f, "{pad}{}: {}", name, i)
+                } else {
+                    writeln!(f, "{pad}f: {}", i)
+                }
+            }
+            Options::STR(i) => {
+                if let Some(name) = name {
+                    writeln!(f, "{pad}{}: {}", name, i)
+                } else {
+                    writeln!(f, "{pad}s: {}", i)
+                }
+            }
+            Options::BOOL(i) => {
+                if let Some(name) = name {
+                    writeln!(f, "{pad}{}: {}", name, i)
+                } else {
+                    writeln!(f, "{pad}b: {}", i)
+                }
+            }
+            Options::PATH(i) => {
+                if let Some(name) = name {
+                    writeln!(f, "{pad}{}: {}", name, i.to_str().unwrap())
+                } else {
+                    writeln!(f, "{pad}p: {}", i.to_str().unwrap())
+                }
+            }
+            Options::CONFIG(i) => {
+                if let Some(name) = name {
+                    writeln!(f, "{pad}config: {}", name)?;
+                    i.display_(padding + 2, f)
+                } else {
+                    writeln!(f, "{pad}config: ")?;
+                    i.display_(padding + 2, f)
+                }
+            }
+        }
+    }
+}
+
+impl Display for Options {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.display_(0, None, f)
+    }
+}
+
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct Config {
     map: HashMap<String, Options>,
-    order: Vec<String>
+    order: Vec<String>,
 }
 
 pub struct ConfigIter<'a> {
@@ -262,9 +289,7 @@ impl<'a> Iterator for ConfigIterMut<'a> {
         if let Some(idx) = idx {
             let idx = idx as *mut Options;
             let str = &self.config.order[self.idx - 1] as *const String;
-            unsafe {
-                Some((&*str, &mut *idx))
-            }
+            unsafe { Some((&*str, &mut *idx)) }
         } else {
             None
         }
@@ -272,11 +297,17 @@ impl<'a> Iterator for ConfigIterMut<'a> {
 }
 
 impl Config {
+    pub fn valid_key(key: &str) -> bool {
+        !key.contains("/")
+    }
+
+    /// Constructs a Config with the given key, option pairs, ignores repeats
+    /// and any names with "/" in them
     pub fn new(configs: Vec<(String, Options)>) -> Self {
         let mut map = HashMap::new();
         let mut order = Vec::new();
         for (name, config) in configs {
-            if !map.contains_key(&name) {
+            if !map.contains_key(&name) && Self::valid_key(&name) {
                 map.insert(name.clone(), config);
                 order.push(name);
             }
@@ -286,7 +317,7 @@ impl Config {
 
     /// Are the keys the same between the two configs?
     /// Allows for different ordering of keys, but key values need to have
-    /// the same value, and if the variant is Config, then recursively check
+    /// the same variant, and if the variant is Config, then recursively check
     pub fn is_same(&self, other: &Config) -> bool {
         for i in &self.order {
             if !other.order.contains(i) {
@@ -298,11 +329,13 @@ impl Config {
                 return false;
             }
         } // both contains the same keys
-        
+
         for i in &self.order {
             let a = self.map.get(i).unwrap();
             let b = other.map.get(i).unwrap();
-            if !a.is_same(b) { return false; }
+            if !a.is_same(b) {
+                return false;
+            }
             match (a, b) {
                 (Options::CONFIG(a), Options::CONFIG(b)) => {
                     if !a.is_same(b) {
@@ -310,23 +343,26 @@ impl Config {
                     }
                 }
                 (_, _) => {}
-            } 
+            }
         }
-        
+
         true
     }
 
+    /// Is the current Config a subset of the other config? Where equality is defined as above.
     pub fn subset(&self, other: &Config) -> bool {
         for i in &self.order {
             if !other.order.contains(i) {
                 return false;
             }
         }
-        
+
         for i in &self.order {
             let a = self.map.get(i).unwrap();
             let b = other.map.get(i).unwrap();
-            if !a.is_same(b) { return false; }
+            if !a.is_same(b) {
+                return false;
+            }
             match (a, b) {
                 (Options::CONFIG(a), Options::CONFIG(b)) => {
                     if !a.subset(b) {
@@ -334,17 +370,20 @@ impl Config {
                     }
                 }
                 (_, _) => {}
-            } 
+            }
         }
-        
+
         true
     }
 
-    /// Updates the current config with a new config if the new config contains
-    /// all the keys of the current config, and each key is the 'same' as defined by is_same
-    pub fn update(&mut self, val: &Config) -> Result<()> {
+    /// Updates the current config by other by replacing all values of self with other, if the variants are the same
+    /// do this recursively for configs
+    pub fn update(&mut self, other: &Config) -> Result<()> {
         for (k, v) in self.map.iter_mut() {
-            let v1 = val.map.get(k).ok_or(Error::msg(format!("failed to retrieve key {}", k)))?;
+            let v1 = other
+                .map
+                .get(k)
+                .ok_or(Error::msg(format!("failed to retrieve key {}", k)))?;
             v.update(v1).context(format!("On key {}", k))?;
         }
         Ok(())
@@ -353,18 +392,24 @@ impl Config {
     /// Updates config at that entry, errors if key does not exist
     /// or if the variants are not the same
     pub fn update_key(&mut self, key: &String, val: &Options) -> Result<()> {
-        let entry = self.map.get_mut(key).ok_or(Error::msg(format!("failed to retrieve key {}", key)))?;
+        let entry = self
+            .map
+            .get_mut(key)
+            .ok_or(Error::msg(format!("failed to retrieve key {}", key)))?;
         entry.update(val).context(format!("Error on key {}", key))
     }
 
     /// Insert key inserts a new value into the config if there isn't one
     /// already, returning error. The order is appended last
     pub fn insert(&mut self, key: &str, val: &Options) -> Result<()> {
-        if !self.map.contains_key(key) {
+        if !Self::valid_key(key) {
+            Err(Error::msg("invalid key, contains '/'"))
+        } else if !self.map.contains_key(key) {
+            self.order.push(key.to_string());
             self.map.insert(key.into(), val.clone());
             Ok(())
         } else {
-            Err(Error::msg(format!("contains key {}", key)))
+            Err(Error::msg(format!("already contains key {}", key)))
         }
     }
 
@@ -377,8 +422,10 @@ impl Config {
         Ok(())
     }
 
+    /// Shorthand for insert(key, Options::CONFIG(other)), but by value instead of by reference
     pub fn add(&mut self, key: &str, other: Config) -> Result<()> {
         if !self.map.contains_key(key) {
+            self.order.push(key.to_string());
             self.map.insert(key.into(), Options::CONFIG(other));
             Ok(())
         } else {
@@ -402,12 +449,112 @@ impl Config {
         }
     }
 
+    /// gets the value from the path as directed by i
+    /// the path can be recursive, ex: d/i, which assumes that there exists a Config variant
+    /// at the key d, which also has a key i
+    pub fn get(&self, k: &str) -> Option<&Options> {
+        let mut p = k.split("/");
+        let first_key = p.next();
+        if first_key.is_none() {
+            return None;
+        }
+        let first_key = first_key.unwrap();
+        let mut k = if let Some(x) = self.map.get(first_key) {
+            x
+        } else {
+            return None;
+        };
+
+        for s in p {
+            if let Options::CONFIG(c) = k {
+                if let Some(x) = c.map.get(s) {
+                    k = x;
+                    continue;
+                }
+            }
+            return None;
+        }
+        Some(k)
+    }
+
+    pub fn get_mut(&mut self, k: &str) -> Option<&mut Options> {
+        let mut p = k.split("/");
+        let first_key = p.next();
+        if first_key.is_none() {
+            return None;
+        }
+        let first_key = first_key.unwrap();
+        let mut k = if let Some(x) = self.map.get_mut(first_key) {
+            x
+        } else {
+            return None;
+        };
+
+        for s in p {
+            if let Options::CONFIG(c) = k {
+                if let Some(x) = c.map.get_mut(s) {
+                    k = x;
+                    continue;
+                }
+            }
+            return None;
+        }
+        Some(k)
+    }
+
+    /// same as get, but can panic
+    pub fn uget(&self, k: &str) -> &Options {
+        let mut p = k.split("/");
+        let first_key = p.next();
+        let first_key = first_key.expect("No key exists!");
+        let mut k = self
+            .map
+            .get(first_key)
+            .expect(&format!("Key {} does not exist in config", first_key));
+
+        for s in p {
+            if let Options::CONFIG(c) = k {
+                k = c
+                    .map
+                    .get(s)
+                    .expect(&format!("Key {} does not exist in config {}", first_key, c));
+            }
+        }
+        k
+    }
+
+    pub fn uget_mut(&mut self, k: &str) -> &mut Options {
+        let mut p = k.split("/");
+        let first_key = p.next();
+        let first_key = first_key.expect("No key exists!");
+        let mut k = self
+            .map
+            .get_mut(first_key)
+            .expect(&format!("Key {} does not exist in config", first_key));
+
+        for s in p {
+            if let Options::CONFIG(c) = k {
+                k = c
+                    .map
+                    .get_mut(s)
+                    .expect(&format!("Key {} does not exist in config", first_key));
+            }
+        }
+        k
+    }
+
     pub fn iter(&self) -> ConfigIter {
-        ConfigIter { config: self, idx: 0 }
+        ConfigIter {
+            config: self,
+            idx: 0,
+        }
     }
 
     pub fn iter_mut(&mut self) -> ConfigIterMut {
-        ConfigIterMut { config: self, idx: 0 }
+        ConfigIterMut {
+            config: self,
+            idx: 0,
+        }
     }
 
     fn display_(&self, padding: usize, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -424,64 +571,59 @@ impl Display for Config {
     }
 }
 
-/// Convenient syntax to use to access config fields, panics if cast or key is unavailable
-/// (a: Config) / "a" gets the Options at that key address
-/// (a: Options) / casts::T trys to cast the option to a particular type
-impl<'a> Div<&'static str> for &'a Config {
-    type Output = &'a Options;
-    fn div(self, rhs: &'static str) -> Self::Output {
-        let h = self.map.get(rhs).expect(&format!("Div op: unable to get key {}", rhs));
-        h
+impl Index<&str> for Config {
+    type Output = Options;
+    fn index(&self, index: &str) -> &Self::Output {
+        self.uget(index)
     }
 }
 
-impl<'a> Div<&'static str> for &'a mut Config {
-    type Output = &'a mut Options;
-    fn div(self, rhs: &'static str) -> Self::Output {
-        let h = self.map.get_mut(rhs).expect(&format!("Div op: unable to get key {}", rhs));
-        h
-    }
-}
-
-impl<'a> Div<&'static str> for &'a Options {
-    type Output = &'a Options;
-    fn div(self, rhs: &'static str) -> Self::Output {
-        if let Options::CONFIG(f) = self {
-            f / rhs
+impl Index<&str> for Options {
+    type Output = Options;
+    fn index(&self, index: &str) -> &Self::Output {
+        if let Options::CONFIG(c) = self {
+            c.uget(index)
         } else {
-            panic!("Div op: not a Config option, no further paths");
+            panic!("No Config variant at index {}", index)
         }
     }
 }
 
-impl<'a> Div<&'static str> for &'a mut Options {
-    type Output = &'a mut Options;
-    fn div(self, rhs: &'static str) -> Self::Output {
-        if let Options::CONFIG(f) = self {
-            f / rhs
-        } else {
-            panic!("Div op: not a Config option, no further paths");
-        }
+impl IndexMut<&str> for Config {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        self.uget_mut(index)
     }
 }
 
+impl IndexMut<&str> for Options {
+    fn index_mut(&mut self, index: &str) -> &mut Self::Output {
+        if let Options::CONFIG(c) = self {
+            c.uget_mut(index)
+        } else {
+            panic!("No Config variant at index {}", index)
+        }
+    }
+}
 
 #[test]
 fn config_macro_test() {
     use crate::{config, opt};
     let k = "a".to_string();
-    
+
     let mut _a = config!(
-        ("a", 1), 
-        ("b", 3.0), 
-        ("c", [
-            ("d", 1), 
-            ("f", "3"), 
-            ("g", Path("k")),
-            ("ok", true)
-            ]),
+        ("a", 1),
+        ("b", 3.0),
+        ("c", [("d", 1), ("f", "3"), ("g", Path("k")), ("ok", true)]),
         ("d", Path(k))
     );
-    let _k = &mut _a / "c" / "d";
+
+    let b = config!(
+        ("h", "some"),
+        ("t", "times")
+    );
+
+    let val: i32 = (&_a["c/d"]).into();
+    println!("{}", val);
+    let _k: i32 = (&_a["c"]["d"]).into();
     println!("{}", _a);
 }
