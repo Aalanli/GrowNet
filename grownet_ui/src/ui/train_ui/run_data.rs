@@ -5,7 +5,8 @@ use bevy::prelude::Resource;
 use bevy_egui::egui;
 use serde::{Deserialize, Serialize};
 
-use model_lib::{models, Config};
+pub use model_lib::{models, Config};
+pub use models::TrainProcess;
 
 #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum Models {
@@ -87,21 +88,21 @@ pub struct Console {
 }
 
 impl Console {
-    fn new(n_logs: usize) -> Self {
+    pub fn new(n_logs: usize) -> Self {
         Console {
             console_msgs: VecDeque::new(),
             max_console_msgs: n_logs,
         }
     }
 
-    fn log(&mut self, msg: String) {
+    pub fn log(&mut self, msg: String) {
         self.console_msgs.push_back(msg);
         if self.console_msgs.len() > self.max_console_msgs {
             self.console_msgs.pop_front();
         }
     }
 
-    fn console_ui(&self, ui: &mut egui::Ui) {
+    pub fn console_ui(&self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for text in &self.console_msgs {
                 ui.label(text);
@@ -141,55 +142,3 @@ pub fn handle_baseline_logs(
     some_err
 }
 
-// pub fn configure_baseline() {
-//     Models::BASELINE => {
-//         if self.baseline.is_running() {
-//             return Err(Error::msg("baseline is already running"))
-//         }
-//         self.baseline.run = Some(self.baseline.config.build()?);
-//         self.baseline.run_info = Some(RunInfo {
-//             model_class: "baseline".into(),
-//             version: self.baseline.runs,
-//             dataset: "cifar10".into(),
-//             err_status: None,
-//             ..Default::default()
-//         });
-//         self.baseline.runs += 1;
-//         self.baseline.run_err = None;
-//         Ok(())
-//     }
-// }
-
-// fn convert_recv(
-
-//     recv: models::TrainRecv,
-//     logs: &mut Vec<Log>,
-// ) {
-//     match recv {
-//         models::TrainRecv::KILLED => {
-//             logs.push(Log::CONSOLE(format!("{} finished training", &self.run_info.as_ref().unwrap().run_name())));
-//             let mut run_info = std::mem::replace(&mut self.run_info, None).unwrap();
-//             run_info.err_status = None;
-//             logs.push(Log::RUNINFO(run_info));
-//             self.run = None;
-//         }
-//         models::TrainRecv::PLOT(name, x, y) => {
-//             logs.push(Log::CONSOLE(format!("Logged plot name: {}, x: {}, y: {}", &name, x, y)));
-//             logs.push(Log::PLOT(name, self.run_name().unwrap(), x, y));
-//         }
-//         models::TrainRecv::FAILED(error_msg) => {
-//             logs.push(Log::CONSOLE(format!("Err {} while training {}", error_msg, &self.run_info.as_ref().unwrap().run_name())));
-//             let mut run_info = std::mem::replace(&mut self.run_info, None).unwrap();
-//             run_info.err_status = Some(error_msg.clone());
-//             logs.push(Log::RUNINFO(run_info));
-//             self.run = None;
-//             logs.push(Log::ERROR(error_msg));
-//         }
-//         models::TrainRecv::CHECKPOINT(stepno, path) => {
-//             if self.run_info.is_some() {
-//                 self.run_info.as_mut().unwrap().checkpoints.push((stepno, path));
-//             }
-//         }
-//     }
-
-// }

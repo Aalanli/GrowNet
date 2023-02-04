@@ -34,8 +34,8 @@ pub enum TrainRecv {
 /// The handle to the process running the training, interact with that process
 /// through this struct by sending commands and receiving logs
 pub struct TrainProcess {
-    pub send: Sender<TrainSend>,
-    pub recv: Receiver<TrainRecv>,
+    send: Sender<TrainSend>,
+    recv: Receiver<TrainRecv>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -44,12 +44,24 @@ impl TrainProcess {
         self.handle.is_some() && self.handle.as_ref().unwrap().is_finished()
     }
 
-    /// blocks until process is killed
-    pub fn kill_blocking(&mut self) {
+    pub fn send_command(&mut self, command: TrainSend) {
+        self.send.send(command).expect("unable to send train command");
+    }
+
+    pub fn try_recv(&mut self) -> Vec<TrainRecv> {
+        self.recv.try_iter().collect()
+    }
+
+    pub fn try_kill(&mut self) {
         self.send
             .send(TrainSend::KILL)
             .expect("unable to send kill msg");
+    }
+
+    /// blocks until process is killed
+    pub fn kill_blocking(&mut self) -> Result<()> {
+        self.try_kill();
         let handle = std::mem::replace(&mut self.handle, None).unwrap();
-        handle.join().expect("trouble joining thread");
+        handle.join().map_err(|x| Error::msg(format!("thread error {:?}", x.downcast_ref::<&str>())))
     }
 }

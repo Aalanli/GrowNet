@@ -49,3 +49,39 @@ impl UI for Config {
         }
     }
 }
+
+/// Only show through the ui, don't change anything
+pub fn immutable_show(config: &Config, ui: &mut egui::Ui) {
+    for (k, v) in config.iter() {
+        match v {
+            Options::BOOL(i) => {
+                ui.label(format!("{k}: {i}"));
+            }
+            Options::INT(i) => {
+                ui.label(format!("{k}: {i}"));
+            }
+            Options::FLOAT(i) => {
+                ui.label(format!("{k}: {i}"));
+            }
+            Options::STR(i) => {
+                ui.label(format!("{k}: {i}"));
+            }
+            Options::PATH(i) => {
+                ui.label(format!("{k}: {}", i.to_str().unwrap()));
+            }
+            Options::CONFIG(c) => {
+                ui.horizontal(|ui| {
+                    // indent
+                    ui.label("  ");
+                    ui.vertical(|ui| {
+                        egui::CollapsingHeader::new(k)
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                immutable_show(c, ui);
+                            });
+                    });
+                });
+            }
+        }
+    }
+}

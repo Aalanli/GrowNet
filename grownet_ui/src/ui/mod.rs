@@ -29,7 +29,7 @@ impl Plugin for UIPlugin {
         app.insert_resource(UIParams::default())
             .add_startup_system_to_stage(StartupStage::Startup, setup_ui)
             .add_system(save_ui)
-            .add_state(AppState::Menu)
+            .add_state(AppState::Models)
             .add_plugin(data_ui::DatasetUIPlugin)
             .add_plugin(train_ui::TrainUIPlugin)
             .add_system_set(SystemSet::on_update(AppState::Menu).with_system(menu_ui));
@@ -40,29 +40,33 @@ fn menu_ui(
     mut egui_context: ResMut<EguiContext>,
     mut params: ResMut<UIParams>,
     mut dataset_state: ResMut<data_ui::DatasetUI>,
-    mut train_state: ResMut<train_ui::TrainingUI>,
     mut app_state: ResMut<State<AppState>>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         ui.add(egui::Label::new("Data Explorer"));
 
-        ui.horizontal(|ui| {
-            // The four possible states for the ui to be in,
-            // selecting "Train" switches to the Trainer app state
-            ui.selectable_value(&mut params.open_panel, OpenPanel::Models, "Models");
-            ui.selectable_value(&mut params.open_panel, OpenPanel::Datasets, "Datasets");
-            ui.selectable_value(&mut params.open_panel, OpenPanel::Misc, "Misc");
-        });
-        ui.separator();
+        handle_pane_options(ui, &mut params.open_panel);
 
         match params.open_panel {
             OpenPanel::Models => {
-                train_state.ui(ui, &mut *app_state);
+                app_state.set(AppState::Models).unwrap();
             }
             OpenPanel::Datasets => dataset_state.ui(ui),
             OpenPanel::Misc => params.update_misc(ui),
         }
     });
+}
+
+/// The heading pane in the ui
+fn handle_pane_options(ui: &mut egui::Ui, panel: &mut OpenPanel) {
+    ui.horizontal(|ui| {
+        // The three possible states for the ui to be in,
+        // selecting "Train" switches to the Trainer app state
+        ui.selectable_value(panel, OpenPanel::Models, "Models");
+        ui.selectable_value(panel, OpenPanel::Datasets, "Datasets");
+        ui.selectable_value(panel, OpenPanel::Misc, "Misc");
+    });
+    ui.separator();
 }
 
 fn setup_ui(mut params: ResMut<UIParams>, mut egui_context: ResMut<EguiContext>) {
@@ -141,6 +145,7 @@ pub struct UIParams {
 #[derive(Clone, Eq, PartialEq, Debug, Hash)]
 pub enum AppState {
     Menu,
+    Models,
     Trainer,
     Close,
 }
