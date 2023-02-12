@@ -10,7 +10,7 @@
             "problemMatcher": []
         },
         {
-            "type": "cppbuild",
+            "type": "shell",
             "label": "C/C++: cmake compile",
             "command": "cmake",
             "args": [

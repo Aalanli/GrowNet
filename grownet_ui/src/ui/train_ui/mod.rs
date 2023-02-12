@@ -9,7 +9,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::{AppState, OpenPanel, UIParams, handle_pane_options};
 use crate::{Configure, UI};
-use model_lib::models::{self};
+use model_lib::models::{self, TrainRecv};
 use model_lib::Config;
 use crate::model_configs::immutable_show;
 
@@ -23,7 +23,6 @@ pub struct TrainUIPlugin;
 impl Plugin for TrainUIPlugin {
     fn build(&self, app: &mut App) {
         app
-            .add_event::<TrainError>()
             .add_event::<KillTraining>()
             .insert_resource(run::ModelPlots::default())
             .insert_resource(run::Console::default())
@@ -32,7 +31,7 @@ impl Plugin for TrainUIPlugin {
             .add_system_set(
                 SystemSet::on_update(AppState::Models)
                     .label("train_menu")
-                    .with_system(training_ui_system)
+                    .with_system(training_menu)
             )
             .add_system(run_baseline)
             .add_system_set(SystemSet::on_update(AppState::Close).with_system(save_train_ui));
@@ -89,11 +88,16 @@ fn save_train_ui(
 
 }
 
-/// A fatal training error has occurred
-#[derive(Deref, DerefMut)]
-struct TrainError(String);
-
 struct KillTraining;
+
+/// A queue containing all the entities that has finished training
+#[derive(Resource, Default)]
+struct TrainingQueue {
+    finished: VecDeque<(bool, Entity)>,
+    running: VecDeque<(run::Models, Entity)>,
+    error_accum: String
+}
+
 
 #[derive(Serialize, Deserialize, Resource)]
 pub struct TrainingUI {
@@ -110,16 +114,21 @@ impl Default for TrainingUI {
     }
 }
 
-fn training_ui_system(
+fn training_menu(
     mut commands: Commands,
     mut egui_context: ResMut<EguiContext>,
     mut app_state: ResMut<State<AppState>>,
     mut params: ResMut<UIParams>,
     mut train_ui: ResMut<TrainingUI>,
     mut local_spawn_error: Local<Option<String>>,
+    finished_queue: Res<TrainingQueue>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         handle_pane_options(ui, &mut params.open_panel);
+
+        if finished_queue.error_accum.len() > 0 {
+            ui.label(egui::RichText::new(&*finished_queue.error_accum).color(egui::Color32::RED));
+        }
 
         if std::mem::discriminant(&params.open_panel) != std::mem::discriminant(&OpenPanel::Models) {
             app_state.set(AppState::Menu).unwrap(); // should be fine to not return here
@@ -167,6 +176,16 @@ fn training_ui_system(
     });
 }
 
+#[derive(Deref, DerefMut, Serialize, Deserialize, Clone, Resource)]
+pub struct ModelRunInfo(HashMap<run::Models, HashMap<String, RunInfo>>);
+
+impl ModelRunInfo {
+    fn add_info(&mut self, model: run::Models, name: String, info: RunInfo) -> Result<()> {
+        todo!()
+    }
+}
+
+
 /// This struct represents an individual training run, it has the information to restart itself
 #[derive(Serialize, Deserialize, Default, Clone, Component)]
 pub struct RunInfo {
@@ -182,6 +201,10 @@ pub struct RunInfo {
 impl RunInfo {
     pub fn run_name(&self) -> String {
         format!("{}-v{}", self.model_class, self.version)
+    }
+
+    pub fn add_checkpoint(&mut self, step: f32, path: std::path::PathBuf) {
+        self.checkpoints.push((step, path));
     }
 
     pub fn show_basic(&self, ui: &mut egui::Ui) {
@@ -438,14 +461,12 @@ impl<T: UI + Clone> CheckedList<T> {
 fn training_system(
     mut egui_context: ResMut<EguiContext>,
     mut state: ResMut<State<AppState>>,
-    mut local_errors: Local<Vec<String>>, // some local error messages possibly relayed by err_ev
     mut killer: EventWriter<KillTraining>,
-    mut errors: EventReader<TrainError>,
-
     plots: Res<run::ModelPlots>,
     console: Res<run::Console>,
-
-    running: Query<&RunInfo>
+    
+    running: Query<&RunInfo>,
+    finished_queue: Res<TrainingQueue>,
 ) {
     egui::Window::new("train").show(egui_context.ctx_mut(), |ui| {
         // make it so that going back to menu does not suspend current training progress
@@ -459,14 +480,8 @@ fn training_system(
                 }
             });
 
-            for msg in errors.iter() {
-                local_errors.push((*msg).clone());
-            }
-
-            if local_errors.len() > 0 {
-                for i in &*local_errors {
-                    ui.label(i);
-                }
+            if finished_queue.error_accum.len() > 0 {
+                ui.label(egui::RichText::new(&*finished_queue.error_accum).color(egui::Color32::RED));
             }
 
             // the console and log graphs are part of the fore-ground egui panel
@@ -475,14 +490,28 @@ fn training_system(
                 console.console_ui(ui);
             });
 
-            for run in running.iter() {
-                run.show_basic(ui);
-            }
+            ui.collapsing("currently running", |ui| {
+                for run in running.iter() {
+                    run.show_basic(ui);
+                }
+            });
 
             // TODO: Add plotting utilites
 
         });
     });
+}
+
+/// Despawn everything finished at once
+/// TODO: add different behaviors on any potential errors
+fn handle_despawn(
+    mut commands: Commands,
+    mut queue: ResMut<TrainingQueue>
+) {
+    for (_, id) in queue.finished.iter() {
+        commands.entity(*id).despawn();
+    }
+    queue.finished.clear();
 }
 
 #[derive(Component, Deref, DerefMut)]
@@ -504,52 +533,54 @@ fn spawn_baseline(config: &Config, ver: usize) -> Result<(BaseTrainProcess, RunI
 
 /// Add plots and run data contributions to their respective containers
 fn run_baseline(
-    mut err_ev: EventWriter<TrainError>,
-
+    mut finished: ResMut<TrainingQueue>,
     mut plots: ResMut<run::ModelPlots>,
     mut console: ResMut<run::Console>,
-    mut runs: Query<(&mut RunInfo, &mut BaseTrainProcess)>,
+    mut model_runinfos: ResMut<ModelRunInfo>,
+    mut runs: Query<(Entity, &mut RunInfo, &mut BaseTrainProcess)>,
 ) {
-    for (mut info, mut train_proc) in runs.iter_mut() {
+    use run_data::Log;
+    for (id, mut info, mut train_proc) in runs.iter_mut() {
         if train_proc.is_running() {
             let msgs = train_proc.try_recv();
             for msg in msgs {
-
+                match msg {
+                    TrainRecv::PLOT(name, x, y) => {
+                        console.log(format!("Logged plot name: {}, x: {}, y: {}", &name, x, y));
+                        plots.add_plot(&name, &info.run_name(), x, y);
+                    }
+                    TrainRecv::FAILED(err_msg) => {
+                        console.log(format!("Error {} while training {}", err_msg, info.run_name()));
+                        finished.finished.push_back((false, id));
+                        finished.error_accum.push('\n');
+                        finished.error_accum.push_str(&err_msg);
+                        let mut info = info.clone();
+                        info.err_status = Some(err_msg);
+                        model_runinfos.add_info(run::Models::BASELINE, info.run_name(), info).unwrap();
+                    },
+                    TrainRecv::KILLED => {                        
+                        console.log(format!("{} finished training", info.run_name()));
+                        finished.finished.push_back((true, id));
+                        let info = info.clone();
+                        model_runinfos.add_info(run::Models::BASELINE, info.run_name(), info).unwrap();
+                    },
+                    TrainRecv::CHECKPOINT(step, path) => {
+                        console.log(format!("saving checkpoint for {} at step {}", info.run_name(), step));
+                        console.log(format!("saving to {}", path.to_str().unwrap()));
+                        info.add_checkpoint(step, path);
+                    },
+                }
             }
         }
     }
 }
 
-// fn convert_recv(
-
-//     recv: models::TrainRecv,
-//     logs: &mut Vec<Log>,
-// ) {
-//     match recv {
-//         models::TrainRecv::KILLED => {
-//             logs.push(Log::CONSOLE(format!("{} finished training", &self.run_info.as_ref().unwrap().run_name())));
-//             let mut run_info = std::mem::replace(&mut self.run_info, None).unwrap();
-//             run_info.err_status = None;
-//             logs.push(Log::RUNINFO(run_info));
-//             self.run = None;
-//         }
-//         models::TrainRecv::PLOT(name, x, y) => {
-//             logs.push(Log::CONSOLE(format!("Logged plot name: {}, x: {}, y: {}", &name, x, y)));
-//             logs.push(Log::PLOT(name, self.run_name().unwrap(), x, y));
-//         }
-//         models::TrainRecv::FAILED(error_msg) => {
-//             logs.push(Log::CONSOLE(format!("Err {} while training {}", error_msg, &self.run_info.as_ref().unwrap().run_name())));
-//             let mut run_info = std::mem::replace(&mut self.run_info, None).unwrap();
-//             run_info.err_status = Some(error_msg.clone());
-//             logs.push(Log::RUNINFO(run_info));
-//             self.run = None;
-//             logs.push(Log::ERROR(error_msg));
-//         }
-//         models::TrainRecv::CHECKPOINT(stepno, path) => {
-//             if self.run_info.is_some() {
-//                 self.run_info.as_mut().unwrap().checkpoints.push((stepno, path));
-//             }
-//         }
-//     }
-
-// }
+fn cleanup_baselines(
+    mut runs: Query<(&RunInfo, &mut BaseTrainProcess)>,
+    mut model_runinfos: ResMut<ModelRunInfo>,
+) {
+    for (info, mut proc) in runs.iter_mut() {
+        proc.try_kill();
+        model_runinfos.add_info(run::Models::BASELINE, info.run_name(), info.clone()).unwrap();
+    }
+}

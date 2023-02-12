@@ -42,6 +42,9 @@ pub struct ModelPlots {
 }
 
 impl ModelPlots {
+    /// Each plot has a title, and under each title, multiple lines are graphed, by run
+    /// Inserts a new plot with title if there is none
+    /// Appends onto existing run if name and title are pre-existing, else creates a new run
     pub fn add_plot(&mut self, title: &str, run_name: &str, x: f32, y: f32) {
         if let Some(graph) = self.graphs.get_mut(title) {
             if let Some(run) = graph.plots.get_mut(run_name) {
@@ -141,4 +144,3 @@ pub fn handle_baseline_logs(
     }
     some_err
 }
-
