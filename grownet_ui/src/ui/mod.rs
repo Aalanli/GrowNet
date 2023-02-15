@@ -137,7 +137,8 @@ pub struct UIParams {
     pub root_path: String,
     pub font_delta: f32,
     open_panel: OpenPanel,
-    failure_policy: TrainFailurePolicy,
+    pub run_queue_max_active: usize,
+    pub run_queue_num_errs: usize,
 }
 
 /// The state for the entire app, which characterizes the two main modes of operation
@@ -157,12 +158,6 @@ enum OpenPanel {
     Models,
     Datasets,
     Misc,
-}
-
-#[derive(Debug, PartialEq, Eq,Serialize, Deserialize)]
-enum TrainFailurePolicy {
-    PANIC, // crashes the program if one training run failed
-    FORGET // doesn't crash if one run fails, destroys its handle, if any
 }
 
 impl UIParams {
@@ -186,10 +181,12 @@ impl UIParams {
             change_font_size(local_font_delta, ui.ctx());
             self.font_delta = local_font_delta;
         }
-
-        ui.selectable_value(&mut self.failure_policy, TrainFailurePolicy::FORGET, "Forget training errors");
-        ui.selectable_value(&mut self.failure_policy, TrainFailurePolicy::PANIC, "Panic on training errors");
         
+        ui.label("run queue maximum active runs");
+        ui.add(egui::Slider::new(&mut self.run_queue_max_active, 1..=64));
+
+        ui.label("run queue maximum number of error messages");
+        ui.add(egui::Slider::new(&mut self.run_queue_num_errs, 1..=100));
     }
 }
 
@@ -199,7 +196,8 @@ impl Default for UIParams {
             open_panel: OpenPanel::Models,
             font_delta: 4.0,
             root_path: ROOT_PATH.to_string(),
-            failure_policy: TrainFailurePolicy::PANIC,
+            run_queue_max_active: 1,
+            run_queue_num_errs: 5,
         }
     }
 }

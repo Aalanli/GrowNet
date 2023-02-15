@@ -4,6 +4,7 @@ use anyhow::{Error, Result};
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContext};
 use bevy::ecs::schedule::ShouldRun;
+use crossbeam::channel::Receiver;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -11,19 +12,18 @@ use super::{AppState, OpenPanel, UIParams, handle_pane_options};
 use crate::{Configure, UI};
 use model_lib::models::{self, TrainRecv};
 use model_lib::Config;
-use crate::model_configs::immutable_show;
+use crate::model_configs::{self as M, run_data as run, immutable_show};
 
-mod run_data;
 mod train_systems;
-
-use run_data as run;
 
 
 pub struct TrainUIPlugin;
 impl Plugin for TrainUIPlugin {
     fn build(&self, app: &mut App) {
         app
-            .add_event::<KillTraining>()
+            .add_event::<Despawn>()
+            .add_event::<Kill>()
+            .insert_resource(RunQueue::default())
             .insert_resource(run::ModelPlots::default())
             .insert_resource(run::Console::default())
             .insert_resource(TrainingUI::default())
@@ -33,8 +33,10 @@ impl Plugin for TrainUIPlugin {
                     .label("train_menu")
                     .with_system(training_menu)
             )
-            .add_system(run_baseline)
-            .add_system_set(SystemSet::on_update(AppState::Close).with_system(save_train_ui));
+            .add_system_set(SystemSet::on_update(AppState::Close)
+                .with_system(cleanup_queue)
+                .with_system(save_train_ui))
+            .add_plugin(M::baseline::BaselinePlugin);
     }
 }
 
@@ -88,16 +90,6 @@ fn save_train_ui(
 
 }
 
-struct KillTraining;
-
-/// A queue containing all the entities that has finished training
-#[derive(Resource, Default)]
-struct TrainingQueue {
-    finished: VecDeque<(bool, Entity)>,
-    running: VecDeque<(run::Models, Entity)>,
-    error_accum: String
-}
-
 
 #[derive(Serialize, Deserialize, Resource)]
 pub struct TrainingUI {
@@ -115,20 +107,16 @@ impl Default for TrainingUI {
 }
 
 fn training_menu(
-    mut commands: Commands,
     mut egui_context: ResMut<EguiContext>,
     mut app_state: ResMut<State<AppState>>,
     mut params: ResMut<UIParams>,
     mut train_ui: ResMut<TrainingUI>,
-    mut local_spawn_error: Local<Option<String>>,
-    finished_queue: Res<TrainingQueue>,
+    mut run_queue: ResMut<RunQueue>,
+    killer: EventWriter<Kill>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         handle_pane_options(ui, &mut params.open_panel);
 
-        if finished_queue.error_accum.len() > 0 {
-            ui.label(egui::RichText::new(&*finished_queue.error_accum).color(egui::Color32::RED));
-        }
 
         if std::mem::discriminant(&params.open_panel) != std::mem::discriminant(&OpenPanel::Models) {
             app_state.set(AppState::Menu).unwrap(); // should be fine to not return here
@@ -142,23 +130,16 @@ fn training_menu(
                 ui.vertical(|ui| {
                     ui.selectable_value(&mut train_ui.model, run::Models::BASELINE, "baseline");
 
-                    if let Some(err) = &*local_spawn_error {
-                        ui.label(egui::RichText::new(err).color(egui::Color32::DARK_RED));
-                    }
-
                     // TODO: add some keybindings to certain buttons
                     // entry point for launching training
                     if ui.button("start training").clicked() {
                         match train_ui.model {
                             run::Models::BASELINE => {
-                                spawn_baseline(&train_ui.baseline.config, train_ui.baseline.version_num as usize)
-                                    .map_or_else(|e| {
-                                        *local_spawn_error = Some(e.to_string());
-                                    }, |bundle| {
-                                        commands.spawn(bundle);
-                                        train_ui.baseline.version_num += 1;
-                                        app_state.set(AppState::Trainer).unwrap();
-                                    });
+                                let (spawn_fn, runinfo) = 
+                                    M::baseline::baseline_spawn_fn(train_ui.baseline.version_num as usize, train_ui.baseline.get_config());
+                                app_state.set(AppState::Trainer).unwrap();
+                                train_ui.baseline.version_num += 1;
+                                run_queue.add_run(runinfo, spawn_fn);
                             }
                         }
                     }
@@ -170,75 +151,137 @@ fn training_menu(
                         train_ui.baseline.ui(ui);
                     }
                 });
+
+                ui.vertical(|ui| {
+                    run_queue.ui(ui, killer);
+                });
             });
         });
 
     });
 }
 
-#[derive(Deref, DerefMut, Serialize, Deserialize, Clone, Resource)]
-pub struct ModelRunInfo(HashMap<run::Models, HashMap<String, RunInfo>>);
+#[derive(Deref)]
+pub struct Despawn(pub Entity);
+#[derive(Deref)]
+pub struct Kill(pub Entity);
 
-impl ModelRunInfo {
-    fn add_info(&mut self, model: run::Models, name: String, info: RunInfo) -> Result<()> {
-        todo!()
-    }
+pub type SpawnRun = Box<dyn FnOnce(&mut Commands) -> Result<Entity> + Send + Sync>;
+pub struct Spawn(run::RunInfo, SpawnRun);
+
+
+#[derive(Resource, Default)]
+pub struct RunQueue {
+    queued_runs: VecDeque<Spawn>,
+    active_runs: VecDeque<(run::RunInfo, Entity)>,
+    spawn_errors: VecDeque<String>,
 }
 
-
-/// This struct represents an individual training run, it has the information to restart itself
-#[derive(Serialize, Deserialize, Default, Clone, Component)]
-pub struct RunInfo {
-    pub config: Config,             // TODO: convert types to this more easily,
-    pub model_class: String, // name for the class of models this falls under
-    pub version: usize,      // id for this run
-    pub comments: String,
-    pub dataset: String,
-    pub checkpoints: Vec<(f32, std::path::PathBuf)>, // (step, path)
-    pub err_status: Option<String>, // True is returned successfully, false if Killed mid-run
-}
-
-impl RunInfo {
-    pub fn run_name(&self) -> String {
-        format!("{}-v{}", self.model_class, self.version)
+impl RunQueue {
+    fn add_run(&mut self, info: run::RunInfo, run_fn: SpawnRun) {
+        self.queued_runs.push_back(Spawn(info, run_fn));
     }
 
-    pub fn add_checkpoint(&mut self, step: f32, path: std::path::PathBuf) {
-        self.checkpoints.push((step, path));
-    }
-
-    pub fn show_basic(&self, ui: &mut egui::Ui) {
-        ui.vertical(|ui| {
-            egui::ScrollArea::vertical().id_source("past runs").show(ui, |ui| {
-
-                ui.collapsing(self.run_name(), |ui| {
-                    ui.collapsing("comments", |ui| {
-                        ui.label(&self.comments);
-                    });
-                    ui.collapsing("checkpoints", |ui| {
-                        egui::ScrollArea::vertical().id_source("click checkpoints").show(ui, |ui| {
-
-                            for (j, checkpoint) in self.checkpoints.iter() {
-                                // TODO: when checkpoint is clicked, show loss as well
-                                ui.horizontal(|ui| {
-                                    ui.label(format!("step {}", j));
-                                    ui.label(checkpoint.to_str().unwrap());
-                                });
-                            }
-                        });
-                    });
-                    ui.label(format!("error status: {:?}", self.err_status));
-                    ui.label(format!("dataset: {}", self.dataset));
-                    ui.label(format!("model class: {}", self.model_class));
-                    ui.collapsing("run configs", |ui| {
-                        immutable_show(&self.config, ui);
-                    });
-                });
-
+    fn ui(&mut self, ui: &mut egui::Ui, mut kill: EventWriter<Kill>) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            // show errors
+            ui.horizontal(|ui| {
+                ui.label("launch errors");
+                if ui.button("clear").clicked() {
+                    self.spawn_errors.clear();
+                }
             });
+            for msg in self.spawn_errors.iter() {
+                ui.label(egui::RichText::new(msg).color(egui::Color32::RED));
+            }
+            ui.separator();
+            // show a list of queued runs, with option to remove a run
+            ui.label("queued runs");
+            let mut i = 0;
+            while i < self.queued_runs.len() {
+                if ui.label("remove").clicked() {
+                    self.queued_runs.remove(i);
+                    continue;
+                }
+                ui.collapsing(self.queued_runs[i].0.run_name(), |ui| {
+                    self.queued_runs[i].0.show_basic(ui);
+                });
+                i += 1;
+            }
+            // show a list of active runs, with option to kill a run, albeit indirectly
+            ui.label("active runs");
+            let mut i = 0;
+            while i < self.active_runs.len() {
+                if ui.label("kill").clicked() {
+                    kill.send(Kill(self.active_runs[i].1));
+                }
+                ui.collapsing(self.queued_runs[i].0.run_name(), |ui| {
+                    self.queued_runs[i].0.show_basic(ui);
+                });
+                i += 1;
+            }
         });
     }
 }
+
+/// send kill signals for all active runs in the queue
+/// may not actually get to killing, since this may be the last system run...
+fn cleanup_queue(
+    mut queue: ResMut<RunQueue>,
+    mut killer: EventWriter<Kill>,
+) {
+    queue.queued_runs.clear();
+    for i in queue.active_runs.iter() {
+        killer.send(Kill(i.1));
+    }
+}
+
+fn run_queue(
+    mut commands: Commands,
+    mut queue: ResMut<RunQueue>,
+    mut killed: EventReader<Despawn>,
+    params: Res<UIParams>
+) {
+    // remove any entities already killed or despawned
+    // TODO: could have various error handling policies here, but for the sake of simplicity, just ignore for now
+    // which implies that training runs that are unkillable will just collect in the active_runs queue
+    for k in killed.iter() {
+        let id = k.0;
+        let idx = {
+            let mut u = -1;
+            for (i, r) in queue.active_runs.iter().enumerate() {
+                if r.1 == id {
+                    u = i as i32;
+                    break;
+                }
+            }
+            u
+        };
+        if idx != -1 {
+            queue.active_runs.remove(idx as usize);
+        }
+        commands.entity(id).despawn();
+    }
+    // spawn new things
+    for _ in 0..(params.run_queue_max_active - queue.active_runs.len()) {
+        if let Some(x) = queue.queued_runs.pop_front() {
+            let (info, spawn_fn) = (x.0, x.1);
+            let id = spawn_fn(&mut commands);
+            match id {
+                Ok(id) => { queue.active_runs.push_back((info, id)); },
+                Err(msg) => {
+                    queue.spawn_errors.push_back(msg.to_string());
+                    if queue.spawn_errors.len() >= params.run_queue_num_errs {
+                        queue.spawn_errors.pop_front();
+                    }
+                },
+            }
+        } else {
+            break;
+        }
+    }
+}
+
 
 #[derive(Deref, DerefMut, Component)]
 pub struct ConfigComponent(Config);
@@ -251,12 +294,6 @@ pub struct ConfigEnviron {
     config: Config,
     default: Config,
     saved_configs: CheckedList<Config>,
-
-    saved_runs: Vec<RunInfo>,
-    pub_runs: Vec<RunInfo>,
-
-    checked_runinfo: usize,
-    checked_checkpoint: Vec<usize>,
     version_num: u32,
 }
 
@@ -267,11 +304,7 @@ impl ConfigEnviron {
             config: config.clone(),
             default: config,
             saved_configs: CheckedList { header: name.to_string() + " saved configs", deletion: true, ..default() },
-            saved_runs: Vec::new(),
-            pub_runs: Vec::new(),
-            checked_runinfo: 0,
             version_num: 0,
-            checked_checkpoint: Vec::new(),
         }
     }
 
@@ -316,65 +349,7 @@ impl ConfigEnviron {
                 // implement adding and deletion from config stack
                 self.saved_configs.ui(ui, |x, y| { x.update(&y).unwrap(); });
 
-                // show past training runs
-                ui.vertical(|ui| {
-                    egui::ScrollArea::vertical().id_source("past runs").show(ui, |ui| {
-                        for (i, run) in self.pub_runs.iter_mut().enumerate() {
-                            let mut checked = i == self.checked_runinfo;
-                            ui.horizontal(|ui| {
-                                ui.checkbox(&mut checked, format!("run {i}"));
-                                // todo
-                                if ui.button("re-run").clicked() {
-
-                                }
-
-                                if ui.button("new-run").clicked() {
-
-                                }
-
-                                if ui.button("set config").clicked() {
-
-                                }
-                            });
-                            ui.collapsing(run.run_name(), |ui| {
-                                ui.collapsing("comments", |ui| {
-                                    ui.label(&run.comments);
-                                });
-                                ui.collapsing("checkpoints", |ui| {
-                                    egui::ScrollArea::vertical().id_source("click checkpoints").show(ui, |ui| {
-                                        let mut checked = self.checked_checkpoint.get(self.checked_runinfo)
-                                            .map_or(run.checkpoints.len(), |x| *x);
-                                        for (j, checkpoint) in run.checkpoints.iter().enumerate() {
-                                            // TODO: when checkpoint is clicked, show loss as well
-                                            let mut check = checked == j;
-                                            ui.checkbox(&mut check, "");
-                                            ui.horizontal(|ui| {
-                                                ui.label(format!("step {}", checkpoint.0));
-                                                ui.label(checkpoint.1.to_str().unwrap());
-                                            });
-                                            if check {
-                                                checked = j;
-                                            }
-                                        }
-
-                                        self.checked_checkpoint.get_mut(self.checked_runinfo)
-                                            .map(|x| { *x = checked; });
-                                    });
-                                });
-                                ui.label(format!("error status: {:?}", run.err_status));
-                                ui.label(format!("dataset: {}", run.dataset));
-                                ui.label(format!("model class: {}", run.model_class));
-                                ui.collapsing("run configs", |ui| {
-                                    run.config.ui(ui);
-                                });
-                            });
-
-                            if checked {
-                                self.checked_runinfo = i;
-                            }
-                        }
-                    });
-                });
+                // TODO: show past training runs
             });
         });
     }
@@ -461,12 +436,9 @@ impl<T: UI + Clone> CheckedList<T> {
 fn training_system(
     mut egui_context: ResMut<EguiContext>,
     mut state: ResMut<State<AppState>>,
-    mut killer: EventWriter<KillTraining>,
     plots: Res<run::ModelPlots>,
-    console: Res<run::Console>,
-    
-    running: Query<&RunInfo>,
-    finished_queue: Res<TrainingQueue>,
+    console: Res<run::Console>,    
+    running: Query<&run::RunInfo>,
 ) {
     egui::Window::new("train").show(egui_context.ctx_mut(), |ui| {
         // make it so that going back to menu does not suspend current training progress
@@ -475,14 +447,8 @@ fn training_system(
                 if ui.button("back to menu").clicked() {
                     state.set(AppState::Menu).unwrap();
                 }
-                if ui.button("stop training").clicked() {
-                    killer.send(KillTraining);
-                }
-            });
 
-            if finished_queue.error_accum.len() > 0 {
-                ui.label(egui::RichText::new(&*finished_queue.error_accum).color(egui::Color32::RED));
-            }
+            });
 
             // the console and log graphs are part of the fore-ground egui panel
             // while any background rendering stuff is happening in a separate system, taking TrainResource as a parameter
@@ -500,87 +466,4 @@ fn training_system(
 
         });
     });
-}
-
-/// Despawn everything finished at once
-/// TODO: add different behaviors on any potential errors
-fn handle_despawn(
-    mut commands: Commands,
-    mut queue: ResMut<TrainingQueue>
-) {
-    for (_, id) in queue.finished.iter() {
-        commands.entity(*id).despawn();
-    }
-    queue.finished.clear();
-}
-
-#[derive(Component, Deref, DerefMut)]
-struct BaseTrainProcess(run::models::TrainProcess);
-
-fn spawn_baseline(config: &Config, ver: usize) -> Result<(BaseTrainProcess, RunInfo)> {
-    Ok((
-        BaseTrainProcess(run::models::baseline::build(config)?),
-        RunInfo {
-            model_class: "baseline".into(),
-            version: ver,
-            dataset: "cifar10".into(),
-            config: config.clone(),
-            ..Default::default()
-        }
-    ))
-}
-
-
-/// Add plots and run data contributions to their respective containers
-fn run_baseline(
-    mut finished: ResMut<TrainingQueue>,
-    mut plots: ResMut<run::ModelPlots>,
-    mut console: ResMut<run::Console>,
-    mut model_runinfos: ResMut<ModelRunInfo>,
-    mut runs: Query<(Entity, &mut RunInfo, &mut BaseTrainProcess)>,
-) {
-    use run_data::Log;
-    for (id, mut info, mut train_proc) in runs.iter_mut() {
-        if train_proc.is_running() {
-            let msgs = train_proc.try_recv();
-            for msg in msgs {
-                match msg {
-                    TrainRecv::PLOT(name, x, y) => {
-                        console.log(format!("Logged plot name: {}, x: {}, y: {}", &name, x, y));
-                        plots.add_plot(&name, &info.run_name(), x, y);
-                    }
-                    TrainRecv::FAILED(err_msg) => {
-                        console.log(format!("Error {} while training {}", err_msg, info.run_name()));
-                        finished.finished.push_back((false, id));
-                        finished.error_accum.push('\n');
-                        finished.error_accum.push_str(&err_msg);
-                        let mut info = info.clone();
-                        info.err_status = Some(err_msg);
-                        model_runinfos.add_info(run::Models::BASELINE, info.run_name(), info).unwrap();
-                    },
-                    TrainRecv::KILLED => {                        
-                        console.log(format!("{} finished training", info.run_name()));
-                        finished.finished.push_back((true, id));
-                        let info = info.clone();
-                        model_runinfos.add_info(run::Models::BASELINE, info.run_name(), info).unwrap();
-                    },
-                    TrainRecv::CHECKPOINT(step, path) => {
-                        console.log(format!("saving checkpoint for {} at step {}", info.run_name(), step));
-                        console.log(format!("saving to {}", path.to_str().unwrap()));
-                        info.add_checkpoint(step, path);
-                    },
-                }
-            }
-        }
-    }
-}
-
-fn cleanup_baselines(
-    mut runs: Query<(&RunInfo, &mut BaseTrainProcess)>,
-    mut model_runinfos: ResMut<ModelRunInfo>,
-) {
-    for (info, mut proc) in runs.iter_mut() {
-        proc.try_kill();
-        model_runinfos.add_info(run::Models::BASELINE, info.run_name(), info.clone()).unwrap();
-    }
 }
