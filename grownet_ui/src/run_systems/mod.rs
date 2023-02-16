@@ -2,7 +2,6 @@ use bevy_egui::egui;
 use bevy::prelude::Component;
 
 use crate::UI;
-use crate::ui::train_ui::SpawnRun;
 use model_lib::{Config, Options};
 
 pub mod run_data;
@@ -87,4 +86,9 @@ pub fn immutable_show(config: &Config, ui: &mut egui::Ui) {
             }
         }
     }
+}
+
+pub struct ConfigUiWrapper {
+    config: Config,
+
 }

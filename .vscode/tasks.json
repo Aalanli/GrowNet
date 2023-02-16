@@ -13,6 +13,11 @@
 				"kind": "build",
 				"isDefault": true
 			}
+		},
+		{
+			"type": "shell",
+			"label": "clean config",
+			"command": "rm -r assets/config"
 		}
 	]
 }

@@ -4,7 +4,7 @@
 
 pub mod ops;
 pub mod data_configs;
-pub mod model_configs;
+pub mod run_systems;
 pub mod ui;
 pub mod visualizations;
 
@@ -16,6 +16,7 @@ use num::Num;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 const CONFIG_PATH: &'static str = "assets/config";
+const RUN_DATA_PATH: &'static str = "assets/model_runs";
 
 // TODO: Get rid of Config, it simply isn't necessary
 pub trait UI: Configure {

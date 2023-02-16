@@ -2,6 +2,8 @@
 #![allow(unused_imports)]
 #![allow(unused_macros)]
 
+use std::path::PathBuf;
+
 use anyhow::{Context, Result};
 use ron;
 use serde::{de::DeserializeOwned, Serialize};

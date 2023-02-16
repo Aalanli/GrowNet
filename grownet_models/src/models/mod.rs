@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::ops::DerefMut;
+use std::path::PathBuf;
 
 use anyhow::{Error, Result};
 use crossbeam::channel::{Receiver, Sender};
@@ -26,8 +27,8 @@ pub enum TrainSend {
 #[derive(Clone)]
 pub enum TrainRecv {
     PLOT(String, f32, f32), // key, x, y
-    CHECKPOINT(f32, std::path::PathBuf),
     FAILED(String),
+    // CHECKPOINT(f32, std::path::PathBuf),
 }
 
 /// The handle to the process running the training, interact with that process
@@ -64,3 +65,81 @@ impl TrainProcess {
         handle.join().map_err(|x| Error::msg(format!("thread error {:?}", x.downcast_ref::<&str>())))
     }
 }
+
+
+#[derive(Serialize, Deserialize)]
+pub struct CachedInfo {
+    checkpoints: VecDeque<Config>,
+    keep: usize
+}
+
+
+pub struct CheckpointManager {
+    pub folder: PathBuf,
+    pub max_checkpoints: usize,
+    nver: usize
+}
+
+impl CheckpointManager {
+    pub fn new(folder: PathBuf, max_checkpoints: usize) -> Self {
+        if !folder.exists() {
+            std::fs::create_dir(&folder).expect(&format!("failed to create folder {}", folder.display()));
+        }
+        Self { folder, max_checkpoints, nver: 0 }
+    }
+
+    pub fn new_path(&mut self, step: usize) -> PathBuf {
+        self.nver += 1;
+        self.folder.join(format!("ckpt-{:0>10}-{}", self.nver, step)).with_extension("ckpt")
+    }
+
+    /// returns a sorted list of checkpoints paths, full paths, youngest checkpoints first
+    pub fn checkpoints(&self) -> Vec<PathBuf> {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&self.folder).expect(&format!("failed to read checkpoint dir {}", self.folder.display()))
+            .filter(|x| x.is_ok())
+            .map(|x| x.unwrap().path())
+            .filter(|x| x.is_file() && x.extension().unwrap() == "ckpt")
+            .collect();
+        files.sort();
+        files
+    }
+
+    pub fn remove_old_checkpoints(&mut self) {
+        let mut checkpoints = self.checkpoints();
+        checkpoints.reverse();
+        while self.max_checkpoints < checkpoints.len() {
+            std::fs::remove_file(checkpoints.pop().unwrap()).expect("unable to remove old checkpoints");
+        } 
+    }
+}
+
+// #[derive(Serialize, Deserialize, Default)]
+// pub struct CheckpointManagerClient {
+//     checkpoints: HashMap<String, Checkpoints>
+// }
+
+// impl CheckpointManagerClient {
+//     fn get(&self, run_info: &RunInfo, i: usize) -> Option<std::path::PathBuf> {
+//         let name = run_info.run_name();
+//         self.checkpoints.get(&name).and_then(|x| { 
+//             x.checkpoints.get(i)
+//                 .and_then(|x| Some(x.1.clone())) 
+//         })
+//     }
+
+//     fn get_latest(&self, run_info: &RunInfo) -> Option<std::path::PathBuf> {
+//         let name = run_info.run_name();
+//         self.checkpoints.get(&name).and_then(|x| {
+//             if x.checkpoints.len() > 1 {
+//                 x.checkpoints.get(x.checkpoints.len() - 1 )
+//                     .and_then(|x| Some(x.1.clone())) 
+//             } else { None }
+//         })
+//     }
+
+//     fn add(&mut self, run_info: &RunInfo, checkpoint: (usize, std::path::PathBuf)) {
+//         todo!()
+//     }
+// }
+
+

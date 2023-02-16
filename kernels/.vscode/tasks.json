@@ -24,14 +24,11 @@
             "options": {
                 "cwd": "${fileDirname}"
             },
-            "problemMatcher": [
-                "$gcc"
-            ],
             "group": "build",
             "detail": "compiler: /usr/bin/cpp"
         },
         {
-            "type": "cppbuild",
+            "type": "shell",
             "label": "C/C++: g++-9 build active file",
             "command": "/bin/g++-9",
             "args": [
@@ -46,9 +43,6 @@
             "options": {
                 "cwd": "${fileDirname}"
             },
-            "problemMatcher": [
-                "$gcc"
-            ],
             "group": "build",
             "detail": "compiler: /bin/g++-9"
         },

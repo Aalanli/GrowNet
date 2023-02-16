@@ -177,8 +177,6 @@ enum OpenPanel {
     Misc,
 }
 
-
-
 impl UIParams {
     fn load_config(&mut self, config: &str) {
         ron::from_str(config).map_or_else(|err| {
