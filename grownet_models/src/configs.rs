@@ -617,7 +617,7 @@ fn config_macro_test() {
         ("d", Path(k))
     );
 
-    let b = config!(
+    let _b = config!(
         ("h", "some"),
         ("t", "times")
     );

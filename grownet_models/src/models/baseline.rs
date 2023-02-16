@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::time::{Duration, Instant};
 
 /// This code is taken from https://github.com/LaurentMazare/tch-rs/blob/main/examples/cifar/main.rs
 /// with adjustments
@@ -13,7 +14,7 @@ use tch::{nn, Device};
 use crate::config;
 use crate::configs::Config;
 
-use super::{TrainProcess, TrainRecv, TrainSend};
+use super::{TrainProcess, TrainRecv, TrainSend, RunStats};
 
 pub fn check_default(org: &Config, y: &Config) -> Result<()> {
     if !org.subset(&y) {
@@ -156,19 +157,22 @@ pub fn build(config: &Config) -> Result<TrainProcess> {
         // let checkpoint_path: std::path::PathBuf =
             // params.uget("checkpoint/checkpoint_path").into();
         // let checkpoint_basename: String = params.uget("checkpoint/checkpoint_basename").into();
+        let mut avg_time = 0.0;
+        let mut last_time;
+        let now = Instant::now();
 
         for epoch in 1..epochs {
             opt.set_lr(learning_rate(epoch));
 
             for (bimages, blabels) in m.train_iter(batch_size).shuffle().to_device(vs.device())
             {
+                last_time = now.elapsed().as_secs_f32();
                 let bimages = tch::vision::dataset::augmentation(&bimages, flip, crop, cutout);
                 let loss = net
                     .forward_t(&bimages, true)
                     .cross_entropy_for_logits(&blabels);
                 opt.backward_step(&loss);
                 steps += 1;
-
                 if steps % steps_per_log == 0 {
                     let loss = f64::from(loss.to_device(tch::Device::Cpu)) / batch_size as f64;
                     let acc = net.batch_accuracy_for_logits(
@@ -191,6 +195,8 @@ pub fn build(config: &Config) -> Result<TrainProcess> {
                             acc as f32,
                         ))
                         .unwrap();
+                    sender.send(TrainRecv::STATS(RunStats { step_time: Some(avg_time / steps_per_log as f32) })).unwrap();
+                    avg_time = 0.0;
                 }
 
                 // if steps % steps_per_checkpoint == 0 {
@@ -211,12 +217,10 @@ pub fn build(config: &Config) -> Result<TrainProcess> {
                 //     }
                 // }
 
-                match recv.recv().unwrap() {
-                    TrainSend::KILL => {
-                        return;
-                    }
-                    _ => {}
+                if let Ok(TrainSend::KILL) = recv.try_recv() {
+                    return;
                 }
+                avg_time += now.elapsed().as_secs_f32() - last_time;
             }
             let test_accuracy =
                 net.batch_accuracy_for_logits(&m.test_images, &m.test_labels, vs.device(), 512);

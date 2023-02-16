@@ -13,6 +13,11 @@ pub mod baseline;
 mod m1;
 mod m2;
 
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct RunStats {
+    pub step_time: Option<f32>,
+}
+
 pub enum TrainSend {
     KILL,
     OTHER(usize),
@@ -28,6 +33,7 @@ pub enum TrainSend {
 pub enum TrainRecv {
     PLOT(String, f32, f32), // key, x, y
     FAILED(String),
+    STATS(RunStats),
     // CHECKPOINT(f32, std::path::PathBuf),
 }
 
@@ -53,9 +59,11 @@ impl TrainProcess {
     }
 
     pub fn try_kill(&mut self) {
-        self.send
-            .send(TrainSend::KILL)
-            .expect("unable to send kill msg");
+        if self.is_running() {
+            self.send
+                .send(TrainSend::KILL)
+                .expect("unable to send kill msg");
+        }
     }
 
     /// blocks until process is killed

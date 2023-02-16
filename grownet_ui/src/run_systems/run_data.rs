@@ -28,6 +28,7 @@ impl Plugin for RunDataPlugin {
             .insert_resource(run_recv)
             .insert_resource(ModelPlots::default())
             .insert_resource(Console::default())
+            .insert_resource(RunStats::default())
             .add_startup_system(setup_run_data)
             .add_system_set(
                 SystemSet::on_update(OperatingState::Close).with_system(save_run_data));
@@ -147,6 +148,29 @@ impl RunInfo {
     }
 }
 
+/// Tracking performance, memory usage, etc.
+#[derive(Resource, Default)]
+pub struct RunStats {
+    runs: HashMap<Entity, models::RunStats>
+}
+
+impl RunStats {
+    pub fn has_stat(&self, id: Entity) -> bool {
+        self.runs.contains_key(&id)
+    }
+
+    pub fn update(&mut self, id: Entity, stats: models::RunStats) {
+        self.runs.insert(id, stats);
+    }
+
+    pub fn show_basic_stats(&self, id: Entity, ui: &mut egui::Ui) {
+        if let Some(stat) = self.runs.get(&id) {
+            if let Some(step_time) = stat.step_time {
+                ui.label(format!("step time {:.5}s", step_time));
+            }
+        }
+    }
+}
 
 /// Since each run is identified with an Entity, sending a Kill event for a particular entity
 /// should kill it. Listeners for each run type should listen for this event, and kill their

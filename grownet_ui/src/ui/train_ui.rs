@@ -53,6 +53,7 @@ fn train_menu_ui(
     mut params: ResMut<UIParams>,
     mut train_ui: ResMut<TrainingUI>,
     mut run_queue: ResMut<RunQueue>,
+    stats: Res<run::RunStats>,
     run_recv: ResMut<run::RunRecv>,
     killer: EventWriter<Kill>,
 ) {
@@ -115,7 +116,7 @@ fn train_menu_ui(
                     if *op_state.current() == OperatingState::Cleanup {
                         ui.label("killing any active tasks");
                     }
-                    run_queue.ui(ui, killer);
+                    run_queue.ui(ui, killer, &*stats);
                 });
             });
         });
@@ -157,10 +158,11 @@ fn train_env_ui(
 fn queue_ui(
     mut egui_context: ResMut<EguiContext>,
     mut queue: ResMut<RunQueue>,
+    stats: Res<run::RunStats>,
     killer: EventWriter<Kill>,
 ) {
     egui::Window::new("run queue").show(egui_context.ctx_mut(), |ui| {
-        queue.ui(ui, killer);
+        queue.ui(ui, killer, &*stats);
     });
 }
 
@@ -241,6 +243,9 @@ fn save_train_ui(
 ) {
     // load configurations from disk
     let root_path: std::path::PathBuf = CONFIG_PATH.into();
+    if !root_path.exists() {
+        std::fs::create_dir_all(&root_path).expect("unable to create config dir at save_train_ui");
+    }
     eprintln!("serializing train_ui");
     // save config files to disk
     ops::serialize(&*train_ui, &root_path.join("train_ui").with_extension("config"));
@@ -449,10 +454,10 @@ impl RunQueue {
         self.queued_runs.push_back(Spawn(info, run_fn));
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, mut kill: EventWriter<Kill>) {
+    fn ui(&mut self, ui: &mut egui::Ui, mut kill: EventWriter<Kill>, stats: &run::RunStats) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             // show errors
-            if self.spawn_errors.len() == 0 {
+            if self.spawn_errors.len() > 0 {
                 ui.horizontal(|ui| {
                     ui.label("launch errors");
                     if ui.button("clear").clicked() {
@@ -480,13 +485,19 @@ impl RunQueue {
             // show a list of active runs, with option to kill a run, albeit indirectly
             ui.label("active runs");
             for i in 0..self.active_runs.len() {
+                let cur_run = &mut self.active_runs[i];
                 ui.horizontal(|ui| {
                     if ui.button("kill").clicked() {
-                        kill.send(Kill(self.active_runs[i].1));
+                        kill.send(Kill(cur_run.1));
                     }
                     ui.vertical(|ui| {
-                        ui.collapsing(self.active_runs[i].0.run_name(), |ui| {
-                            self.active_runs[i].0.show_basic(ui);
+                        ui.collapsing(cur_run.0.run_name(), |ui| {
+                            if stats.has_stat(cur_run.1) {
+                                ui.vertical(|ui| {
+                                    stats.show_basic_stats(cur_run.1, ui);
+                                });
+                            }
+                            cur_run.0.show_basic(ui);
                         });
                     });
                 });

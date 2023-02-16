@@ -30,9 +30,9 @@ fn setup_run(mut commands: Commands, sender: ResMut<run::RunSend>) {
 fn run_baseline(
     mut despawner: EventWriter<Despawn>,
     mut killer: EventReader<Kill>,
-    
     mut plots: ResMut<run::ModelPlots>,
     mut console: ResMut<run::Console>,
+    mut run_stats: ResMut<run::RunStats>,
     mut runs: Query<(Entity, &mut run::RunInfo, &mut BaseTrainProcess)>,
     run_sender: ResMut<BaselineProcess>,
 ) {
@@ -54,6 +54,9 @@ fn run_baseline(
                         info.err_status = Some(err_msg);
                         run_sender.run_sender.send(run::RunId(run::Models::BASELINE, info, id)).expect("unable to send baseline run info");
                     },
+                    TrainRecv::STATS(stats) => {
+                        run_stats.update(id, stats);
+                    }
                     // TrainRecv::CHECKPOINT(step, path) => {
                     //     console.log(format!("saving checkpoint for {} at step {}", info.run_name(), step));
                     //     console.log(format!("saving to {}", path.to_str().unwrap()));
