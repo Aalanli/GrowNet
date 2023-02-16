@@ -271,7 +271,6 @@ pub fn build(config: &Config) -> Result<TrainProcess> {
 
                 match recv.recv().unwrap() {
                     TrainSend::KILL => {
-                        sender.send(TrainRecv::KILLED).unwrap();
                         return;
                     }
                     _ => {}
@@ -287,7 +286,6 @@ pub fn build(config: &Config) -> Result<TrainProcess> {
                 ))
                 .unwrap();
         }
-        sender.send(TrainRecv::KILLED).unwrap();
     });
 
     Ok(TrainProcess {
@@ -387,7 +385,6 @@ impl BaselineParams {
 
                     match recv.recv().unwrap() {
                         TrainSend::KILL => {
-                            sender.send(TrainRecv::KILLED).unwrap();
                             return;
                         }
                         _ => {}
@@ -403,7 +400,6 @@ impl BaselineParams {
                     ))
                     .unwrap();
             }
-            sender.send(TrainRecv::KILLED).unwrap();
         });
 
         TrainProcess {

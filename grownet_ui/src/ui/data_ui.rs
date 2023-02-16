@@ -6,15 +6,15 @@ use bevy_egui::egui;
 use itertools::Itertools;
 use ndarray::{Array, Array3, Ix4};
 
-use super::{AppState, UIParams, ROOT_PATH};
-use crate::{Configure, UI};
+use super::{AppState, OperatingState, UIParams};
+use crate::{Configure, UI, CONFIG_PATH};
 use model_lib::datasets::{data, Dataset, DatasetBuilder};
 
 pub struct DatasetUIPlugin;
 impl Plugin for DatasetUIPlugin {
     fn build(&self, app: &mut App) {
         app.add_startup_system(setup_dataset_ui)
-            .add_system_set(SystemSet::on_update(AppState::Close).with_system(save_dataset_ui));
+            .add_system_set(SystemSet::on_update(OperatingState::Close).with_system(save_dataset_ui));
     }
 }
 
@@ -32,7 +32,7 @@ fn setup_dataset_ui(mut commands: Commands, params: Res<UIParams>) {
     dataset_ui.push_viewer(mnist_viewer, "mnist");
 
     // load configurations from disk
-    let root_path: std::path::PathBuf = params.root_path.clone().into();
+    let root_path: std::path::PathBuf = CONFIG_PATH.into();
     let config_file = root_path.join("data_ui_config").with_extension("ron");
 
     if config_file.exists() {
@@ -52,7 +52,7 @@ fn save_dataset_ui(params: Res<UIParams>, dataset_params: Res<DatasetUI>) {
     let data_ui_config = dataset_params.config();
     eprintln!("data ui params {}", data_ui_config);
 
-    let root_path: std::path::PathBuf = params.root_path.clone().into();
+    let root_path: std::path::PathBuf = CONFIG_PATH.into();
     if !root_path.exists() {
         std::fs::create_dir_all(&root_path).unwrap();
     }

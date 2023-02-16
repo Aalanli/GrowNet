@@ -2,6 +2,7 @@
 #![allow(unused_imports)]
 #![allow(unused_macros)]
 
+pub mod ops;
 pub mod data_configs;
 pub mod model_configs;
 pub mod ui;
@@ -13,6 +14,8 @@ use grownet_macros::{Config, UI};
 use model_lib::Configure;
 use num::Num;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+const CONFIG_PATH: &'static str = "assets/config";
 
 // TODO: Get rid of Config, it simply isn't necessary
 pub trait UI: Configure {

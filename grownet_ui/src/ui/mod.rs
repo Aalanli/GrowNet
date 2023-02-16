@@ -18,9 +18,6 @@ use crate::{Configure, UI};
 pub mod data_ui;
 pub mod train_ui;
 
-/// the path at which the user config files are stored
-const ROOT_PATH: &str = "assets/config";
-
 /// The ui plugin, the entry point for the ui
 pub struct UIPlugin;
 
@@ -28,11 +25,15 @@ impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(UIParams::default())
             .add_startup_system_to_stage(StartupStage::Startup, setup_ui)
-            .add_system(save_ui)
             .add_state(AppState::Models)
+            .add_state(OperatingState::Active)
             .add_plugin(data_ui::DatasetUIPlugin)
             .add_plugin(train_ui::TrainUIPlugin)
-            .add_system_set(SystemSet::on_update(AppState::Menu).with_system(menu_ui));
+            .add_system_set(SystemSet::on_update(AppState::Menu).with_system(menu_ui))
+            .add_system_set(SystemSet::on_update(OperatingState::Active).with_system(should_cleanup))
+            .add_system_set(SystemSet::on_update(OperatingState::Close)
+                .with_system(save_ui)
+                .with_system(close_ui)); // final bevy cleanup
     }
 }
 
@@ -41,10 +42,12 @@ fn menu_ui(
     mut params: ResMut<UIParams>,
     mut dataset_state: ResMut<data_ui::DatasetUI>,
     mut app_state: ResMut<State<AppState>>,
+    op_state: ResMut<State<OperatingState>>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         ui.add(egui::Label::new("Data Explorer"));
 
+        let prev_panel = params.open_panel;
         handle_pane_options(ui, &mut params.open_panel);
 
         match params.open_panel {
@@ -52,7 +55,12 @@ fn menu_ui(
                 app_state.set(AppState::Models).unwrap();
             }
             OpenPanel::Datasets => dataset_state.ui(ui),
-            OpenPanel::Misc => params.update_misc(ui),
+            OpenPanel::Misc => params.update_misc(ui, op_state), // force kill option
+            OpenPanel::Trainer => {
+                // stupid hack, as if open_panel is ever Trainer, then the training menu system will get stuck trying to go back
+                params.open_panel = prev_panel;
+                app_state.set(AppState::Trainer).unwrap()
+            }
         }
     });
 }
@@ -65,14 +73,14 @@ fn handle_pane_options(ui: &mut egui::Ui, panel: &mut OpenPanel) {
         ui.selectable_value(panel, OpenPanel::Models, "Models");
         ui.selectable_value(panel, OpenPanel::Datasets, "Datasets");
         ui.selectable_value(panel, OpenPanel::Misc, "Misc");
+        ui.selectable_value(panel, OpenPanel::Trainer, "Train Environment");
     });
     ui.separator();
 }
 
 fn setup_ui(mut params: ResMut<UIParams>, mut egui_context: ResMut<EguiContext>) {
-    params.root_path = ROOT_PATH.to_string();
+    let root_path: path::PathBuf = crate::CONFIG_PATH.into();
 
-    let root_path: path::PathBuf = params.root_path.clone().into();
     let config_file = root_path.join("ui_config").with_extension("ron");
     // loading configurations of main ui components
     if config_file.exists() {
@@ -93,48 +101,48 @@ fn setup_ui(mut params: ResMut<UIParams>, mut egui_context: ResMut<EguiContext>)
 }
 
 fn save_ui(
-    mut exit: EventReader<AppExit>,
-    mut closed: EventReader<WindowClosed>,
-    mut closed2: EventReader<WindowCloseRequested>,
-    mut app_state: ResMut<State<AppState>>,
     params: Res<UIParams>,
 ) {
-    let mut exited = false;
-    for _ in exit.iter() {
-        exited = true;
-    }
-    for _ in closed.iter() {
-        exited = true;
-    }
-    for _ in closed2.iter() {
-        exited = true;
+    let root_path: path::PathBuf = crate::CONFIG_PATH.into();
+    if !root_path.exists() {
+        fs::create_dir_all(&root_path).unwrap();
     }
 
-    if exited {
-        let root_path: path::PathBuf = params.root_path.clone().into();
-        if !root_path.exists() {
-            fs::create_dir_all(&root_path).unwrap();
-        }
+    eprintln!("saving ui config");
+    let config_file = root_path.join("ui_config").with_extension("ron");
 
-        eprintln!("saving ui config");
-        let config_file = root_path.join("ui_config").with_extension("ron");
+    let main_ui_config = params.config();
 
-        let main_ui_config = params.config();
+    let serialized = ron::to_string(&main_ui_config).unwrap();
+    fs::write(&config_file, serialized).unwrap();
+    
+}
 
-        let serialized = ron::to_string(&main_ui_config).unwrap();
-        fs::write(&config_file, serialized).unwrap();
-
-        app_state
-            .set(AppState::Close)
-            .expect("failed to send app close msg");
+/// cleanup when user tries to close the window
+fn should_cleanup(
+    mut close: EventReader<WindowCloseRequested>,
+    mut app_state: ResMut<State<OperatingState>>
+) {
+    for _ in close.iter() {
+        app_state.set(OperatingState::Cleanup).expect("unable to set cleanup state");
+        break;
     }
+}
+
+/// close when cleanup is finished
+fn close_ui(
+    mut exit: EventWriter<AppExit>,
+    windows: ResMut<Windows>,
+    closed: EventReader<WindowCloseRequested>,
+) {
+    bevy::window::close_when_requested(windows, closed);
+    exit.send(AppExit);
 }
 
 /// Main configuration state for the entire ui
 /// as in, the ui can be constructed solely from these parameters
 #[derive(Debug, Resource, Serialize, Deserialize)]
 pub struct UIParams {
-    pub root_path: String,
     pub font_delta: f32,
     open_panel: OpenPanel,
     pub run_queue_max_active: usize,
@@ -148,28 +156,43 @@ pub struct UIParams {
 pub enum AppState {
     Menu,
     Models,
-    Trainer,
-    Close,
+    Trainer
 }
 
+
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+pub enum OperatingState {
+    Active,  // Normal app 
+    Cleanup, // Used in the task spawner to kill any processes
+    Close,   // final app close, when the task spawner has killed all processes
+}
+
+
 /// State for panel opened in the ui
-#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize, Copy, Clone)]
 enum OpenPanel {
+    Trainer,
     Models,
     Datasets,
     Misc,
 }
 
+
+
 impl UIParams {
     fn load_config(&mut self, config: &str) {
-        *self = ron::from_str(config).unwrap()
+        ron::from_str(config).map_or_else(|err| {
+            eprintln!("unable to load UIParams: {}", err.to_string());
+        },|c| {
+            *self = c;
+        });
     }
 
     fn config(&self) -> String {
         ron::to_string(self).unwrap()
     }
 
-    pub fn update_misc(&mut self, ui: &mut egui::Ui) {
+    pub fn update_misc(&mut self, ui: &mut egui::Ui, mut state: ResMut<State<OperatingState>>) {
         let mut local_font_delta = self.font_delta;
         // stylistic changes
 
@@ -187,6 +210,11 @@ impl UIParams {
 
         ui.label("run queue maximum number of error messages");
         ui.add(egui::Slider::new(&mut self.run_queue_num_errs, 1..=100));
+
+        // emergency kill switch, in case some processes are unable to be killed
+        if ui.button("force kill").clicked() {
+            state.set(OperatingState::Close).unwrap();
+        }
     }
 }
 
@@ -195,7 +223,6 @@ impl Default for UIParams {
         UIParams {
             open_panel: OpenPanel::Models,
             font_delta: 4.0,
-            root_path: ROOT_PATH.to_string(),
             run_queue_max_active: 1,
             run_queue_num_errs: 5,
         }

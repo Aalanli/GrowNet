@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::ops::Deref;
 
 use anyhow::{Error, Result};
 use bevy::prelude::*;
@@ -7,7 +8,50 @@ use serde::{Deserialize, Serialize};
 
 pub use model_lib::{models, Config};
 pub use models::{TrainProcess, TrainRecv, TrainSend};
+pub use crate::ui::OperatingState;
 
+use crate::ops;
+use crate::CONFIG_PATH;
+
+/// Plugin to instantiate all run data resources, and saving/loading logic
+pub struct RunDataPlugin;
+impl Plugin for RunDataPlugin {
+    fn build(&self, app: &mut App) {
+        app
+            .insert_resource(ModelPlots::default())
+            .insert_resource(Console::default())
+            .insert_resource(ModelRunInfo::default())
+            .add_startup_system(setup_run_data)
+            .add_system_set(
+                SystemSet::on_update(OperatingState::Close).with_system(save_run_data));
+    }
+}
+
+/// possibly load run data from disk
+fn setup_run_data(
+    mut plots: ResMut<ModelPlots>,
+    mut console: ResMut<Console>,
+) {
+    eprintln!("loading run data");
+    ops::try_deserialize(&mut *plots, &(CONFIG_PATH.to_owned() + "/model_plots.config").into());
+    ops::try_deserialize(&mut *console, &(CONFIG_PATH.to_owned() + "/model_console.config").into());
+}
+
+/// write run data to disk
+fn save_run_data(
+    plots: Res<ModelPlots>,
+    console: Res<Console>,
+) {
+    // load configurations from disk
+    let root_path: std::path::PathBuf = CONFIG_PATH.into();
+
+    eprintln!("serializing run_data");
+    // save config files to disk
+    ops::serialize(&*plots, &root_path.join("model_plots").with_extension("config"));
+    ops::serialize(&*console, &root_path.join("model_console").with_extension("config"));
+}
+
+/// Enum of all the model variants
 #[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum Models {
     BASELINE,
@@ -27,14 +71,6 @@ impl Default for Models {
     }
 }
 
-
-/// The (unified?) Log which visualization utilities consume
-#[derive(Clone)]
-pub enum Log {
-    PLOT(String, String, f32, f32),
-    CONSOLE(String),
-    ERROR(String),
-}
 
 /// ModelPlots contains the various plots of the model
 #[derive(Resource, Default, Serialize, Deserialize)]
@@ -124,28 +160,40 @@ impl Default for Console {
     }
 }
 
-pub fn handle_baseline_logs(
-    plots: &mut ModelPlots,
-    console: &mut Console,
-    logs: &[Log],
-) -> Result<()> {
-    let mut some_err = Ok(());
-    for log in logs {
-        match log.clone() {
-            Log::PLOT(name, run_name, x, y) => {
-                plots.add_plot(&name, &run_name, x, y);
-            }
-            Log::CONSOLE(msg) => {
-                console.log(msg);
-            }
-            Log::ERROR(err_msg) => {
-                some_err = Err(Error::msg(err_msg));
-            }
-        }
-    }
-    some_err
+#[derive(Serialize, Deserialize)]
+pub struct CheckpointManager {
+    checkpoints: HashMap<String, Checkpoints>
 }
 
+impl CheckpointManager {
+    fn get(&self, run_info: &RunInfo, i: usize) -> Option<std::path::PathBuf> {
+        let name = run_info.run_name();
+        self.checkpoints.get(&name).and_then(|x| { 
+            x.checkpoints.get(i)
+                .and_then(|x| Some(x.1.clone())) 
+        })
+    }
+
+    fn get_latest(&self, run_info: &RunInfo) -> Option<std::path::PathBuf> {
+        let name = run_info.run_name();
+        self.checkpoints.get(&name).and_then(|x| {
+            if x.checkpoints.len() > 1 {
+                x.checkpoints.get(x.checkpoints.len() - 1 )
+                    .and_then(|x| Some(x.1.clone())) 
+            } else { None }
+        })
+    }
+
+    fn add(&mut self, run_info: &RunInfo, checkpoint: (usize, std::path::PathBuf)) {
+        todo!()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Checkpoints {
+    checkpoints: VecDeque<(usize, std::path::PathBuf)>,
+    keep: usize
+}
 
 /// This struct represents an individual training run, it has the information to restart itself
 #[derive(Serialize, Deserialize, Default, Clone, Component)]
@@ -168,50 +216,93 @@ impl RunInfo {
         self.checkpoints.push((step, path));
     }
 
-    pub fn show_basic(&self, ui: &mut egui::Ui) {
+    pub fn get_checkpoint(&self, i: usize) -> Option<std::path::PathBuf> {
+        self.checkpoints.get(i).and_then(|x| Some(x.1.clone()))
+    }
+
+    pub fn show_checkpoints(&self, ui: &mut egui::Ui, checked: &mut Option<usize>) {
         ui.vertical(|ui| {
             egui::ScrollArea::vertical().id_source("past runs").show(ui, |ui| {
-
-                ui.collapsing(self.run_name(), |ui| {
+                if self.comments.len() > 0 {
                     ui.collapsing("comments", |ui| {
                         ui.label(&self.comments);
                     });
-                    ui.collapsing("checkpoints", |ui| {
-                        egui::ScrollArea::vertical().id_source("click checkpoints").show(ui, |ui| {
+                }
 
-                            for (j, checkpoint) in self.checkpoints.iter() {
-                                // TODO: when checkpoint is clicked, show loss as well
-                                ui.horizontal(|ui| {
-                                    ui.label(format!("step {}", j));
-                                    ui.label(checkpoint.to_str().unwrap());
-                                });
+                ui.collapsing("checkpoints", |ui| {
+                    egui::ScrollArea::vertical().id_source("click checkpoints").show(ui, |ui| {
+
+                        for (i, (j, checkpoint)) in self.checkpoints.iter().enumerate() {
+                            let mut click = checked.is_some() && *checked.as_ref().unwrap() == i;
+                            // TODO: when checkpoint is clicked, show loss as well
+                            ui.horizontal(|ui| {
+                                ui.checkbox(&mut click, "");
+                                ui.label(format!("step {}", j));
+                                ui.label(checkpoint.to_str().unwrap());
+                            });
+                            if click {
+                                *checked = Some(i);
                             }
-                        });
-                    });
-                    ui.label(format!("error status: {:?}", self.err_status));
-                    ui.label(format!("dataset: {}", self.dataset));
-                    ui.label(format!("model class: {}", self.model_class));
-                    ui.collapsing("run configs", |ui| {
-                        super::immutable_show(&self.config, ui);
+                        }
                     });
                 });
-
+                ui.label(format!("error status: {:?}", self.err_status));
+                ui.label(format!("dataset: {}", self.dataset));
+                ui.label(format!("model class: {}", self.model_class));
+                ui.collapsing("run configs", |ui| {
+                    super::immutable_show(&self.config, ui);
+                });
             });
+        });
+    }
+
+    pub fn show_basic(&self, ui: &mut egui::Ui) {
+        ui.vertical(|ui| {
+            egui::ScrollArea::vertical().id_source("past runs").show(ui, |ui| {
+                if self.comments.len() > 0 {
+                    ui.collapsing("comments", |ui| {
+                        ui.label(&self.comments);
+                    });
+                }
+
+                ui.collapsing("checkpoints", |ui| {
+                    egui::ScrollArea::vertical().id_source("click checkpoints").show(ui, |ui| {
+
+                        for (j, checkpoint) in self.checkpoints.iter() {
+                            // TODO: when checkpoint is clicked, show loss as well
+                            ui.horizontal(|ui| {
+                                ui.label(format!("step {}", j));
+                                ui.label(checkpoint.to_str().unwrap());
+                            });
+                        }
+                    });
+                });
+                ui.label(format!("error status: {:?}", self.err_status));
+                ui.label(format!("dataset: {}", self.dataset));
+                ui.label(format!("model class: {}", self.model_class));
+                ui.collapsing("run configs", |ui| {
+                    super::immutable_show(&self.config, ui);
+                });
+            });
+
         });
     }
 }
 
 
-#[derive(Deref, DerefMut, Serialize, Deserialize, Clone, Resource)]
-pub struct ModelRunInfo(HashMap<Models, HashMap<String, RunInfo>>);
+#[derive(Serialize, Deserialize, Clone, Resource, Default)]
+pub struct ModelRunInfo{
+    runs: HashMap<Models, HashMap<String, RunInfo>>
+}
+
 
 impl ModelRunInfo {
     pub fn add_info(&mut self, model: Models, name: String, info: RunInfo) -> Result<()> {
-        if !self.contains_key(&model) {
-            self.insert(model, HashMap::new());
+        if !self.runs.contains_key(&model) {
+            self.runs.insert(model, HashMap::new());
         }
 
-        let class = self.get_mut(&model).unwrap();
+        let class = self.runs.get_mut(&model).unwrap();
         if class.contains_key(&name) {
             return Err(Error::msg(format!("there is already a run of name {name}")));
         } else {

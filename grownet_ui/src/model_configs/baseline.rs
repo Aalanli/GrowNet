@@ -27,7 +27,7 @@ fn run_baseline(
     mut model_runinfos: ResMut<run::ModelRunInfo>,
     mut runs: Query<(Entity, &mut run::RunInfo, &mut BaseTrainProcess)>,
 ) {
-    use run::{Log, TrainRecv};
+    use run::{TrainRecv};
     for (id, mut info, mut train_proc) in runs.iter_mut() {
         if train_proc.is_running() {
             let msgs = train_proc.try_recv();
@@ -45,12 +45,6 @@ fn run_baseline(
                         info.err_status = Some(err_msg);
                         model_runinfos.add_info(run::Models::BASELINE, info.run_name(), info).unwrap();
                     },
-                    TrainRecv::KILLED => {                        
-                        console.log(format!("{} finished training", info.run_name()));
-                        despawner.send(Despawn(id));
-                        let info = info.clone();
-                        model_runinfos.add_info(run::Models::BASELINE, info.run_name(), info).unwrap();
-                    },
                     TrainRecv::CHECKPOINT(step, path) => {
                         console.log(format!("saving checkpoint for {} at step {}", info.run_name(), step));
                         console.log(format!("saving to {}", path.to_str().unwrap()));
@@ -59,6 +53,9 @@ fn run_baseline(
                 }
             }
         } else {
+            console.log(format!("{} finished training", info.run_name()));
+            let info = info.clone();
+            model_runinfos.add_info(run::Models::BASELINE, info.run_name(), info).unwrap(); // todo: better runinfo and checkpoint managers
             despawner.send(Despawn(id));
         }
     }

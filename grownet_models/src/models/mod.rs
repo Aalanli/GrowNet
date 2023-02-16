@@ -28,7 +28,6 @@ pub enum TrainRecv {
     PLOT(String, f32, f32), // key, x, y
     CHECKPOINT(f32, std::path::PathBuf),
     FAILED(String),
-    KILLED,
 }
 
 /// The handle to the process running the training, interact with that process
@@ -41,7 +40,7 @@ pub struct TrainProcess {
 
 impl TrainProcess {
     pub fn is_running(&self) -> bool {
-        self.handle.is_some() && self.handle.as_ref().unwrap().is_finished()
+        self.handle.is_some() && !self.handle.as_ref().unwrap().is_finished()
     }
 
     pub fn send_command(&mut self, command: TrainSend) {

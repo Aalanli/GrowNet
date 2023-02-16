@@ -2,30 +2,29 @@ use std::collections::{HashMap, VecDeque};
 
 use anyhow::{Error, Result};
 use bevy::prelude::*;
+use bevy::window::WindowCloseRequested;
 use bevy_egui::{egui, EguiContext};
 use bevy::ecs::schedule::ShouldRun;
 use crossbeam::channel::Receiver;
 use itertools::Itertools;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use super::{AppState, OpenPanel, UIParams, handle_pane_options};
-use crate::{Configure, UI};
+use super::{AppState, OperatingState, OpenPanel, UIParams, handle_pane_options};
+use crate::{Configure, UI, ops, CONFIG_PATH};
 use model_lib::models::{self, TrainRecv};
 use model_lib::Config;
 use crate::model_configs::{self as M, run_data as run, immutable_show};
 
 mod train_systems;
 
-
 pub struct TrainUIPlugin;
 impl Plugin for TrainUIPlugin {
     fn build(&self, app: &mut App) {
         app
+            .add_plugin(run::RunDataPlugin)
             .add_event::<Despawn>()
             .add_event::<Kill>()
             .insert_resource(RunQueue::default())
-            .insert_resource(run::ModelPlots::default())
-            .insert_resource(run::Console::default())
             .insert_resource(TrainingUI::default())
             .add_startup_system(setup_train_ui)
             .add_system_set(
@@ -33,64 +32,40 @@ impl Plugin for TrainUIPlugin {
                     .label("train_menu")
                     .with_system(training_menu)
             )
-            .add_system_set(SystemSet::on_update(AppState::Close)
-                .with_system(cleanup_queue)
-                .with_system(save_train_ui))
+            .add_system_set(SystemSet::on_update(AppState::Trainer)
+                .with_system(training_system)
+                .with_system(queue_ui))
+            .add_system_set(
+                SystemSet::on_update(OperatingState::Active).with_system(run_queue))
+            .add_system_set(
+                SystemSet::on_update(OperatingState::Cleanup).with_system(cleanup_queue))
+            .add_system_set(
+                SystemSet::on_update(OperatingState::Close).with_system(save_train_ui))
             .add_plugin(M::baseline::BaselinePlugin);
     }
 }
 
 /// possibly load any training state from disk
 fn setup_train_ui(
-    params: Res<UIParams>,
-    mut plots: ResMut<run::ModelPlots>,
-    mut console: ResMut<run::Console>,
     mut train_ui: ResMut<TrainingUI>,
 ) {
-    // load config files if any
-    fn try_deserialize<T: DeserializeOwned>(x: &mut T, path: &std::path::PathBuf) {
-        if path.exists() {
-            eprintln!("deserializing {}", path.to_str().unwrap());
-            let reader = std::fs::File::open(path).expect("unable to open file");
-            match bincode::deserialize_from(reader) {
-                Ok(y) => { *x = y; },
-                Err(e) => { eprintln!("unable to deserialize\n{}", e); }
-            }
-        } else {
-            eprintln!("{} does not exist", path.to_str().unwrap());
-        }
-    }
-    let root_path: std::path::PathBuf = params.root_path.clone().into();
-    try_deserialize(&mut *plots, &root_path.join("model_plots").with_extension("config"));
-    try_deserialize(&mut *console, &root_path.join("model_console").with_extension("config"));
-    try_deserialize(&mut *train_ui, &root_path.join("train_ui").with_extension("config"));
+    let root_path: std::path::PathBuf = CONFIG_PATH.into();
+    ops::try_deserialize(&mut *train_ui, &root_path.join("train_ui").with_extension("config"));
 }
 
 /// write train state to disk
 fn save_train_ui(
-    params: Res<UIParams>,
-    plots: Res<run::ModelPlots>,
-    console: Res<run::Console>,
     train_ui: Res<TrainingUI>,
 ) {
     // load configurations from disk
-    let root_path: std::path::PathBuf = params.root_path.clone().into();
-
-    fn serialize<T: Serialize>(x: &T, path: &std::path::PathBuf) {
-        eprintln!("serializing {}", path.to_str().unwrap());
-        let train_data_writer = std::fs::File::create(path).unwrap();
-        bincode::serialize_into(train_data_writer, x).expect("unable to serialize");
-    }
-
+    let root_path: std::path::PathBuf = CONFIG_PATH.into();
     eprintln!("serializing train_ui");
     // save config files to disk
-    serialize(&*plots, &root_path.join("model_plots").with_extension("config"));
-    serialize(&*console, &root_path.join("model_console").with_extension("config"));
-    serialize(&*train_ui, &root_path.join("train_ui").with_extension("config"));
-
+    ops::serialize(&*train_ui, &root_path.join("train_ui").with_extension("config"));
 }
 
-
+/// TrainingUI is the menu in which one adjusts configurations and launches training processes
+/// It contains a list of past configurations, and options to kill tasks and restart tasks
 #[derive(Serialize, Deserialize, Resource)]
 pub struct TrainingUI {
     baseline: ConfigEnviron,
@@ -109,16 +84,22 @@ impl Default for TrainingUI {
 fn training_menu(
     mut egui_context: ResMut<EguiContext>,
     mut app_state: ResMut<State<AppState>>,
+    op_state: Res<State<OperatingState>>,
     mut params: ResMut<UIParams>,
     mut train_ui: ResMut<TrainingUI>,
     mut run_queue: ResMut<RunQueue>,
     killer: EventWriter<Kill>,
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
+        let prev_panel = params.open_panel;
         handle_pane_options(ui, &mut params.open_panel);
 
 
-        if std::mem::discriminant(&params.open_panel) != std::mem::discriminant(&OpenPanel::Models) {
+        if std::mem::discriminant(&params.open_panel) == std::mem::discriminant(&OpenPanel::Trainer) {
+            // stupid hack, to prevent infinite cycling between AppState::Trainer and AppState::Menu
+            params.open_panel = prev_panel;
+            app_state.set(AppState::Trainer).unwrap();
+        } else if std::mem::discriminant(&params.open_panel) != std::mem::discriminant(&OpenPanel::Models) {
             app_state.set(AppState::Menu).unwrap(); // should be fine to not return here
         }
 
@@ -129,10 +110,22 @@ fn training_menu(
                 // the left most panel showing a list of model options
                 ui.vertical(|ui| {
                     ui.selectable_value(&mut train_ui.model, run::Models::BASELINE, "baseline");
+                    
+                });
 
+                // update any configurations using the ui
+                ui.vertical(|ui| match train_ui.model {
+                    run::Models::BASELINE => {
+                        train_ui.baseline.ui(ui);
+                    }
+                });
+
+                // Launching training
+                ui.vertical(|ui| {
                     // TODO: add some keybindings to certain buttons
                     // entry point for launching training
-                    if ui.button("start training").clicked() {
+                    // only launch things if the operating state is active
+                    if *op_state.current() == OperatingState::Active && ui.button("Launch Training").clicked() {
                         match train_ui.model {
                             run::Models::BASELINE => {
                                 let (spawn_fn, runinfo) = 
@@ -143,33 +136,35 @@ fn training_menu(
                             }
                         }
                     }
-                });
-
-                // update any configurations using the ui
-                ui.vertical(|ui| match train_ui.model {
-                    run::Models::BASELINE => {
-                        train_ui.baseline.ui(ui);
+                    if *op_state.current() == OperatingState::Cleanup {
+                        ui.label("killing any active tasks");
                     }
-                });
-
-                ui.vertical(|ui| {
                     run_queue.ui(ui, killer);
                 });
             });
         });
-
     });
 }
 
-#[derive(Deref)]
-pub struct Despawn(pub Entity);
+
+
+/// Since each run is identified with an Entity, sending a Kill event for a particular entity
+/// should kill it. Listeners for each run type should listen for this event, and kill their
+/// respective runs when this event is heard.
 #[derive(Deref)]
 pub struct Kill(pub Entity);
 
+/// Once the listener kills the task, this Event is sent back to RunQueue to confirm that
+/// it is alright to free its resources.
+#[derive(Deref)]
+pub struct Despawn(pub Entity);
+
 pub type SpawnRun = Box<dyn FnOnce(&mut Commands) -> Result<Entity> + Send + Sync>;
+/// A wrapper with all of the required information to spawn a new run
 pub struct Spawn(run::RunInfo, SpawnRun);
 
-
+/// RunQueue keeps track of runs waiting to be spawned, and current active runs
+/// it has a system which takes care of spawning new tasks and killing tasks
 #[derive(Resource, Default)]
 pub struct RunQueue {
     queued_runs: VecDeque<Spawn>,
@@ -185,21 +180,23 @@ impl RunQueue {
     fn ui(&mut self, ui: &mut egui::Ui, mut kill: EventWriter<Kill>) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             // show errors
-            ui.horizontal(|ui| {
-                ui.label("launch errors");
-                if ui.button("clear").clicked() {
-                    self.spawn_errors.clear();
+            if self.spawn_errors.len() == 0 {
+                ui.horizontal(|ui| {
+                    ui.label("launch errors");
+                    if ui.button("clear").clicked() {
+                        self.spawn_errors.clear();
+                    }
+                });
+                for msg in self.spawn_errors.iter() {
+                    ui.label(egui::RichText::new(msg).color(egui::Color32::RED));
                 }
-            });
-            for msg in self.spawn_errors.iter() {
-                ui.label(egui::RichText::new(msg).color(egui::Color32::RED));
+                ui.separator();
             }
-            ui.separator();
             // show a list of queued runs, with option to remove a run
             ui.label("queued runs");
             let mut i = 0;
             while i < self.queued_runs.len() {
-                if ui.label("remove").clicked() {
+                if ui.button("remove").clicked() {
                     self.queued_runs.remove(i);
                     continue;
                 }
@@ -210,32 +207,51 @@ impl RunQueue {
             }
             // show a list of active runs, with option to kill a run, albeit indirectly
             ui.label("active runs");
-            let mut i = 0;
-            while i < self.active_runs.len() {
-                if ui.label("kill").clicked() {
+            for i in 0..self.active_runs.len() {
+                if ui.button(format!("kill {}", self.active_runs[i].0.run_name())).clicked() {
                     kill.send(Kill(self.active_runs[i].1));
                 }
-                ui.collapsing(self.queued_runs[i].0.run_name(), |ui| {
-                    self.queued_runs[i].0.show_basic(ui);
-                });
-                i += 1;
             }
         });
     }
 }
 
+/// the queue ui on the training side
+fn queue_ui(
+    mut egui_context: ResMut<EguiContext>,
+    mut queue: ResMut<RunQueue>,
+    killer: EventWriter<Kill>,
+) {
+    egui::Window::new("run queue").show(egui_context.ctx_mut(), |ui| {
+        queue.ui(ui, killer);
+    });
+}
+
 /// send kill signals for all active runs in the queue
-/// may not actually get to killing, since this may be the last system run...
+/// after all active tasks are killed, 
 fn cleanup_queue(
     mut queue: ResMut<RunQueue>,
     mut killer: EventWriter<Kill>,
+    mut killed: EventReader<Despawn>,
+    mut app_state: ResMut<State<OperatingState>>
 ) {
     queue.queued_runs.clear();
     for i in queue.active_runs.iter() {
         killer.send(Kill(i.1));
     }
+
+    for i in killed.iter() {
+        remove_once_if_any(&mut queue.active_runs, |x| { x.1 == i.0 });
+    }
+
+    // if there are no more active runs, signal to close app
+    if queue.active_runs.len() == 0 {
+        app_state.set(OperatingState::Close).expect("failed to set close state");
+    }
 }
 
+/// run_queue takes care of spawning and despawning various training runs
+/// and only runs when the OperatingState is active
 fn run_queue(
     mut commands: Commands,
     mut queue: ResMut<RunQueue>,
@@ -247,20 +263,10 @@ fn run_queue(
     // which implies that training runs that are unkillable will just collect in the active_runs queue
     for k in killed.iter() {
         let id = k.0;
-        let idx = {
-            let mut u = -1;
-            for (i, r) in queue.active_runs.iter().enumerate() {
-                if r.1 == id {
-                    u = i as i32;
-                    break;
-                }
-            }
-            u
-        };
-        if idx != -1 {
-            queue.active_runs.remove(idx as usize);
+        if remove_once_if_any(&mut queue.active_runs, |x| {x.1 == id}) {
+            eprintln!("removed id {:?}", id);
+            commands.entity(id).despawn();
         }
-        commands.entity(id).despawn();
     }
     // spawn new things
     for _ in 0..(params.run_queue_max_active - queue.active_runs.len()) {
@@ -466,4 +472,24 @@ fn training_system(
 
         });
     });
+}
+
+// removes the first instance where f evaluates true, returns true is anything is removed, false otherwise
+fn remove_once_if_any<T>(queue: &mut VecDeque<T>, mut f: impl FnMut(&T) -> bool) -> bool {
+    let idx = {
+        let mut u = -1;
+        for (i, r) in queue.iter().enumerate() {
+            if f(r) {
+                u = i as isize;
+                break;
+            }
+        }
+        u
+    };
+    if idx != -1 {
+        queue.remove(idx as usize);
+        true
+    } else {
+        false
+    }
 }
