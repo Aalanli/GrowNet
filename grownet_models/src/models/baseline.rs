@@ -182,19 +182,22 @@ pub fn build(config: &Config) -> Result<TrainProcess> {
                         batch_size.into(),
                     );
                     sender
-                        .send(TrainRecv::PLOT(
-                            "train loss".to_string(),
-                            steps as f32,
-                            loss as f32,
-                        ))
+                        .send(TrainRecv::PLOT(super::PlotPoint { 
+                            title: "train loss", 
+                            x_title: "step", 
+                            y_title: "cross entropy", 
+                            x: steps as f64, 
+                            y: loss 
+                        }))
                         .unwrap();
                     sender
-                        .send(TrainRecv::PLOT(
-                            "train accuracy".to_string(),
-                            steps as f32,
-                            acc as f32,
-                        ))
-                        .unwrap();
+                        .send(TrainRecv::PLOT(super::PlotPoint { 
+                            title: "train accuracy", 
+                            x_title: "step", 
+                            y_title: "accuracy", 
+                            x: steps as f64, 
+                            y: acc 
+                        })).unwrap();
                     sender.send(TrainRecv::STATS(RunStats { step_time: Some(avg_time / steps_per_log as f32) })).unwrap();
                     avg_time = 0.0;
                 }
@@ -225,12 +228,13 @@ pub fn build(config: &Config) -> Result<TrainProcess> {
             let test_accuracy =
                 net.batch_accuracy_for_logits(&m.test_images, &m.test_labels, vs.device(), 512);
             sender
-                .send(TrainRecv::PLOT(
-                    "test accuracy".to_string(),
-                    epoch as f32,
-                    100. * test_accuracy as f32,
-                ))
-                .unwrap();
+                .send(TrainRecv::PLOT(super::PlotPoint { 
+                    title: "test accuracy", 
+                    x_title: "epoch", 
+                    y_title: "accuracy", 
+                    x: epoch as f64, 
+                    y: test_accuracy as f64 
+                })).unwrap();
         }
     });
 

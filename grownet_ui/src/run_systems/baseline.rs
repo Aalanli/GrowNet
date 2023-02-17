@@ -42,9 +42,9 @@ fn run_baseline(
             let msgs = train_proc.try_recv();
             for msg in msgs {
                 match msg {
-                    TrainRecv::PLOT(name, x, y) => {
-                        console.log(format!("Logged plot name: {}, x: {}, y: {}", &name, x, y));
-                        plots.add_plot(&name, &info.run_name(), x, y);
+                    TrainRecv::PLOT(point) => {
+                        console.log(format!("Logged {}, {}: {}, {}: {}", point.title, point.x_title, point.x, point.y_title, point.y));
+                        plots.add_plot(point, &info);
                     }
                     TrainRecv::FAILED(err_msg) => {
                         console.log(format!("Error {} while training {}", err_msg, info.run_name()));

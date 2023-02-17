@@ -18,6 +18,15 @@ pub struct RunStats {
     pub step_time: Option<f32>,
 }
 
+#[derive(Clone)]
+pub struct PlotPoint {
+    pub title: &'static str,
+    pub x_title: &'static str,
+    pub y_title: &'static str,
+    pub x: f64,
+    pub y: f64
+}
+
 pub enum TrainSend {
     KILL,
     OTHER(usize),
@@ -31,7 +40,7 @@ pub enum TrainSend {
 /// model version number, etc, and converts/integrates this information to Log.
 #[derive(Clone)]
 pub enum TrainRecv {
-    PLOT(String, f32, f32), // key, x, y
+    PLOT(PlotPoint), // key, x, y
     FAILED(String),
     STATS(RunStats),
     // CHECKPOINT(f32, std::path::PathBuf),
