@@ -1,11 +1,13 @@
 use std::collections::{HashMap, VecDeque};
 use std::ops::{Deref, Range};
 use bevy::utils::HashSet;
+use bevy_inspector_egui::egui::TextureHandle;
 use crossbeam::channel::{Sender, Receiver};
 
 use anyhow::{Error, Result};
 use bevy::prelude::*;
 use bevy_egui::egui;
+use itertools::Itertools;
 use model_lib::models::PlotPoint;
 use plotters::coord::types::RangedCoordf64;
 use plotters::style::Color;
@@ -15,6 +17,7 @@ use plotters::prelude::*;
 pub use model_lib::{models, Config};
 pub use models::{TrainProcess, TrainRecv, TrainSend};
 pub use crate::ui::OperatingState;
+
 
 use crate::ops;
 use crate::CONFIG_PATH;
@@ -65,7 +68,7 @@ fn save_run_data(
 }
 
 /// Enum of all the model variants
-#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum Models {
     BASELINE,
 }
@@ -193,120 +196,188 @@ pub type SpawnRun = Box<dyn FnOnce(&mut Commands) -> Result<Entity> + Send + Syn
 pub struct Spawn(pub RunInfo, pub SpawnRun);
 
 
-/// ModelPlots contains the various plots of the model
-#[derive(Resource, Default, Serialize, Deserialize)]
+/// a line in (x, y), where x is guaranteed to be monotonic (strictly increasing)
+#[derive(Serialize, Deserialize, Deref, DerefMut, Clone, Default, Debug)]
+pub struct PlotLine(Vec<(f64, f64)>);
+
+impl PlotLine {
+    /// only adds a point to the plot if the x coordinate is strictly greater than the last x coordinate of self
+    pub fn add(&mut self, p: (f64, f64)) {
+        if self.len() == 0 || self.last().unwrap().0 < p.0 {
+            self.push(p);
+        }
+    }
+
+    /// extends self by other[i..] where other[i].0 is greater than the last x coordinate of self
+    pub fn merge(&mut self, other: &PlotLine) {
+        let i = if self.len() > 0 {
+            let x = self.last().unwrap().0;
+            let mut i = 0;
+            for (j, y) in other.iter().enumerate() {
+                if y.0 > x {
+                    i = j;
+                    break;
+                }
+            }
+            i
+        } else {
+            0
+        };
+        self.extend_from_slice(&other[i..]);
+    }
+
+    /// applies a sliding average window to self, with window-1 0 padding to the left
+    pub fn avg_smooth(&mut self, window: usize) {
+        let div = window as f64;
+        let mut sum = 0.0;
+        for i in self.len().max(window) - window..self.len() {
+            sum += self[i].1;
+        }
+
+
+        for i in (window..self.len()).rev() {
+            let x = self[i].1;
+            self[i].1 = sum / div;
+            let w = self[i - window].1;
+            sum += w - x;
+        }
+
+        for i in (0..self.len().min(window)).rev() {
+            let x = self[i].1;
+            self[i].1 = sum / (i + 1) as f64;
+            sum -= x;
+        }
+    }
+}
+
+/// Uniquely identifies a line for a particular run
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Clone, Serialize, Deserialize, Default)]
+pub struct PlotId {
+    pub model: Models,
+    pub run_name: String,
+    pub title: String,
+    pub x_title: String,
+    pub y_title: String,
+}
+
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Clone, Copy)]
+pub struct PlotIdRef<'a> {
+    pub model: &'a Models,
+    pub run_name: &'a str,
+    pub title: &'a str,
+}
+
+
+#[derive(Serialize, Deserialize, Resource, Default)]
 pub struct ModelPlots {
-    graphs: HashMap<(String, String, String), PlotGraph>, // (title, xtitle, ytitle)
+    lines: Vec<(PlotLine, PlotId)>,
+    by_id: HashMap<PlotId, usize>,
 }
 
 impl ModelPlots {
-    /// Each plot has a title, and under each title, multiple lines are graphed, by run
-    /// Inserts a new plot with title if there is none
-    /// Appends onto existing run if name and title are pre-existing, else creates a new run
-    pub fn add_plot(&mut self, point: PlotPoint, info: &RunInfo) {
-        let prod = (point.title.to_string(), point.x_title.to_string(), point.y_title.to_string());
-        if !self.graphs.contains_key(&prod) {
-            self.graphs.insert(prod.clone(), PlotGraph { 
-                title: point.title.into(), 
-                x_title: point.x_title.into(), 
-                y_title: point.y_title.into(), 
-                plots: HashMap::new() 
-            });
-        }
+    pub fn filter(&mut self, mut f: impl FnMut(&PlotId) -> bool) -> impl Iterator<Item = &mut (PlotLine, PlotId)> {
+        self.lines.iter_mut().filter(move |x| f(&x.1))
+    }
 
-        let graph = self.graphs.get_mut(&prod).unwrap();
-        let name = info.run_name();
-        if !graph.plots.contains_key(&name) {
-            graph.plots.insert(name.clone(), Vec::new());
+    pub fn get(&mut self, id: &PlotId) -> Option<&mut PlotLine> {
+        self.by_id.get(id).and_then(|x| Some(&mut self.lines[*x].0))
+    }
+
+    pub fn contains(&self, id: &PlotId) -> bool {
+        self.by_id.contains_key(id)
+    }
+
+    pub fn insert(&mut self, id: PlotId, line: PlotLine) {
+        if !self.contains(&id) {
+            self.by_id.insert(id.clone(), self.lines.len());
+            self.lines.push((line, id));
+        } else {
+            let idx = *self.by_id.get(&id).unwrap();
+            self.lines[idx] = (line, id);
         }
-        graph.plots.get_mut(&name).unwrap().push((point.x, point.y));
+    }
+
+    pub fn add_point(&mut self, id: &PlotId, point: (f64, f64)) {
+        self.get(id).and_then(|x| Some(x.add(point)));
     }
 }
 
-pub type Line = Vec<(f64, f64)>;
-
-/// Each PlotGraph signifies a graph which contains multiple lines, from multiple runs
-#[derive(Deserialize, Serialize, Default)]
-pub struct PlotGraph {
-    title: String,
-    x_title: String,
-    y_title: String,
-    plots: HashMap<String, Vec<(f64, f64)>>,
+#[derive(Default)]
+struct ImageGridUi {
+    images: Vec<egui::TextureHandle>,
+    order: Vec<usize>,
 }
 
-impl PlotGraph {
-    pub fn pack<'a>(&'a self, mut f: impl FnMut(&str) -> bool) -> RenderPack<'a> {
-        RenderPack { 
-            title: &self.title, 
-            x_title: &self.x_title, 
-            y_title: &self.y_title, 
-            lines: self.plots.iter()
-                .filter(|x| f(&x.0))
-                .map(|x| (&*(*x.0), &x.1[..]))
-                .collect()
-        }
-    }
-}
-
-
-pub struct RenderPack<'a> {
-    title: &'a str,
-    x_title: &'a str,
-    y_title: &'a str,
-    lines: Vec<(&'a str, &'a [(f64, f64)])>,
-}
-
-pub struct OwnedRenderPack {
-    title: String,
-    x_title: String,
-    y_title: String,
-    lines: HashMap<String, Vec<(f64, f64)>>,
-}
-
-impl OwnedRenderPack {
-    pub fn borrow(&self) -> RenderPack<'_> {
-        RenderPack { 
-            title: &self.title, 
-            x_title: &self.x_title, 
-            y_title: &self.y_title, 
-            lines: self.lines.iter().map(|x| { (&**x.0, &x.1[..]) }).collect() 
-        }
+impl ImageGridUi {
+    pub fn len(&self) -> usize {
+        self.images.len()
     }
 
     pub fn flush(&mut self) {
-        self.lines.clear();
+        self.images.clear();
+        self.order.clear();
     }
 
-    pub fn update<'a>(&mut self, lines: &[(&'a str, &'a [(f64, f64)])]) -> bool {
-        let mut changed = false;
-        for (n, l) in lines {
-            if !self.lines.contains_key(*n) {
-                self.lines.insert(n.to_string(), l.to_vec());
-                changed = true;
-            } else {
-                let line = self.lines.get_mut(*n).unwrap();
-                if line != l {
-                    line.clear();
-                    line.extend_from_slice(l);
-                    changed = true;
-                }
+    pub fn take(&mut self, i: usize) -> egui::TextureHandle {
+        assert!(i < self.len() && self.len() > 0);
+        let idx = self.order.iter().find_position(|x| **x == self.len() - 1).unwrap().0;
+        self.order.remove(idx);
+        self.order.iter_mut().for_each(|x| if *x >= i { *x += 1; });
+        self.images.remove(i)
+    }
+
+    pub fn insert(&mut self, i: usize, buf: egui::TextureHandle) {
+        assert!(i < self.len());
+        self.order.iter_mut().for_each(|x| if *x >= i { *x += 1; });
+        self.order.push(self.images.len());
+        self.images.insert(i, buf);
+    }
+
+    pub fn replace(&mut self, i: usize, buf: egui::TextureHandle) {
+        assert!(i < self.len());
+        self.images[i] = buf;
+    }
+
+    pub fn swap(&mut self, i: usize, j: usize) {
+        let temp = self.order[i];
+        self.order[i] = self.order[j];
+        self.order[j] = temp;
+    }
+
+    pub fn push(&mut self, buf: egui::TextureHandle) {
+        self.order.push(self.len());
+        self.images.push(buf);
+    }
+
+    pub fn ui(&mut self, ui: &mut egui::Ui, scale: f32) {
+        let x = ui.max_rect().width();
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            let mut i = 0;
+            while i < self.images.len() {
+                ui.horizontal(|ui| {
+                    let mut xi = x;
+                    while xi > 0.0 {
+                        let size = self.images[self.order[i]].size_vec2() * scale;
+                        ui.group(|ui| {
+                            ui.vertical(|ui| {
+                                let mut order = self.order[i];
+                                ui.add(egui::DragValue::new(&mut order));
+                                order = order.min(self.len());
+                                // if order is changed, shift everything between the new order and old order by 1
+                                if order != self.order[i] {
+                                    let old_order = self.order[i];
+                                    let buf = self.take(old_order);
+                                    self.insert(order, buf);
+                                }
+                                ui.image(&self.images[self.order[i]], size);
+                            });
+                        });
+                        xi -= size.x;
+                        i += 1;
+                    }
+                });
             }
-        }
-        changed
-    }
-}
-
-impl<'a> From<RenderPack<'a>> for OwnedRenderPack {
-    fn from(x: RenderPack<'a>) -> Self {
-        let mut map = HashMap::new();
-        x.lines.iter().for_each(|x| {
-            map.insert(x.0.to_string(), x.1.to_vec());
         });
-        OwnedRenderPack { 
-            title: x.title.into(), 
-            x_title: x.x_title.into(), 
-            y_title: x.y_title.into(), 
-            lines: map }
     }
 }
 
@@ -315,30 +386,27 @@ pub fn wider_range(a: Range<f64>, b: Range<f64>) -> Range<f64> {
     a.start.min(b.start)..a.end.max(b.end)
 }
 
-pub fn compute_bounds<'a>(lines: impl Iterator<Item = &'a [(f64, f64)]>) -> (Range<f64>, Range<f64>) {
-    const INIT_FOLD: (Range<f64>, Range<f64>) = (0.0..1.0, 0.0..1.0);
-    lines.map(|x| {
-        x.iter().fold(INIT_FOLD, |acc, val| {
-            (wider_range(acc.0, val.0..val.0), wider_range(acc.1, val.1..val.1))
-        })
-    }).fold(INIT_FOLD, |acc, val| {
-        (wider_range(acc.0, val.0), wider_range(acc.1, val.1))
+pub fn compute_bounds<'a>(lines: impl Iterator<Item = (f64, f64)>) -> (Range<f64>, Range<f64>) {
+    const INIT_BOUND: (Range<f64>, Range<f64>) = (0.0..0.0, 0.0..0.0);
+    lines.fold(INIT_BOUND, |acc, val| {
+        (wider_range(acc.0, val.0..val.0), wider_range(acc.1, val.1..val.1))
     })
 }
 
 fn render<'a>(
     title: &str,
-    x_title: &str,
-    y_title: &str,
-    lines: &[(&str, &[(f64, f64)])],
+    x_title: Option<&str>,
+    y_title: Option<&str>,
+    lines: impl Iterator<Item = (&'a str, &'a [(f64, f64)])> + Clone,
     res: (usize, usize)
 ) -> Result<Vec<u8>> {
     let mut buf = vec![255; res.0 * res.1 * 3]; // rgb format
 
     {
         let root = BitMapBackend::with_buffer(&mut buf, (res.0 as u32, res.1 as u32));
-    
-        let bounds = compute_bounds(lines.iter().map(|x| x.1));
+
+        let bounds = compute_bounds(
+            lines.clone().map(|x| x.1.iter()).flatten().map(|x| *x));
         
         let area = root.into_drawing_area();
         let mut chart = ChartBuilder::on(&area)
@@ -351,19 +419,18 @@ fn render<'a>(
                 bounds.1
             )?;
         
-        chart
-            .configure_mesh()
-            .x_desc(x_title)
-            .y_desc(y_title)
-            .draw()?;
+        let mut c = chart.configure_mesh();
+        if let Some(x) = x_title { c.x_desc(x); }
+        if let Some(y) = y_title { c.y_desc(y); }
+        c.draw()?;
 
-        for (idx, (name, line)) in lines.iter().enumerate() {
+        for (idx, (name, line)) in lines.enumerate() {
             let color = Palette99::pick(idx).mix(0.9);
             chart
                 .draw_series(LineSeries::new(
                     line.iter().map(|x| (x.0, x.1))
                 , color.stroke_width(3)))?
-                .label(*name)
+                .label(name)
                 .legend(move |(x, y)| Rectangle::new([(x, y - 5), (x + 10, y + 5)], color.filled()));
         }
 
@@ -416,23 +483,25 @@ fn smooth_window(data: &[(f64, f64)], window_size: usize) -> Vec<(f64, f64)> {
     vec
 }
 
+
 #[derive(Serialize, Deserialize)]
 pub struct PlotViewer {
     smooth: usize,
     res: (usize, usize),
     scale: f32,
     #[serde(skip)]
-    order: Vec<String>,
+    charts: ImageGridUi, // An ImageGrid which has an internal buffer containing images, and a ordering to those images 
     #[serde(skip)]
-    charts: HashMap<String, RenderedChart>,
+    needs_render: HashMap<PlotId, bool>, // the lines that have been changed by the ui, and needs re-rendering
     #[serde(skip)]
-    needs_render: HashMap<String, bool>,
+    corresponding: HashMap<String, usize>, // title, im_buffer idx; the corresponding title to buffer in self.charts
     #[serde(skip)]
-    cache: HashMap<String, OwnedRenderPack>,
+    cache: HashMap<PlotId, PlotLine>, // unique lines as represented by a hash of PlotId, dependent upon x_title, y_title, title, model and run_name
 }
 
 impl PlotViewer {
-    fn ui(&mut self, ui: &mut egui::Ui) {
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // adjust local rendering parameters
         ui.horizontal(|ui| {
             ui.label("rendered resolution: (x, y)");
             let mut needs_change = ui.add(egui::DragValue::new(&mut self.res.0)).changed();
@@ -440,7 +509,7 @@ impl PlotViewer {
             needs_change |= ui.add(egui::DragValue::new(&mut self.res.1)).changed();
             self.res.0 = self.res.0.max(64).min(2048);
             ui.label("smooth");
-            ui.add(egui::DragValue::new(&mut self.smooth));
+            needs_change |= ui.add(egui::DragValue::new(&mut self.smooth)).changed();
             self.smooth = self.smooth.max(1);
             ui.label("local scale");
             ui.add(egui::DragValue::new(&mut self.scale));
@@ -450,98 +519,79 @@ impl PlotViewer {
         });
 
 
-        let size = ui.max_rect();
-        let rep_x = ((size.width() / self.res.0 as f32) * self.scale) as usize;
-        let rep_y = self.charts.len() / rep_x;
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            let _ = self.render(ui).map_err(|x| {
-                ui.label(format!("plot rendering error: {}", x));
-            });
-
-            for i in 0..rep_y {
-                ui.horizontal(|ui| {
-                    for j in 0..rep_x {     
-                        let idx = i * rep_y + j;
-                        let name = &self.order[idx];
-                        self.charts.get_mut(name).unwrap().show(ui, self.scale);
-                    }
-                });
-            }
-            // remainder
-            ui.horizontal(|ui| {
-                for j in rep_x * rep_y..self.charts.len() {
-                    self.charts.get_mut(&self.order[j]).unwrap().show(ui, self.scale);
-                }
-            });
-        });
+        self.charts.ui(ui, self.scale);
     }
 
     pub fn mark_change_all(&mut self) {
         self.needs_render.iter_mut().for_each(|x| { *x.1 = true; })
     }
 
-    pub fn render(&mut self, ui: &mut egui::Ui) -> Result<()> {
-        for (k, v) in self.needs_render.iter_mut() {
-            if *v {
-                self.charts.get_mut(k).unwrap().adjust(self.cache.get(k).unwrap().borrow(), ui, self.smooth, self.res)?;
-                *v = false;
-            }
-        }
-        Ok(())
+
+    pub fn render(&mut self, ui: &mut egui::Ui) -> Result<Vec<(&str, egui::TextureHandle)>> {
+        let collected = self.needs_render.iter_mut()
+            .filter_map(|x| { if *x.1 { *x.1 = false; Some(x.0)} else { None }  }) // filter for needs_change
+            .map(|x| {  // apply line smoothing
+                let mut line = self.cache.get(x).unwrap().clone();
+                line.avg_smooth(self.smooth);
+                (x, line)
+            })
+            .fold(HashMap::new(), |mut map, x| {  // collect like titles
+                let prod = (&x.0.title, &x.0.x_title, &x.0.y_title);
+                if !map.contains_key(&prod) { map.insert(prod, vec![x]); }
+                else { map.get_mut(&prod).unwrap().push(x); }
+                map
+            });
+        let new_charts: Result<Vec<_>> = collected.iter().map(|((title, x_title, y_title), line)| { // convert to expected input to render
+                ((title, x_title, y_title), line.iter().map(|x| (&(*x.0.run_name), &x.1.0[..])))
+            })
+            .map(|((title, x_title, y_title), line)| {  // render each separately
+                render(title, Some(x_title), Some(y_title), line, self.res).map(|x| (title, x))
+            })
+            .collect();  // move result outside
+        let new_charts: Result<Vec<(&str, egui::TextureHandle)>> = new_charts?.iter().map(|(title, buf)| {
+            let s: &str = &***title;
+            let t: Result<(&str, _)> = to_texture(&buf, self.res, ui).map(|x| (s, x));
+            t
+        }).collect();        
+        new_charts
     }
 
-    pub fn update_cache<'a>(&mut self, packs: impl Iterator<Item = RenderPack<'a>>) {
-        for pack in packs {
-            if !self.charts.contains_key(pack.title) {
-                self.needs_render.insert(pack.title.into(), true);
-                self.cache.insert(pack.title.into(), pack.into());
+    pub fn update_image_buffers<'a>(&mut self, new_buffers: Vec<(&'a str, egui::TextureHandle)>) {
+        for (title, handle) in new_buffers {
+            if !self.corresponding.contains_key(title) {
+                // add the new image to the last place
+                self.charts.push(handle);
+                self.corresponding.insert(title.to_string(), self.charts.len());
             } else {
-                *self.needs_render.get_mut(pack.title).unwrap() |= self.cache.get_mut(pack.title).unwrap().update(&pack.lines);
+                self.charts.replace(*self.corresponding.get(title).unwrap(), handle);
             }
         }
     }
 
-    /// warning, does not flush titles from cache
-    pub fn flush(&mut self) {
-        self.cache.iter_mut().for_each(|x| x.1.flush());
+    pub fn flush_image(&mut self) {
+        self.charts.flush();
+        self.corresponding.clear();
+    }
+
+    pub fn flush_cache(&mut self) {
+        self.cache.clear();
         self.needs_render.clear();
     }
-}
 
-pub struct RenderedChart {
-    texture: egui::TextureHandle,
-    
-}
-
-impl RenderedChart {
-    pub fn new<'a>(pack: RenderPack<'a>, res: (usize, usize), ui: &mut egui::Ui) -> Result<Self> {
-        let render = render(pack.title, pack.x_title, pack.y_title, &pack.lines, res)?;
-        let handle = to_texture(&render, res, ui)?;
-
-        Ok(Self {
-            texture: handle,
-        })
-    }
-
-    pub fn adjust<'a>(&mut self, pack: RenderPack<'a>, ui: &mut egui::Ui, smooth: usize, res: (usize, usize)) -> Result<()> {
-        let buf = if smooth == 1 {
-            render(pack.title, pack.x_title, pack.y_title, &pack.lines, res)?
-        } else {
-            let new_lines: Vec<_> = pack.lines.iter().map(|x| smooth_window(x.1, smooth)).collect();
-            let lines: Vec<_> = pack.lines.iter().zip(new_lines.iter()).map(|x| { (x.0.0, &x.1[..]) }).collect();
-            render(pack.title, pack.x_title, pack.y_title, &lines, res)?
-        };
-        let handle = to_texture(&buf, res, ui)?;
-        self.texture = handle;
-        Ok(())
-    }
-
-    pub fn show(&mut self, ui: &mut egui::Ui, scale: f32) {
-        let mut size = self.texture.size_vec2();
-        size *= scale;
-        ui.image(&self.texture, size);
+    pub fn update_cache<'a>(&mut self, lines: impl Iterator<Item = (&'a PlotId, &'a PlotLine)>) {
+        for line in lines {
+            if !self.cache.contains_key(&line.0) {
+                self.needs_render.insert(line.0.clone(), true);
+                self.cache.insert(line.0.clone(), line.1.clone());
+            } else {
+                *self.needs_render.get_mut(line.0).unwrap() = true;
+                self.cache.get_mut(line.0).unwrap().merge(line.1);
+            }
+        }
     }
 }
+
+
 
 #[derive(Resource, Serialize, Deserialize)]
 pub struct Console {
@@ -582,10 +632,4 @@ impl Default for Console {
     }
 }
 
-#[test]
-fn plotters() {
-    let a = vec![1, 2, 3];
-    let b = vec![1, 2, 4];
 
-    println!("{}", a == &b[..]);
-}

@@ -44,7 +44,13 @@ fn run_baseline(
                 match msg {
                     TrainRecv::PLOT(point) => {
                         console.log(format!("Logged {}, {}: {}, {}: {}", point.title, point.x_title, point.x, point.y_title, point.y));
-                        plots.add_plot(point, &info);
+                        plots.add_point(&run::PlotId { 
+                            model: run::Models::BASELINE, 
+                            run_name: info.run_name(), 
+                            title: point.title.into(),
+                            x_title: point.x_title.into(),
+                            y_title: point.y_title.into(),
+                         }, (point.x, point.y));
                     }
                     TrainRecv::FAILED(err_msg) => {
                         console.log(format!("Error {} while training {}", err_msg, info.run_name()));

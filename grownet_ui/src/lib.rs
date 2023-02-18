@@ -6,7 +6,6 @@ pub mod ops;
 pub mod data_configs;
 pub mod run_systems;
 pub mod ui;
-pub mod visualizations;
 
 use anyhow::{Context, Result};
 use bevy_egui::egui;
