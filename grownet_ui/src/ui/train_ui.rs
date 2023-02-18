@@ -14,8 +14,8 @@ use model_lib::models::{self, TrainRecv};
 use model_lib::Config;
 
 use crate::{Configure, UI, ops, CONFIG_PATH, RUN_DATA_PATH};
-use crate::run_systems::{self as M, immutable_show};
-use M::run_data::{self as run, Models, Despawn, Kill, Spawn, SpawnRun};
+use crate::run_systems::{self as run, immutable_show};
+use run::{Models, Despawn, Kill, Spawn, SpawnRun};
 use super::{AppState, OperatingState, OpenPanel, UIParams, handle_pane_options};
 
 
@@ -41,7 +41,7 @@ impl Plugin for TrainUIPlugin {
                 SystemSet::on_update(OperatingState::Cleanup).with_system(cleanup_queue))
             .add_system_set(
                 SystemSet::on_update(OperatingState::Close).with_system(save_train_ui))
-            .add_plugin(M::baseline::BaselinePlugin);
+            .add_plugin(run::baseline::BaselinePlugin);
     }
 }
 
@@ -106,7 +106,7 @@ fn train_menu_ui(
                         match train_ui.model {
                             run::Models::BASELINE => {
                                 let (spawn_fn, runinfo) = 
-                                    M::baseline::baseline_spawn_fn(train_ui.baseline.version_num as usize, train_ui.baseline.get_config());
+                                    run::baseline::baseline_spawn_fn(train_ui.baseline.version_num as usize, train_ui.baseline.get_config());
                                 app_state.set(AppState::Trainer).unwrap();
                                 train_ui.baseline.version_num += 1;
                                 run_queue.add_run(runinfo, spawn_fn);
