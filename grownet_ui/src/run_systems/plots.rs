@@ -1,20 +1,51 @@
-use std::ops::Range;
-use std::collections::{HashMap, VecDeque};
+use std::ops::{Range, Deref, DerefMut};
+use std::collections::{HashMap, VecDeque, HashSet};
 
 use anyhow::{Error, Result};
 use itertools::Itertools;
+use num::complex::ComplexFloat;
 use plotters::prelude::*;
 use bevy::prelude::*;
 use bevy_egui::egui;
 use serde::{Serialize, Deserialize};
 
 use super::run_data::Models;
+use model_lib::models::PlotPoint;
+
+
+/// Use line stats to quickly compare if two lines are equal, and lightly cache resulting statistics
+#[derive(Clone, Copy)]
+pub struct LineStats {
+    len: usize,
+    last_x: Option<(f64, f64)>
+}
+
+impl LineStats {
+    const EPS: f64 = 1e-6;
+    /// since lines are monotonic in x, we can say that two lines are equal if their lengths
+    /// are equal, and the end points are approximately equal
+    fn dirty_eq(&self, other: &LineStats) -> bool {
+        self.len == other.len && {
+            if self.last_x.is_none() {
+                true
+            } else {
+                let (x, y) = self.last_x.unwrap();
+                let (x1, y1) = self.last_x.unwrap();
+                (x - x1).abs() < Self::EPS && (y - y1).abs() < Self::EPS
+            }
+        }
+    }
+}
 
 /// a line in (x, y), where x is guaranteed to be monotonic (strictly increasing)
 #[derive(Serialize, Deserialize, Deref, DerefMut, Clone, Default, Debug)]
 pub struct PlotLine(Vec<(f64, f64)>);
 
 impl PlotLine {
+    fn stats(&self) -> LineStats {
+        LineStats { len: self.len(), last_x: self.last().and_then(|x| Some(*x)) }
+    }
+
     /// only adds a point to the plot if the x coordinate is strictly greater than the last x coordinate of self
     pub fn add(&mut self, p: (f64, f64)) {
         if self.len() == 0 || self.last().unwrap().0 < p.0 {
@@ -74,6 +105,33 @@ pub struct PlotId {
     pub y_title: String,
 }
 
+/// Uniquely identifies a plot
+#[derive(PartialEq, Eq, Clone)]
+pub struct GraphId(String, String, String); // title, x-title, y-title
+
+
+// impl PlotId {
+//     pub fn to_ref(&self) -> PlotIdRef<'_> {
+//         PlotIdRef { model: &self.model, run_name: &self.run_name, title: &self.title, x_title: &self.x_title, y_title: &self.y_title }
+//     }
+// }
+
+// pub struct PlotIdRef<'a> {
+//     pub model: &'a Models,
+//     pub run_name: &'a str,
+//     pub title: &'a str,
+//     pub x_title: &'a str,
+//     pub y_title: &'a str,
+// }
+
+// impl<'a> PlotIdRef<'a> {
+//     pub fn to_owned(&self) -> PlotId {
+//         PlotId { model: self.model.clone(), run_name: self.run_name.into(), title: self.title.into(), x_title: self.x_title.into(), y_title: self.y_title.into() }
+//     }
+// }
+
+
+
 #[derive(Serialize, Deserialize, Resource, Default)]
 pub struct ModelPlots {
     lines: Vec<(PlotLine, PlotId)>,
@@ -108,61 +166,259 @@ impl ModelPlots {
     }
 }
 
-#[derive(Default)]
-struct OrderedTile<T> {
-    items: Vec<T>,
-    order: Vec<usize>,
+pub struct ViewByModel {
+    viewer: PlotViewerV2,
+    model: Models,
 }
 
-impl<T> OrderedTile<T> {
-    pub fn len(&self) -> usize {
-        self.items.len()
+impl ViewByModel {
+    pub fn ui(&mut self, ui: &mut egui::Ui, lines: &ModelPlotsV2) {
+        // adjust local rendering parameters
+        ui.horizontal(|ui| {
+            ui.label("rendered resolution: (x, y)");
+            ui.add(egui::DragValue::new(&mut self.viewer.res.0));
+            self.viewer.res.0 = self.viewer.res.0.max(64).min(2048);
+            ui.add(egui::DragValue::new(&mut self.viewer.res.1));
+            self.viewer.res.0 = self.viewer.res.0.max(64).min(2048);
+            ui.label("smooth");
+            ui.add(egui::DragValue::new(&mut self.viewer.smooth));
+            self.viewer.smooth = self.viewer.smooth.max(1);
+            ui.label("local scale");
+            ui.add(egui::DragValue::new(&mut self.viewer.scale));
+        });
+
+        if let Err(e) = self.render_update(lines, ui) {
+            ui.label(format!("unable to render update {}", e));
+        }
+        let scale = self.viewer.scale;
+        self.viewer.ui(ui, scale);
     }
 
-    pub fn flush(&mut self) {
-        self.items.clear();
-        self.order.clear();
-    }
+    pub fn render_update(&mut self, lines: &ModelPlotsV2, ui: &mut egui::Ui) -> Result<()> {
+        let changed = lines.needs_render();
+        // not everything changed needs to be re-rendered by this plot viewer, so filter for things
+        // that do need to be rendered
+        // render only if the viewer doesn't contain the id, or the line has changed
+        let to_render: Vec<_> = changed 
+            .filter(|(changed, id)| id.model == self.model && self.viewer.should_render(id, *changed)).collect();
+        
+        // update line to prevent re-rendering next time
+        to_render.iter().for_each(|(line, id)| { self.viewer.update_line_info(id, *line); });
+        
+        // for any lines which needs to be recomputed, store them in recomputed lines
+        // after computation is done, join the two 
+        let mut recomputed_lines = Vec::new();
+        let mut recomputed_idx = Vec::new();
+        let mut new_to_render = Vec::new();
+        for (i, (_, id)) in to_render.iter().enumerate() {
+            // if needs to recompute the line
+            if self.viewer.need_recompute() {
+                let pline = lines.get(id).unwrap().clone();
+                recomputed_lines.push(self.viewer.compute_line(pline));
+                recomputed_idx.push((*id, i));
+            } else {
+                new_to_render.push((*id, lines.get(id).unwrap()));
+            }
+        }
+        // add the recomputed lines to the new_render
+        for i in recomputed_idx.iter() {
+            new_to_render.push((i.0, &recomputed_lines[i.1]));
+        }
 
-    pub fn take(&mut self, i: usize) -> T {
-        assert!(i < self.len() && self.len() > 0);
-        let idx = self.order.iter().find_position(|x| **x == self.len() - 1).unwrap().0;
-        self.order.remove(idx);
-        self.order.iter_mut().for_each(|x| if *x >= i { *x += 1; });
-        self.items.remove(i)
-    }
+        // batch together plotids that have the same title, x_title, and y_title
+        let batch_by_title = batch(new_to_render.iter(), |(id1, _), (id2, _)| {
+            id1.title == id2.title && id1.x_title == id2.x_title && id1.y_title == id2.y_title
+        });
 
-    pub fn insert(&mut self, i: usize, x: T) {
-        assert!(i < self.len());
-        self.order.iter_mut().for_each(|x| if *x >= i { *x += 1; });
-        self.order.push(self.items.len());
-        self.items.insert(i, x);
-    }
 
-    pub fn replace(&mut self, i: usize, x: T) {
-        assert!(i < self.len());
-        self.items[i] = x;
-    }
+        let res = self.viewer.res;
+        // convert to GraphId, and texture
+        let rendered_textures = batch_by_title.iter().map(|x| {
+            let first = x.get(0).unwrap().0; // batch guarantees that each sub-vec is non-empty
+            let title: &str = &first.title;
+            let x_title: Option<&str> = Some(&first.x_title);
+            let y_title: Option<&str> = Some(&first.y_title);
 
-    pub fn swap(&mut self, i: usize, j: usize) {
-        let temp = self.order[i];
-        self.order[i] = self.order[j];
-        self.order[j] = temp;
-    }
+            // convert to expected format of the rendering function, just some coercing
+            let lines = x.iter().map(|(pid, pline)| {
+                let name: &str = &pid.run_name;
+                (name, pline.as_slice())
+            });
 
-    pub fn push(&mut self, x: T) {
-        self.order.push(self.len());
-        self.items.push(x);
-    }
+            let texture = render(
+                title, x_title, y_title, lines, res
+            );
+            let gid: GraphId = first.into();
+            (gid, texture)
+        });
+        // update the viewers outside, since results can't be returned inside closures
+        for (gid, texture) in rendered_textures {
+            let buf = texture?;
+            let texture = to_texture(&buf, self.viewer.res, ui)?;
+            self.viewer.update(&gid, texture);
+        }
 
-    pub fn get(&self, i: usize) -> &T {
-        &self.items[self.order[i]]
-    }
-
-    pub fn get_mut(&mut self, i: usize) -> &mut T {
-        &mut self.items[self.order[i]]
+        Ok(())
     }
 }
+
+impl From<&PlotId> for GraphId {
+    fn from(x: &PlotId) -> Self {
+        GraphId((&x.title).into(), (&x.x_title).into(), (&x.y_title).into())
+    }
+}
+
+struct PlotViewerV2 {
+    viewer: ImageGrid<GraphId>,
+    line_info: HashMap<PlotId, LineStats>,
+    smooth: usize,
+    res: (usize, usize),
+    scale: f32,
+}
+
+impl PlotViewerV2 {
+    fn compute_line(&self, mut line: PlotLine) -> PlotLine {
+        line.avg_smooth(self.smooth);
+        line
+    }
+    fn need_recompute(&self) -> bool {
+        self.smooth > 1
+    }
+
+    fn update_line_info(&mut self, id: &PlotId, line_stats: LineStats) {
+        if self.line_info.contains_key(id) {
+            *self.line_info.get_mut(id).unwrap() = line_stats;
+        } else {
+            self.line_info.insert(id.clone(), line_stats);
+        }
+    }
+    fn should_render(&self, id: &PlotId, line_stats: LineStats) -> bool {
+        self.viewer.contains(&id.into()).is_none() || !self.line_info.get(id).unwrap().dirty_eq(&line_stats)
+    }
+
+    fn update(&mut self, id: &GraphId, texture: egui::TextureHandle) {
+        self.viewer.update(&id, texture);
+    }
+
+}
+
+impl Deref for PlotViewerV2 {
+    type Target = ImageGrid<GraphId>;
+    fn deref(&self) -> &Self::Target {
+        &self.viewer
+    }
+}
+
+impl DerefMut for PlotViewerV2 {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.viewer
+    }
+}
+
+
+pub struct ModelPlotsV2 {
+    lines: HashMap<PlotId, PlotLine>,
+}
+
+impl ModelPlotsV2 {
+    pub fn filter(&self, mut f: impl FnMut(&PlotId) -> bool) -> impl Iterator<Item = (&PlotId, &PlotLine)> {
+        self.lines.iter().filter(move |x| f(&x.0))
+    }
+
+    pub fn filter_mut(&mut self, mut f: impl FnMut(&PlotId) -> bool) -> impl Iterator<Item = (&PlotId, &mut PlotLine)> {
+        self.lines.iter_mut().filter(move |x| f(&x.0))
+    }
+
+    pub fn get(&self, id: &PlotId) -> Option<&PlotLine> {
+        self.lines.get(id)
+    }
+
+    pub fn get_mut(&mut self, id: &PlotId) -> Option<&mut PlotLine> {
+        self.lines.get_mut(id)
+    }
+
+    pub fn contains(&self, id: &PlotId) -> bool {
+        self.lines.contains_key(id)
+    }
+
+    pub fn insert(&mut self, id: PlotId, line: PlotLine) {
+        self.lines.insert(id, line);
+    }
+
+    pub fn add_point(&mut self, id: &PlotId, point: (f64, f64)) {
+        if !self.lines.contains_key(id) { // if this plot id is not in self, since changed and lines have the same set of keys
+            let mut new_line = PlotLine::default();
+            new_line.add(point);
+            self.insert(id.clone(), new_line);
+        } else {
+            self.get_mut(id).and_then(|x| Some(x.add(point)));
+        }
+    }
+
+    /// (is changed, the associated PlotId)
+    fn needs_render(&self) -> impl Iterator<Item = (LineStats, &PlotId)> + Clone {
+        let results = self.lines.iter().map(|x| (x.1.stats(), x.0));
+        results
+    }
+}
+
+pub struct ImageGrid<Id> {
+    images: Vec<(Id, egui::TextureHandle)>,
+}
+
+impl<Id: Clone + Eq> ImageGrid<Id> {
+    pub fn contains(&self, id: &Id) -> Option<usize> { 
+        for (i, v) in self.images.iter().enumerate() {
+            if v.0 == *id {
+                return Some(i)
+            }
+        }
+        None
+    }
+
+    pub fn clear(&mut self) { self.images.clear(); }
+
+    /// updates the texture when a PlotId matches, else push the pair to the end, cloning PlotId
+    pub fn update(&mut self, id: &Id, texture: egui::TextureHandle) {
+        if let Some(j) = self.contains(id) {
+            self.images[j].1 = texture;
+        } else {
+            self.images.push((id.clone(), texture));
+        }
+    }
+
+    /// Shows a grid of images with option to order them
+    pub fn ui(&mut self, ui: &mut egui::Ui, scale: f32) {
+        let x = ui.max_rect().width();
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            let mut i = 0;
+            while i < self.images.len() {
+                ui.horizontal(|ui| {
+                    let mut xi = x;
+                    while xi > 0.0 {
+                        let size = self.images[i].1.size_vec2() * scale;
+                        ui.group(|ui| {
+                            ui.vertical(|ui| {
+                                let mut order = i;
+                                ui.add(egui::DragValue::new(&mut order));
+                                order = order.min(self.images.len());
+                                // if order is changed, shift everything between the new order and old order by 1
+                                if order != i {
+                                    let item = self.images.remove(i);
+                                    self.images.insert(order, item);
+                                }
+                                ui.image(&self.images[i].1, size);
+                            });
+                        });
+                        xi -= size.x;
+                        i += 1;
+                    }
+                });
+            }
+        });
+    }
+}
+
 
 #[derive(Default)]
 struct ImageGridUi {
@@ -357,6 +613,29 @@ impl PlotViewer {
     }
 }
 
+use std::hash::Hash;
+
+// batches together into one vec if they are equal under eq, each of the sub-vectors are non-empty
+// requires that eq be reflexive, that is, if a != b and b == c => a != c
+pub fn batch<'a, T>(items: impl Iterator<Item = &'a T>, eq: impl Fn(&'a T, &'a T) -> bool) -> Vec<Vec<&'a T>> {
+    let mut set: Vec<Vec<&T>> = Vec::new();
+    
+    for i in items {
+        let mut changed = false;
+        for s in set.iter_mut() {
+            if eq(i, s[0]) {
+                s.push(i);
+                changed = true;
+                break;
+            }
+        }
+        if !changed { // none of the collections equal i, create a new collection
+            set.push(vec![i]);
+        }
+    }
+
+    set
+} 
 
 fn render<'a>(
     title: &str,
