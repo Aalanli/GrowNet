@@ -227,6 +227,259 @@ impl PlotViewerV1 {
     }
 }
 
+#[derive(Resource, Serialize, Deserialize, Default)]
+pub struct PlotViewerV2 {
+    filter: BasicRenderFilter,
+    v_cache: ViewCache,
+    params: ComputeRender,
+    p_cache: PlotCache,
+    // some ui configuration parameters
+    local_scale: f32
+}
+
+impl PlotViewerV2 {
+    pub fn ui(&mut self, ui: &mut egui::Ui, lines: &ModelPlots) {
+        // adjust local rendering parameters, filters, etc.
+        ui.horizontal(|ui| {
+            ui.label("rendered resolution: (x, y)");
+            ui.add(egui::DragValue::new(&mut self.params.res.0));
+            self.params.res.0 = self.params.res.0.max(64).min(2048);
+            ui.add(egui::DragValue::new(&mut self.params.res.1));
+            self.params.res.0 = self.params.res.0.max(64).min(2048);
+            ui.label("smooth");
+            ui.add(egui::DragValue::new(&mut self.params.smooth));
+            self.params.smooth = self.params.smooth.max(1);
+            ui.label("local scale");
+            ui.add(egui::Slider::new(&mut self.local_scale, 0.0..=1.0));
+        });
+
+        egui::ComboBox::from_label("filter by model")
+            .selected_text(format!("{}", self.filter.model))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.filter.model, Models::BASELINE, "baseline");
+            });
+
+        if let Err(e) = self.compute(ui, lines) {
+            ui.label(format!("rendering error {}", e));
+        }
+
+        // now show the images, after rendering, make it so that the ui portion is local, thus allowing greater
+        // flexibility
+        let width = ui.available_width();
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            let mut i = 0;
+            while i < self.p_cache.images.len() {
+                let size = self.p_cache.images[i].1.size_vec2();
+                // if the image does not fit within the current width, scale it down
+                if size.x > width {
+                    let fitting_scale = width / size.x;
+                    self.display_single_image(ui, i, fitting_scale);
+                }
+                // otherwise, fit as many images in the current width as possible
+                ui.horizontal(|ui| {
+                    let mut xi = width;
+                    while xi > 0.0 && i < self.p_cache.images.len() {
+                        self.display_single_image(ui, i, self.local_scale);             
+                        xi -= size.x;
+                        i += 1;
+                    }
+                });
+            }
+        });
+
+    }
+
+    fn display_single_image(&mut self, ui: &mut egui::Ui, i: usize, alt_scale: f32) {
+        let size = self.p_cache.images[i].1.size_vec2() * alt_scale;
+        ui.group(|ui| {
+            ui.vertical(|ui| {
+                let mut order = i;
+                ui.add(egui::DragValue::new(&mut order));
+                order = order.min(self.p_cache.images.len() - 1);
+                // if order is changed, shift everything between the new order and old order by 1
+                if order != i {
+                    let item = self.p_cache.images.remove(i);
+                    self.p_cache.images.insert(order, item);
+                }
+                ui.image(&self.p_cache.images[i].1, size);
+            });
+        });
+    }
+
+    fn compute(&mut self, ui: &mut egui::Ui, lines: &ModelPlots) -> Result<()> {
+        let every_line = lines.lines.iter();
+        // step 1
+        let pre_filter = self.filter.filter(every_line);
+        // step 2
+        let graphs = PlotBatch::batch_by_title(pre_filter);
+        // step 3
+        let need_render = graphs.into_iter().filter(|x| self.v_cache.needs_render(x));
+        // step 4
+        let image_bufs = self.params.render(need_render)?;
+        // step 5
+        let textures: Result<Vec<_>> = image_bufs.into_iter().map(|x| { x.to_texture(ui) }).collect();
+        self.p_cache.update_cache(textures?.into_iter());
+        Ok(())
+    }
+}
+
+// Five step rendering pipeline
+// 1. figure out the entire set of lines to render, as in, what lines should the current plot show
+//      based off of models, run_name, dataset, etc.
+// 2. Batch together lines so that each batch represents a single graph/plot, under which multiple lines could fall under
+// 3. Figure out if the batch needs to be rendered after all
+// 4. Recompute lines based off of metrics if necessary, and render the line to a raw buffer (Vec<u8>)
+// 5. Update the plot cache
+
+
+/// Step 1
+#[derive(Resource, Serialize, Deserialize, Default)]
+struct BasicRenderFilter {
+    model: Models,
+}
+
+impl BasicRenderFilter {
+    fn filter<'a>(&self, ids: impl Iterator<Item = (&'a PlotId, &'a PlotLine)>) -> impl Iterator<Item = (&'a PlotId, &'a PlotLine)> {
+        let model = self.model;
+        ids.filter(move |x| x.0.model == model)
+    }
+}
+
+// Step 2
+struct PlotBatch<'a> {
+    gid: GraphId,
+    plots: Vec<(&'a PlotId, &'a PlotLine)>
+}
+
+impl<'a> PlotBatch<'a> {
+    fn batch_by_title(items: impl Iterator<Item = (&'a PlotId, &'a PlotLine)>) -> Vec<PlotBatch<'a>> {
+        let batches = batchv2(items, |(id1, _), (id2, _)| {
+            id1.title == id2.title && id1.x_title == id2.x_title && id1.y_title == id2.y_title
+        });
+        batches.into_iter().map(|x| {
+            let first = x.get(0).unwrap().0;
+            PlotBatch { gid: first.into(), plots: x }
+        }).collect()
+    }
+}
+
+/// Step 3
+#[derive(Resource, Serialize, Deserialize, Default)]
+struct ViewCache {
+    #[serde(skip)]
+    line_info: HashMap<PlotId, LineStats>,
+}
+
+impl ViewCache {
+    fn needs_render<'a>(&self, plot_batch: &PlotBatch<'a>) -> bool {
+        for (pid, line) in plot_batch.plots.iter() {
+            if !self.line_info.contains_key(pid) || self.line_info.get(pid).unwrap().dirty_eq(&line.stats()) {
+                return true;
+            }
+        }
+        false
+    }
+
+    // update the line-infos so that the cache is up to date with the latest changes
+    fn update<'a>(&mut self, to_render: impl Iterator<Item = (&'a PlotId, &'a PlotLine)>) {
+        for (id, line) in to_render {
+            if self.line_info.contains_key(id) {
+                *self.line_info.get_mut(id).unwrap() = line.stats(); 
+            } else {
+                self.line_info.insert(id.clone(), line.stats());
+            }
+        }
+    } 
+}
+
+/// Step 4
+#[derive(Resource, Serialize, Deserialize, Default)]
+struct ComputeRender {
+    smooth: usize,
+    res: (usize, usize)
+}
+
+struct RenderedBatch {
+    gid: GraphId,
+    buf: Vec<u8>,
+    res: (usize, usize)
+}
+
+impl RenderedBatch {
+    fn to_texture(self, ui: &mut egui::Ui) -> Result<RenderedTexture> {
+        let gid = self.gid;
+        let texture = to_texture(&self.buf, self.res, ui)?;
+        Ok(RenderedTexture { gid: gid, texture })
+    }
+}
+
+impl ComputeRender {
+    fn render<'a>(&self, items: impl Iterator<Item = PlotBatch<'a>>) -> Result<Vec<RenderedBatch>> {
+        let should_recompute = self.smooth > 1;
+        let mut rendered = Vec::new();
+        for plot in items {
+            let PlotBatch { gid, plots } = plot;
+            if should_recompute {
+                let new_lines: Vec<(&PlotId, PlotLine)> = plots.into_iter().map(|(id, plt)| {
+                    let mut new_line = plt.clone();
+                    new_line.avg_smooth(self.smooth);
+                    (id, new_line)
+                }).collect();
+                let render_it = new_lines.iter().map(|(id, line)| {
+                    let run_name: &str = &id.run_name;
+                    (run_name, line.as_slice())
+                });
+                let buf = render(&gid.0, Some(&gid.1), Some(&gid.2), render_it, self.res)?;
+                rendered.push(RenderedBatch { gid, buf, res: self.res });
+            } else { // identical code because cannot new_lines in an inner block
+                let render_it = plots.iter().map(|(id, line)| {
+                    let run_name: &str = &id.run_name;
+                    (run_name, line.as_slice())
+                });
+                let buf = render(&gid.0, Some(&gid.1), Some(&gid.2), render_it, self.res)?;
+                rendered.push(RenderedBatch { gid, buf, res: self.res });
+            }
+        }
+
+        Ok(rendered)
+    }
+}
+
+struct RenderedTexture {
+    gid: GraphId,
+    texture: egui::TextureHandle
+}
+
+
+/// Step 5
+#[derive(Resource, Serialize, Deserialize, Default)]
+struct PlotCache {
+    #[serde(skip)]
+    images: Vec<(GraphId, egui::TextureHandle)>,
+}
+
+impl PlotCache {
+    pub fn contains(&self, id: &GraphId) -> Option<usize> { 
+        for (i, v) in self.images.iter().enumerate() {
+            if v.0 == *id {
+                return Some(i)
+            }
+        }
+        None
+    }
+
+    fn update_cache(&mut self, items: impl Iterator<Item = RenderedTexture>) {
+        for batch in items {
+            if let Some(j) = self.contains(&batch.gid) {
+                self.images[j].1 = batch.texture;
+            } else {
+                self.images.push((batch.gid.clone(), batch.texture));
+            }
+        }
+    }
+}
+
+
 #[derive(Serialize, Deserialize)]
 struct BasicViewer {
     #[serde(skip)]
@@ -421,6 +674,29 @@ pub fn batch<'a, T>(items: impl Iterator<Item = &'a T>, eq: impl Fn(&'a T, &'a T
 
     set
 } 
+
+// batches together into one vec if they are equal under eq, each of the sub-vectors are non-empty
+// requires that eq be reflexive, that is, if a != b and b == c => a != c
+pub fn batchv2<T: Copy>(items: impl Iterator<Item = T>, eq: impl Fn(T, T) -> bool) -> Vec<Vec<T>> {
+    let mut set: Vec<Vec<T>> = Vec::new();
+    
+    for i in items {
+        let mut changed = false;
+        for s in set.iter_mut() {
+            if eq(i, s[0]) {
+                s.push(i);
+                changed = true;
+                break;
+            }
+        }
+        if !changed { // none of the collections equal i, create a new collection
+            set.push(vec![i]);
+        }
+    }
+
+    set
+} 
+
 
 fn render<'a>(
     title: &str,
