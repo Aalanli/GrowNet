@@ -18,7 +18,7 @@ impl Plugin for DatasetUIPlugin {
     }
 }
 
-fn setup_dataset_ui(mut commands: Commands, params: Res<UIParams>) {
+fn setup_dataset_ui(mut commands: Commands) {
     use model_lib::datasets as data;
 
     let mut dataset_ui = DatasetUI::default();
@@ -47,7 +47,7 @@ fn setup_dataset_ui(mut commands: Commands, params: Res<UIParams>) {
     commands.insert_resource(dataset_ui);
 }
 
-fn save_dataset_ui(params: Res<UIParams>, dataset_params: Res<DatasetUI>) {
+fn save_dataset_ui(dataset_params: Res<DatasetUI>) {
     eprintln!("saving data_ui params");
     let data_ui_config = dataset_params.config();
     eprintln!("data ui params {}", data_ui_config);
