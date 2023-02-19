@@ -1,61 +1,37 @@
 {
   "main": {
-    "id": "27b12a9f91c782e5",
+    "id": "491d54d459b4a74b",
     "type": "split",
     "children": [
       {
-        "id": "0aae3a56db7bbd2d",
-        "type": "tabs",
-        "children": [
-          {
-            "id": "fdb936c69ab654ed",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "README.md",
-                "mode": "source",
-                "source": false
-              }
-            }
-          },
-          {
-            "id": "d81cec7f7375171f",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "setup.md",
-                "mode": "source",
-                "source": false
-              }
-            }
-          }
-        ]
+        "id": "08ce6665d0e723f0",
+        "type": "leaf",
+        "state": {
+          "type": "empty",
+          "state": {}
+        }
       }
     ],
     "direction": "vertical"
   },
   "left": {
-    "id": "bd0d11aebdc920d3",
+    "id": "2e04c55af5abedb1",
     "type": "split",
     "children": [
       {
-        "id": "5b6f5e73d3191de6",
+        "id": "43ef41c7e793605d",
         "type": "tabs",
         "children": [
           {
-            "id": "f15e1d27494c289a",
+            "id": "9a0a6cc270717e18",
             "type": "leaf",
             "state": {
               "type": "file-explorer",
-              "state": {
-                "sortOrder": "alphabetical"
-              }
+              "state": {}
             }
           },
           {
-            "id": "36ce7e0a37663b0f",
+            "id": "4c87f6700477ea47",
             "type": "leaf",
             "state": {
               "type": "search",
@@ -70,7 +46,7 @@
             }
           },
           {
-            "id": "7789b2dbb671e300",
+            "id": "7f35407e32983d4d",
             "type": "leaf",
             "state": {
               "type": "starred",
@@ -81,24 +57,22 @@
       }
     ],
     "direction": "horizontal",
-    "width": 200,
-    "collapsed": true
+    "width": 300
   },
   "right": {
-    "id": "fbd77261bca429de",
+    "id": "383f4f8952bae0e2",
     "type": "split",
     "children": [
       {
-        "id": "bac609f38266154e",
+        "id": "b70540ff4a8e44c7",
         "type": "tabs",
         "children": [
           {
-            "id": "44276c38c09b66f7",
+            "id": "c9f7e376f1ce9eed",
             "type": "leaf",
             "state": {
               "type": "backlink",
               "state": {
-                "file": "README.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -110,19 +84,18 @@
             }
           },
           {
-            "id": "7260f5eac4a4828b",
+            "id": "45699c36aad13b57",
             "type": "leaf",
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "README.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
             }
           },
           {
-            "id": "89898f14b705e339",
+            "id": "cc22fef75e1778b2",
             "type": "leaf",
             "state": {
               "type": "tag",
@@ -133,13 +106,11 @@
             }
           },
           {
-            "id": "41efc822fb591a23",
+            "id": "0365db985971b6b1",
             "type": "leaf",
             "state": {
               "type": "outline",
-              "state": {
-                "file": "README.md"
-              }
+              "state": {}
             }
           }
         ]
@@ -149,20 +120,8 @@
     "width": 300,
     "collapsed": true
   },
-  "left-ribbon": {
-    "hiddenItems": {
-      "switcher:Open quick switcher": false,
-      "graph:Open graph view": false,
-      "canvas:Create new canvas": false,
-      "daily-notes:Open today's daily note": false,
-      "templates:Insert template": false,
-      "command-palette:Open command palette": false
-    }
-  },
-  "active": "fdb936c69ab654ed",
+  "active": "08ce6665d0e723f0",
   "lastOpenFiles": [
-    "setup.md",
-    "README.md",
-    "().md"
+    "README.md"
   ]
 }

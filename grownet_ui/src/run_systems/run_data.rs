@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub use model_lib::{models, Config};
 pub use models::{TrainProcess, TrainRecv, TrainSend, PlotPoint};
 pub use crate::ui::OperatingState;
-pub use super::{ModelPlots, PlotId, PlotViewer};
+pub use super::{ModelPlots, PlotId, PlotViewerV1};
 
 use crate::{ops, UI};
 use crate::CONFIG_PATH;
@@ -30,7 +30,7 @@ impl Plugin for RunDataPlugin {
             .add_event::<Kill>()
             .insert_resource(run_sender)
             .insert_resource(run_recv)
-            .insert_resource(DefaultPlotViewer::default())
+            .insert_resource(PlotViewerV1::default())
             .insert_resource(ModelPlots::default())
             .insert_resource(Console::default())
             .insert_resource(RunStats::default())
@@ -43,16 +43,19 @@ impl Plugin for RunDataPlugin {
 /// possibly load run data from disk
 fn setup_run_data(
     mut plots: ResMut<ModelPlots>,
+    mut plot_viewer: ResMut<PlotViewerV1>,
     mut console: ResMut<Console>,
 ) {
     eprintln!("loading run data");
     ops::try_deserialize(&mut *plots, &(CONFIG_PATH.to_owned() + "/model_plots.config").into());
     ops::try_deserialize(&mut *console, &(CONFIG_PATH.to_owned() + "/model_console.config").into());
+    ops::try_deserialize(&mut *plot_viewer, &(CONFIG_PATH.to_owned() + "/plot_viewer.config").into());
 }
 
 /// write run data to disk
 fn save_run_data(
     plots: Res<ModelPlots>,
+    plot_viewer: Res<PlotViewerV1>,
     console: Res<Console>,
 ) {
     // load configurations from disk
@@ -62,10 +65,11 @@ fn save_run_data(
     // save config files to disk
     ops::serialize(&*plots, &root_path.join("model_plots").with_extension("config"));
     ops::serialize(&*console, &root_path.join("model_console").with_extension("config"));
+    ops::serialize(&*plot_viewer, &root_path.join("plot_viewer").with_extension("config"));
 }
 
 /// Enum of all the model variants
-#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Debug)]
 pub enum Models {
     BASELINE,
 }
@@ -231,6 +235,3 @@ impl Default for Console {
         }
     }
 }
-
-#[derive(Resource, Serialize, Deserialize, Deref, DerefMut, Default)]
-pub struct DefaultPlotViewer(PlotViewer);

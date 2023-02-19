@@ -15,7 +15,7 @@ use model_lib::models::PlotPoint;
 
 /// Use line stats to quickly compare if two lines are equal, and lightly cache resulting statistics
 #[derive(Clone, Copy)]
-pub struct LineStats {
+struct LineStats {
     len: usize,
     last_x: Option<(f64, f64)>
 }
@@ -96,7 +96,7 @@ impl PlotLine {
 }
 
 /// Uniquely identifies a line for a particular run
-#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Clone, Serialize, Deserialize, Default)]
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Clone, Serialize, Deserialize, Default, Debug)]
 pub struct PlotId {
     pub model: Models,
     pub run_name: String,
@@ -106,73 +106,24 @@ pub struct PlotId {
 }
 
 /// Uniquely identifies a plot
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Default)]
 pub struct GraphId(String, String, String); // title, x-title, y-title
 
-
-// impl PlotId {
-//     pub fn to_ref(&self) -> PlotIdRef<'_> {
-//         PlotIdRef { model: &self.model, run_name: &self.run_name, title: &self.title, x_title: &self.x_title, y_title: &self.y_title }
-//     }
-// }
-
-// pub struct PlotIdRef<'a> {
-//     pub model: &'a Models,
-//     pub run_name: &'a str,
-//     pub title: &'a str,
-//     pub x_title: &'a str,
-//     pub y_title: &'a str,
-// }
-
-// impl<'a> PlotIdRef<'a> {
-//     pub fn to_owned(&self) -> PlotId {
-//         PlotId { model: self.model.clone(), run_name: self.run_name.into(), title: self.title.into(), x_title: self.x_title.into(), y_title: self.y_title.into() }
-//     }
-// }
-
-
-
-#[derive(Serialize, Deserialize, Resource, Default)]
-pub struct ModelPlots {
-    lines: Vec<(PlotLine, PlotId)>,
-    by_id: HashMap<PlotId, usize>,
-}
-
-impl ModelPlots {
-    pub fn filter(&mut self, mut f: impl FnMut(&PlotId) -> bool) -> impl Iterator<Item = &mut (PlotLine, PlotId)> {
-        self.lines.iter_mut().filter(move |x| f(&x.1))
-    }
-
-    pub fn get(&mut self, id: &PlotId) -> Option<&mut PlotLine> {
-        self.by_id.get(id).and_then(|x| Some(&mut self.lines[*x].0))
-    }
-
-    pub fn contains(&self, id: &PlotId) -> bool {
-        self.by_id.contains_key(id)
-    }
-
-    pub fn insert(&mut self, id: PlotId, line: PlotLine) {
-        if !self.contains(&id) {
-            self.by_id.insert(id.clone(), self.lines.len());
-            self.lines.push((line, id));
-        } else {
-            let idx = *self.by_id.get(&id).unwrap();
-            self.lines[idx] = (line, id);
-        }
-    }
-
-    pub fn add_point(&mut self, id: &PlotId, point: (f64, f64)) {
-        self.get(id).and_then(|x| Some(x.add(point)));
+impl From<&PlotId> for GraphId {
+    fn from(x: &PlotId) -> Self {
+        GraphId((&x.title).into(), (&x.x_title).into(), (&x.y_title).into())
     }
 }
 
-pub struct ViewByModel {
-    viewer: PlotViewerV2,
+/// View plot by model
+#[derive(Resource, Serialize, Deserialize, Default)]
+pub struct PlotViewerV1 {
+    viewer: BasicViewer,
     model: Models,
 }
 
-impl ViewByModel {
-    pub fn ui(&mut self, ui: &mut egui::Ui, lines: &ModelPlotsV2) {
+impl PlotViewerV1 {
+    pub fn ui(&mut self, ui: &mut egui::Ui, lines: &ModelPlots) {
         // adjust local rendering parameters
         ui.horizontal(|ui| {
             ui.label("rendered resolution: (x, y)");
@@ -184,17 +135,33 @@ impl ViewByModel {
             ui.add(egui::DragValue::new(&mut self.viewer.smooth));
             self.viewer.smooth = self.viewer.smooth.max(1);
             ui.label("local scale");
-            ui.add(egui::DragValue::new(&mut self.viewer.scale));
+            ui.add(egui::Slider::new(&mut self.viewer.scale, 0.0..=1.0));
         });
+
+        egui::ComboBox::from_label("filter by model")
+            .selected_text(format!("{}", self.model))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.model, Models::BASELINE, "baseline");
+            });
 
         if let Err(e) = self.render_update(lines, ui) {
             ui.label(format!("unable to render update {}", e));
         }
+        
         let scale = self.viewer.scale;
         self.viewer.ui(ui, scale);
     }
 
-    pub fn render_update(&mut self, lines: &ModelPlotsV2, ui: &mut egui::Ui) -> Result<()> {
+    pub fn render_update(&mut self, lines: &ModelPlots, ui: &mut egui::Ui) -> Result<()> {
+        let bufs = self.render(lines)?;
+        for (gid, buf) in bufs {
+            let texture = to_texture(&buf, self.viewer.res, ui)?;
+            self.viewer.update(&gid, texture);
+        }
+        Ok(())
+    }
+
+    pub fn render(&mut self, lines: &ModelPlots) -> Result<Vec<(GraphId, Vec<u8>)>> {
         let changed = lines.needs_render();
         // not everything changed needs to be re-rendered by this plot viewer, so filter for things
         // that do need to be rendered
@@ -251,32 +218,33 @@ impl ViewByModel {
             let gid: GraphId = first.into();
             (gid, texture)
         });
-        // update the viewers outside, since results can't be returned inside closures
-        for (gid, texture) in rendered_textures {
-            let buf = texture?;
-            let texture = to_texture(&buf, self.viewer.res, ui)?;
-            self.viewer.update(&gid, texture);
+        let mut out = Vec::new();
+        for (gid, buf) in rendered_textures {
+            out.push((gid, buf?));
         }
-
-        Ok(())
+        
+        Ok(out)
     }
 }
 
-impl From<&PlotId> for GraphId {
-    fn from(x: &PlotId) -> Self {
-        GraphId((&x.title).into(), (&x.x_title).into(), (&x.y_title).into())
-    }
-}
-
-struct PlotViewerV2 {
+#[derive(Serialize, Deserialize)]
+struct BasicViewer {
+    #[serde(skip)]
     viewer: ImageGrid<GraphId>,
+    #[serde(skip)]
     line_info: HashMap<PlotId, LineStats>,
     smooth: usize,
     res: (usize, usize),
     scale: f32,
 }
 
-impl PlotViewerV2 {
+impl Default for BasicViewer {
+    fn default() -> Self {
+        Self { smooth: 1, res: (1024, 768), scale: 1.0, viewer: ImageGrid::default(), line_info: HashMap::default() }
+    }
+}
+
+impl BasicViewer {
     fn compute_line(&self, mut line: PlotLine) -> PlotLine {
         line.avg_smooth(self.smooth);
         line
@@ -302,25 +270,25 @@ impl PlotViewerV2 {
 
 }
 
-impl Deref for PlotViewerV2 {
+impl Deref for BasicViewer {
     type Target = ImageGrid<GraphId>;
     fn deref(&self) -> &Self::Target {
         &self.viewer
     }
 }
 
-impl DerefMut for PlotViewerV2 {
+impl DerefMut for BasicViewer {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.viewer
     }
 }
 
-
-pub struct ModelPlotsV2 {
+#[derive(Serialize, Deserialize, Resource, Default, Debug)]
+pub struct ModelPlots {
     lines: HashMap<PlotId, PlotLine>,
 }
 
-impl ModelPlotsV2 {
+impl ModelPlots {
     pub fn filter(&self, mut f: impl FnMut(&PlotId) -> bool) -> impl Iterator<Item = (&PlotId, &PlotLine)> {
         self.lines.iter().filter(move |x| f(&x.0))
     }
@@ -362,6 +330,7 @@ impl ModelPlotsV2 {
     }
 }
 
+#[derive(Default)]
 pub struct ImageGrid<Id> {
     images: Vec<(Id, egui::TextureHandle)>,
 }
@@ -387,29 +356,40 @@ impl<Id: Clone + Eq> ImageGrid<Id> {
         }
     }
 
+    fn display_single_image(&mut self, ui: &mut egui::Ui, i: usize, alt_scale: f32) {
+        let size = self.images[i].1.size_vec2() * alt_scale;
+        ui.group(|ui| {
+            ui.vertical(|ui| {
+                let mut order = i;
+                ui.add(egui::DragValue::new(&mut order));
+                order = order.min(self.images.len() - 1);
+                // if order is changed, shift everything between the new order and old order by 1
+                if order != i {
+                    let item = self.images.remove(i);
+                    self.images.insert(order, item);
+                }
+                ui.image(&self.images[i].1, size);
+            });
+        });
+    }
+
     /// Shows a grid of images with option to order them
     pub fn ui(&mut self, ui: &mut egui::Ui, scale: f32) {
-        let x = ui.max_rect().width();
+        let width = ui.available_width();
         egui::ScrollArea::vertical().show(ui, |ui| {
             let mut i = 0;
             while i < self.images.len() {
+                let size = self.images[i].1.size_vec2();
+                // if the image does not fit within the current width, scale it down
+                if size.x > width {
+                    let fitting_scale = width / size.x;
+                    self.display_single_image(ui, i, fitting_scale);
+                }
+                // otherwise, fit as many images in the current width as possible
                 ui.horizontal(|ui| {
-                    let mut xi = x;
-                    while xi > 0.0 {
-                        let size = self.images[i].1.size_vec2() * scale;
-                        ui.group(|ui| {
-                            ui.vertical(|ui| {
-                                let mut order = i;
-                                ui.add(egui::DragValue::new(&mut order));
-                                order = order.min(self.images.len());
-                                // if order is changed, shift everything between the new order and old order by 1
-                                if order != i {
-                                    let item = self.images.remove(i);
-                                    self.images.insert(order, item);
-                                }
-                                ui.image(&self.images[i].1, size);
-                            });
-                        });
+                    let mut xi = width;
+                    while xi > 0.0 && i < self.images.len() {
+                        self.display_single_image(ui, i, scale);             
                         xi -= size.x;
                         i += 1;
                     }
@@ -419,201 +399,6 @@ impl<Id: Clone + Eq> ImageGrid<Id> {
     }
 }
 
-
-#[derive(Default)]
-struct ImageGridUi {
-    images: Vec<egui::TextureHandle>,
-    order: Vec<usize>,
-}
-
-impl ImageGridUi {
-    pub fn len(&self) -> usize {
-        self.images.len()
-    }
-
-    pub fn flush(&mut self) {
-        self.images.clear();
-        self.order.clear();
-    }
-
-    pub fn take(&mut self, i: usize) -> egui::TextureHandle {
-        assert!(i < self.len() && self.len() > 0);
-        let idx = self.order.iter().find_position(|x| **x == self.len() - 1).unwrap().0;
-        self.order.remove(idx);
-        self.order.iter_mut().for_each(|x| if *x >= i { *x += 1; });
-        self.images.remove(i)
-    }
-
-    pub fn insert(&mut self, i: usize, buf: egui::TextureHandle) {
-        assert!(i < self.len());
-        self.order.iter_mut().for_each(|x| if *x >= i { *x += 1; });
-        self.order.push(self.images.len());
-        self.images.insert(i, buf);
-    }
-
-    pub fn replace(&mut self, i: usize, buf: egui::TextureHandle) {
-        assert!(i < self.len());
-        self.images[i] = buf;
-    }
-
-    pub fn swap(&mut self, i: usize, j: usize) {
-        let temp = self.order[i];
-        self.order[i] = self.order[j];
-        self.order[j] = temp;
-    }
-
-    pub fn push(&mut self, buf: egui::TextureHandle) {
-        self.order.push(self.len());
-        self.images.push(buf);
-    }
-
-    pub fn ui(&mut self, ui: &mut egui::Ui, scale: f32) {
-        let x = ui.max_rect().width();
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            let mut i = 0;
-            while i < self.images.len() {
-                ui.horizontal(|ui| {
-                    let mut xi = x;
-                    while xi > 0.0 {
-                        let size = self.images[self.order[i]].size_vec2() * scale;
-                        ui.group(|ui| {
-                            ui.vertical(|ui| {
-                                let mut order = self.order[i];
-                                ui.add(egui::DragValue::new(&mut order));
-                                order = order.min(self.len());
-                                // if order is changed, shift everything between the new order and old order by 1
-                                if order != self.order[i] {
-                                    let old_order = self.order[i];
-                                    let buf = self.take(old_order);
-                                    self.insert(order, buf);
-                                }
-                                ui.image(&self.images[self.order[i]], size);
-                            });
-                        });
-                        xi -= size.x;
-                        i += 1;
-                    }
-                });
-            }
-        });
-    }
-}
-
-
-
-#[derive(Serialize, Deserialize)]
-pub struct PlotViewer {
-    smooth: usize,
-    res: (usize, usize),
-    scale: f32,
-    #[serde(skip)]
-    charts: ImageGridUi, // An ImageGrid which has an internal buffer containing images, and a ordering to those images 
-    #[serde(skip)]
-    needs_render: HashMap<PlotId, bool>, // the lines that have been changed by the ui, and needs re-rendering
-    #[serde(skip)]
-    corresponding: HashMap<String, usize>, // title, im_buffer idx; the corresponding title to buffer in self.charts
-    #[serde(skip)]
-    cache: HashMap<PlotId, PlotLine>, // unique lines as represented by a hash of PlotId, dependent upon x_title, y_title, title, model and run_name
-}
-
-impl Default for PlotViewer {
-    fn default() -> Self {
-        Self { smooth: 1, res: (1024, 768), scale: 1.0, ..default() }
-    }
-}
-
-impl PlotViewer {
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
-        // adjust local rendering parameters
-        ui.horizontal(|ui| {
-            ui.label("rendered resolution: (x, y)");
-            let mut needs_change = ui.add(egui::DragValue::new(&mut self.res.0)).changed();
-            self.res.0 = self.res.0.max(64).min(2048);
-            needs_change |= ui.add(egui::DragValue::new(&mut self.res.1)).changed();
-            self.res.0 = self.res.0.max(64).min(2048);
-            ui.label("smooth");
-            needs_change |= ui.add(egui::DragValue::new(&mut self.smooth)).changed();
-            self.smooth = self.smooth.max(1);
-            ui.label("local scale");
-            ui.add(egui::DragValue::new(&mut self.scale));
-            if needs_change {
-                self.mark_change_all();
-            }
-        });
-
-        if let Err(e) = self.render_update(ui) {
-            ui.label(format!("unable to render update {}", e));
-        }
-
-        self.charts.ui(ui, self.scale);
-    }
-
-    pub fn mark_change_all(&mut self) {
-        self.needs_render.iter_mut().for_each(|x| { *x.1 = true; })
-    }
-
-    pub fn render_update(&mut self, ui: &mut egui::Ui) -> Result<()> {
-        let collected = self.needs_render.iter_mut()
-            .filter_map(|x| { if *x.1 { *x.1 = false; Some(x.0)} else { None }  }) // filter for needs_change
-            .map(|x| {  // apply line smoothing
-                let mut line = self.cache.get(x).unwrap().clone();
-                line.avg_smooth(self.smooth);
-                (x, line)
-            })
-            .fold(HashMap::new(), |mut map, x| {  // collect like titles
-                let prod = (&x.0.title, &x.0.x_title, &x.0.y_title);
-                if !map.contains_key(&prod) { map.insert(prod, vec![x]); }
-                else { map.get_mut(&prod).unwrap().push(x); }
-                map
-            });
-        let new_charts: Result<Vec<_>> = collected.iter().map(|((title, x_title, y_title), line)| { // convert to expected input to render
-                ((title, x_title, y_title), line.iter().map(|x| (&(*x.0.run_name), &x.1.0[..])))
-            })
-            .map(|((title, x_title, y_title), line)| {  // render each separately
-                render(title, Some(x_title), Some(y_title), line, self.res).map(|x| (title, x))
-            })
-            .collect();  // move result outside
-        let new_charts: Result<Vec<(&str, egui::TextureHandle)>> = new_charts?.iter().map(|(title, buf)| {
-            let s: &str = &***title;
-            let t: Result<(&str, _)> = to_texture(&buf, self.res, ui).map(|x| (s, x));
-            t
-        }).collect();        
-        for (title, handle) in new_charts? {
-            if !self.corresponding.contains_key(title) {
-                // add the new image to the last place
-                self.charts.push(handle);
-                self.corresponding.insert(title.to_string(), self.charts.len());
-            } else {
-                self.charts.replace(*self.corresponding.get(title).unwrap(), handle);
-            }
-        }
-        Ok(())
-    }
-
-    pub fn flush_image(&mut self) {
-        self.charts.flush();
-        self.corresponding.clear();
-    }
-
-    pub fn flush_cache(&mut self) {
-        self.cache.clear();
-        self.needs_render.clear();
-    }
-
-    pub fn update_cache<'a>(&mut self, lines: impl Iterator<Item = (&'a PlotId, &'a PlotLine)>) {
-        for line in lines {
-            if !self.cache.contains_key(&line.0) {
-                self.needs_render.insert(line.0.clone(), true);
-                self.cache.insert(line.0.clone(), line.1.clone());
-            } else {
-                *self.needs_render.get_mut(line.0).unwrap() = true;
-                self.cache.get_mut(line.0).unwrap().merge(line.1);
-            }
-        }
-    }
-}
-
-use std::hash::Hash;
 
 // batches together into one vec if they are equal under eq, each of the sub-vectors are non-empty
 // requires that eq be reflexive, that is, if a != b and b == c => a != c
@@ -736,4 +521,19 @@ fn smooth_window(data: &[(f64, f64)], window_size: usize) -> Vec<(f64, f64)> {
         sum -= data[j + 1 - window_size].1;
     }
     vec
+}
+
+#[test]
+fn test_render() {
+    let mut plots = ModelPlots::default();
+    let test_id = PlotId { model: Models::BASELINE, run_name: "baselinev1".into(), 
+        title: "test loss".into(), x_title: "steps".into(), y_title: "loss".into()  };
+    
+    for i in 0..100 {
+        plots.add_point(&test_id, (i as f64, (i as f64).sin()));
+    }
+
+    //println!("{:?}", plots);
+    let mut render = PlotViewerV1::default();
+    render.render(&plots).expect("failed to render plots");
 }

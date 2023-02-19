@@ -1,10 +1,9 @@
 To [setup](https://github.com/Aalanli/GrowNet/blob/main/setup.md)
 
 ## Timeline
-- [ ] Get basic baseline model working
-	- [ ] checkpointing
-	- [ ] loss plotting 
-	- [ ] First class configurations
+- [x] Get basic baseline model working
+	- [x] loss plotting 
+	- [x] First class configurations
 - [ ] Implement grid model in $\mathbb{R}^2$ and $\mathbb{R}^3$
 	- [ ] Vector field plot
 	- [ ] Grid intensity plot

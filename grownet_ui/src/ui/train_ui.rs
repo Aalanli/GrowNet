@@ -14,7 +14,7 @@ use model_lib::models::{self, TrainRecv};
 use model_lib::Config;
 
 use crate::{Configure, UI, ops, CONFIG_PATH, RUN_DATA_PATH};
-use crate::run_systems::{self as run, immutable_show};
+use crate::run_systems::{self as run, immutable_show, ModelPlots, PlotViewerV1};
 use run::{Models, Despawn, Kill, Spawn, SpawnRun};
 use super::{AppState, OperatingState, OpenPanel, UIParams, handle_pane_options};
 
@@ -129,7 +129,8 @@ fn train_menu_ui(
 fn train_env_ui(
     mut egui_context: ResMut<EguiContext>,
     mut state: ResMut<State<AppState>>,
-    // plots: Res<run::ModelPlots>,
+    mut viewer: ResMut<PlotViewerV1>,
+    plots: Res<ModelPlots>, 
     console: Res<run::Console>,    
 ) {
     egui::Window::new("train").show(egui_context.ctx_mut(), |ui| {
@@ -149,7 +150,9 @@ fn train_env_ui(
             });
 
             // TODO: Add plotting utilites
-
+            ui.separator();
+            ui.heading("plots");
+            viewer.ui(ui, &*plots);
         });
     });
 }

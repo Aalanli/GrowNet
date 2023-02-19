@@ -21,14 +21,13 @@ pub use run_data::{
     Spawn,             // A pair containing the runinfo and a function to spawn the necessary elements to initiate a training run
     SpawnRun,          // A type alias for Box<dyn FnOnce(&mut Commands) -> Result<Entity> + Send + Sync>, the spawning function
     RunStats,          // A struct containing runtime info, such as step time and memory usage
-    DefaultPlotViewer, // Main PlotViewer, there could be multiplex
 };
 
 pub use plots::{
     ModelPlots,    // The primary cache from all model runs
     PlotLine,      // A Vec<(f64, f64)> representing (x, y) coordinates, where x is monotonically increasing
     PlotId,        // A unique identifier for each line
-    PlotViewer,    // The Ui to show the plots
+    PlotViewerV1,  // The Ui to show the plots
 };
 
 impl UI for Config {
