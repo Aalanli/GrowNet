@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+    "grownet_test",
     "grownet_ui",
     "grownet_models",
     "grownet_macros",
@@ -17,3 +18,6 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[profile.release]
+debug = true
