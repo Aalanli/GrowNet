@@ -1,7 +1,6 @@
 [workspace]
 
 members = [
-    "grownet_test",
     "grownet_ui",
     "grownet_models",
     "grownet_macros",
