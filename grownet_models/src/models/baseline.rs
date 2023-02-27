@@ -9,7 +9,7 @@ use derivative::Derivative;
 use derive_more::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
 use tch::nn::{FuncT, ModuleT, OptimizerConfig, SequentialT};
-use tch::{nn, Device};
+use tch::{nn, Device, Tensor};
 
 use crate::config;
 use crate::configs::Config;
@@ -55,9 +55,10 @@ fn fast_resnet(vs: &nn::Path) -> SequentialT {
         .add(conv_bn(&vs.sub("inter"), 128, 256))
         .add_fn(|x| x.max_pool2d_default(2))
         .add(layer(&vs.sub("layer2"), 256, 512))
-        .add_fn(|x| x.max_pool2d_default(4).flat_view())
-        .add(nn::linear(&vs.sub("linear"), 512, 10, Default::default()))
-        .add_fn(|x| x * 0.125)
+        //.add_fn(|x| x.max_pool2d_default(4).flat_view())
+        //.add(nn::linear(&vs.sub("linear"), 512, 10, Default::default()))
+        //.add_fn(|x| x * 0.125)
+        
 }
 
 fn learning_rate(epoch: i64) -> f64 {
@@ -116,6 +117,22 @@ pub fn baseline_config() -> Config {
     config
 }
 
+#[test]
+fn test() {
+    tch::maybe_init_cuda();
+    let vs = nn::VarStore::new(Device::Cuda(0));
+    println!("{:?}", Device::cuda_if_available());
+    let net = fast_resnet(&vs.root());
+    let no_grad = tch::no_grad_guard();
+    let t = std::time::Instant::now();
+    let x = Tensor::rand(&[4, 3, 256, 256], (tch::Kind::Float, Device::Cuda(0)));
+    let mut y;
+    for i in 0..25 {
+        y = net.forward_t(&x, false);
+    }
+
+    println!("{}", t.elapsed().as_secs_f32());
+}
 
 pub fn build(config: &Config) -> Result<TrainProcess> {
     check_default(&baseline_config(), config)?;

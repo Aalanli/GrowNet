@@ -15,6 +15,8 @@ pub mod models;
 pub mod ops;
 pub use configs::{Config, Options};
 
+pub mod nn;
+
 pub trait Configure: Send + Sync {
     fn config(&self) -> String;
     fn load_config(&mut self, config: &str) -> Result<()>;
