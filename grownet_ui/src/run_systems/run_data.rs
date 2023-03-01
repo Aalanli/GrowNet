@@ -15,7 +15,7 @@ pub use models::{TrainProcess, TrainRecv, TrainSend, PlotPoint};
 pub use crate::ui::OperatingState;
 pub use super::{ModelPlots, PlotId, PlotViewerV1};
 
-use crate::{ops, UI};
+use crate::{ops};
 use crate::CONFIG_PATH;
 
 /// Plugin to instantiate all run data resources, and saving/loading logic
@@ -150,7 +150,7 @@ impl RunInfo {
             ui.label(format!("dataset: {}", self.dataset));
             ui.label(format!("model class: {}", self.model_class));
             ui.collapsing("run configs", |ui| {
-                super::immutable_show(&self.config, ui);
+                super::config_ui_show(&self.config, ui);
             });
         });
 

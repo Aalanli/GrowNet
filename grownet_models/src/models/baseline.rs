@@ -96,7 +96,7 @@ pub fn imtransform_config() -> Config {
 }
 
 pub fn baseline_config() -> Config {
-    use crate::{opt, Configure, Options};
+    use crate::{opt, Options};
     let mut config = config!(
         ("epochs", 100),
         ("batch_size", 4),

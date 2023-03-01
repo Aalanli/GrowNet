@@ -13,9 +13,7 @@ use bincode;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::{Configure, UI};
-
-pub mod data_ui;
+// pub mod data_ui;
 pub mod train_ui;
 
 /// The ui plugin, the entry point for the ui
@@ -27,7 +25,7 @@ impl Plugin for UIPlugin {
             .add_startup_system_to_stage(StartupStage::Startup, setup_ui)
             .add_state(AppState::Models)
             .add_state(OperatingState::Active)
-            .add_plugin(data_ui::DatasetUIPlugin)
+            // .add_plugin(data_ui::DatasetUIPlugin)
             .add_plugin(train_ui::TrainUIPlugin)
             .add_system_set(SystemSet::on_update(AppState::Menu).with_system(menu_ui))
             .add_system_set(SystemSet::on_update(OperatingState::Active).with_system(should_cleanup))
@@ -40,7 +38,7 @@ impl Plugin for UIPlugin {
 fn menu_ui(
     mut egui_context: ResMut<EguiContext>,
     mut params: ResMut<UIParams>,
-    mut dataset_state: ResMut<data_ui::DatasetUI>,
+    // mut dataset_state: ResMut<data_ui::DatasetUI>,
     mut app_state: ResMut<State<AppState>>,
     op_state: ResMut<State<OperatingState>>,
 ) {
@@ -54,13 +52,14 @@ fn menu_ui(
             OpenPanel::Models => {
                 app_state.set(AppState::Models).unwrap();
             }
-            OpenPanel::Datasets => dataset_state.ui(ui),
+            // OpenPanel::Datasets => dataset_state.ui(ui),
             OpenPanel::Misc => params.update_misc(ui, op_state), // force kill option
             OpenPanel::Trainer => {
                 // stupid hack, as if open_panel is ever Trainer, then the training menu system will get stuck trying to go back
                 params.open_panel = prev_panel;
                 app_state.set(AppState::Trainer).unwrap()
             }
+            _ => {}
         }
     });
 }
@@ -71,7 +70,7 @@ fn handle_pane_options(ui: &mut egui::Ui, panel: &mut OpenPanel) {
         // The three possible states for the ui to be in,
         // selecting "Train" switches to the Trainer app state
         ui.selectable_value(panel, OpenPanel::Models, "Models");
-        ui.selectable_value(panel, OpenPanel::Datasets, "Datasets");
+        // ui.selectable_value(panel, OpenPanel::Datasets, "Datasets");
         ui.selectable_value(panel, OpenPanel::Misc, "Misc");
         ui.selectable_value(panel, OpenPanel::Trainer, "Train Environment");
     });

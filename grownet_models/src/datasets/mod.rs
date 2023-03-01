@@ -13,9 +13,9 @@ pub mod data;
 pub mod mnist;
 pub mod transforms;
 
-use super::Configure;
+// use super::Configure;
 
-pub trait DatasetBuilder: Configure {
+pub trait DatasetBuilder {
     type Dataset: Dataset;
     fn build_train(&self) -> Result<Self::Dataset>;
     fn build_test(&self) -> Option<Result<Self::Dataset>>;

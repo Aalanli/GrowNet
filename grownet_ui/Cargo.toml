@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 grownet_models = { path = "../grownet_models" }
-grownet_macros = { path = "../grownet_macros" }
+# grownet_macros = { path = "../grownet_macros" }
 num = "0.4"
 ndarray = "0.15.0"
 rand = "0.8.5"

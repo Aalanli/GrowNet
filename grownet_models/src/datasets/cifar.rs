@@ -8,7 +8,6 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use super::data::{ImClassify, Image};
-use super::Configure;
 use super::Transform;
 use super::{Dataset, DatasetBuilder};
 

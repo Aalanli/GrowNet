@@ -1,7 +1,6 @@
 use bevy_egui::egui;
 use bevy::prelude::Component;
 
-use crate::UI;
 use model_lib::{Config, Options};
 
 mod run_data;
@@ -30,53 +29,53 @@ pub use plots::{
     PlotViewerV1,  // The Ui to show the plots
 };
 
-impl UI for Config {
-    fn ui(&mut self, ui: &mut egui::Ui) {
-        for (k, v) in self.iter_mut() {
-            match v {
-                Options::BOOL(i) => {
-                    ui.checkbox(i, k);
-                }
-                Options::INT(i) => {
-                    ui.horizontal(|ui| {
-                        ui.label(k);
-                        ui.add(egui::DragValue::new(i).speed(0.1));
+
+pub fn config_ui_adjust(config: &mut Config, ui: &mut egui::Ui) {
+    for (k, v) in config.iter_mut() {
+        match v {
+            Options::BOOL(i) => {
+                ui.checkbox(i, k);
+            }
+            Options::INT(i) => {
+                ui.horizontal(|ui| {
+                    ui.label(k);
+                    ui.add(egui::DragValue::new(i).speed(0.1));
+                });
+            }
+            Options::FLOAT(i) => {
+                ui.horizontal(|ui| {
+                    ui.label(k);
+                    ui.add(egui::DragValue::new(i).speed(0.1));
+                });
+            }
+            Options::STR(i) => {
+                ui.add(egui::TextEdit::singleline(i).hint_text(k));
+            }
+            Options::PATH(i) => {
+                let mut str = i.to_str().unwrap().to_string();
+                ui.add(egui::TextEdit::singleline(&mut str).hint_text(k));
+                *i = str.into();
+            }
+            Options::CONFIG(c) => {
+                ui.horizontal(|ui| {
+                    // indent
+                    ui.label("  ");
+                    ui.vertical(|ui| {
+                        egui::CollapsingHeader::new(k)
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                config_ui_adjust(c, ui);
+                            });
                     });
-                }
-                Options::FLOAT(i) => {
-                    ui.horizontal(|ui| {
-                        ui.label(k);
-                        ui.add(egui::DragValue::new(i).speed(0.1));
-                    });
-                }
-                Options::STR(i) => {
-                    ui.add(egui::TextEdit::singleline(i).hint_text(k));
-                }
-                Options::PATH(i) => {
-                    let mut str = i.to_str().unwrap().to_string();
-                    ui.add(egui::TextEdit::singleline(&mut str).hint_text(k));
-                    *i = str.into();
-                }
-                Options::CONFIG(c) => {
-                    ui.horizontal(|ui| {
-                        // indent
-                        ui.label("  ");
-                        ui.vertical(|ui| {
-                            egui::CollapsingHeader::new(k)
-                                .default_open(true)
-                                .show(ui, |ui| {
-                                    c.ui(ui);
-                                });
-                        });
-                    });
-                }
+                });
             }
         }
     }
 }
 
+
 /// Only show through the ui, don't change anything
-pub fn immutable_show(config: &Config, ui: &mut egui::Ui) {
+pub fn config_ui_show(config: &Config, ui: &mut egui::Ui) {
     for (k, v) in config.iter() {
         match v {
             Options::BOOL(i) => {
@@ -102,7 +101,7 @@ pub fn immutable_show(config: &Config, ui: &mut egui::Ui) {
                         egui::CollapsingHeader::new(k)
                             .default_open(true)
                             .show(ui, |ui| {
-                                immutable_show(c, ui);
+                                config_ui_show(c, ui);
                             });
                     });
                 });

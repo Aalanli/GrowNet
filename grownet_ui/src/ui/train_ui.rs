@@ -13,8 +13,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use model_lib::models::{self, TrainRecv};
 use model_lib::Config;
 
-use crate::{Configure, UI, ops, CONFIG_PATH, RUN_DATA_PATH};
-use crate::run_systems::{self as run, immutable_show, ModelPlots, PlotViewerV1};
+use crate::{ops, config_ui_adjust, CONFIG_PATH, RUN_DATA_PATH};
+use crate::run_systems::{self as run, config_ui_show, ModelPlots, PlotViewerV1};
 use run::{Models, Despawn, Kill, Spawn, SpawnRun};
 use super::{AppState, OperatingState, OpenPanel, UIParams, handle_pane_options};
 
@@ -348,7 +348,7 @@ impl ConfigEnviron {
                     });
                     egui::ScrollArea::vertical().id_source("configs").show(ui, |ui| {
                         ui.label(format!("v{}", self.version_num));
-                        self.config.ui(ui);
+                        config_ui_adjust(&mut self.config, ui);
                     });
                 });
                 
