@@ -3,6 +3,84 @@ use arrayfire::*;
 use arrayfire as af;
 use super::{Float, Param, utils::{ones, zeros}};
 
+fn af_batchnorm2d_forward<T: Float>(
+    input: &Array<T>, 
+    momentum: T,
+    eps: T,
+    mean: &Array<T>,
+    variance: &Array<T>,
+    gamma: &Array<T>,
+    beta: &Array<T>
+) -> [Array<T>; 5] {    
+    let input: &Array<T> = &*input;
+    let mut flat = reorder_v2(&input, 0, 1, Some(vec![3, 2]));
+    flat = moddims(&flat, Dim4::new(&[flat.elements() as u64 / flat.dims().get()[3], flat.dims().get()[3], 1, 1]));
+    let mean = af::mean(&flat, 0);
+    let var = var_v2(&flat, VarianceBias::POPULATION, 0);
+    //self.mb_mean = reorder(&mean, Dim4::new(&[0, 2, 1, 3]));
+    let mb_mean = reorder_v2(&mean, 0, 2, Some(vec![1, 3]));
+    //self.mb_variance = reorder(&var, Dim4::new(&[0, 2, 1, 3]));
+    let mb_variance = reorder_v2(&var, 0, 2, Some(vec![1, 3]));
+    mb_mean.eval();
+    mb_variance.eval();
+
+    // Update the training set mean and variance using running averages
+    let vt: T = T::from(1.0).sub(momentum);
+    let pt: T = momentum.into();
+    let new_mean = mul(&pt, &mean, false) + &mb_mean * vt;
+    let new_variance = mul(&pt, variance, false) + &mb_variance * vt;
+    new_mean.eval();
+    new_variance.eval();
+
+    let eps: T = eps.into();
+    let normalized_input = div(&sub(input, &mb_mean, true), &sqrt(&add(&mb_variance, &eps, true)), true);
+    normalized_input.eval();
+
+    let out = add(&mul(gamma, &normalized_input, true), beta, true);
+
+    let normalized_input = normalized_input;
+    let mb_variance = mb_variance;
+
+    [out, new_mean, new_variance, normalized_input, mb_variance]
+}
+
+fn af_batchnorm2d_backward<T: Float>(
+    dz: &Array<T>,
+    mb_variance: &Array<T>,
+    normalized_input: &Array<T>,
+    eps: T,
+    new_variance: &Array<T>,
+    gamma: &Array<T>,
+) -> [Array<T>; 3] {
+    let dgamma = sum(&sum(&sum(&mul(dz, &*normalized_input, true), 3), 1), 0);
+    let dbeta = sum(&sum(&sum(dz, 3), 1), 0);
+
+    // Compute the derivative of the loss wrt the variance
+    // c1 corresponds to: input - mb_mean
+    let c1 = mul(&*normalized_input, &sqrt(&add(&*mb_variance, &eps, true)), true);
+    // c2 corresponds to: sqrt(variance + eps)
+    let c2 = sqrt(&add(&*mb_variance, &eps, true));
+    let fac = mul(&div(gamma, &T::from(-2.0), true), &pow(&c2, &T::from(-3.0), true), true);
+    let dmb_variance = mul(&sum(&mul(dz, &c1, true), 3), &fac, true);
+
+    // Compute the derivative of the loss wrt the mean
+    let term1 = mul(&sum(&dz, 3), &sub(&T::zero(), &div(gamma, &c2, true), true), true);
+    let term2 = mul(&dmb_variance, &af::mean(&mul(&T::from(-2.0), &c1, true), 3), true);
+    let dmb_mean = add(&term1, &term2, true);
+
+    // Compute the derivative of the loss wrt the normalized input
+    let dnormalized_input = mul(dz, gamma, true);
+
+    // Compute and return the derivative of the loss wrt the input
+    let term1 = mul(&dnormalized_input, &div(&T::one(), &sqrt(new_variance), true), true);
+    let m = (normalized_input.dims()[3] as f32).into();
+    let term2 = mul(&dmb_variance, &mul(&T::from(2.0).div(m), &c1, true), true);
+    let term3 = div(&dmb_mean, &m, true);
+    let dout = add(&term1, &add(&term2, &term3, true), true);
+
+    [dout, dgamma, dbeta]
+}
+
 pub struct BatchNorm2D<T: Float> {
     mean: Array<T>,
     variance: Array<T>,

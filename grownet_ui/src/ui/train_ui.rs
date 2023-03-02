@@ -268,11 +268,12 @@ pub struct TrainingUI {
 
 impl Default for TrainingUI {
     fn default() -> Self {
-        Self { 
-            baseline: ConfigEnviron::new("baseline",models::baseline::baseline_config()), 
-            model: run::Models::BASELINE,
-            run_ids: HashSet::new()
-        }
+        // Self { 
+        //     baseline: ConfigEnviron::new("baseline",models::baseline::baseline_config()), 
+        //     model: run::Models::BASELINE,
+        //     run_ids: HashSet::new()
+        // }
+        todo!()
     }
 }
 

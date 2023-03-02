@@ -1,7 +1,5 @@
 /////////////////////////////////////////////////////////////////////////////////////////
 /// The Data types that the datasets output and transforms input.
-use tch;
-
 use crate::ops;
 use anyhow::Result;
 use ndarray::prelude::*;
@@ -12,17 +10,6 @@ pub struct Image {
     pub image: Array4<f32>,
 }
 
-pub struct ImageTch {
-    pub image: tch::Tensor,
-}
-
-impl Clone for ImageTch {
-    fn clone(&self) -> Self {
-        ImageTch {
-            image: self.image.copy(),
-        }
-    }
-}
 
 /// The data point associated with the image detection task, this is the type which
 /// gets fed into the model
@@ -30,11 +17,6 @@ impl Clone for ImageTch {
 pub struct ImClassify {
     pub image: Image,
     pub label: Vec<u32>,
-}
-
-pub struct ImClassifyTch {
-    pub image: ImageTch,
-    pub label: tch::Tensor,
 }
 
 // pub struct ObjDetectionDataPoint;

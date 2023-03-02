@@ -23,8 +23,6 @@ ndarray-rand = "0.14.0"
 rand = "0.8.5"
 rand_distr = "0.4.3"
 crossbeam = "0.8.2"
-tch = "0.10.2"
-#dfdx = { git = "https://github.com/coreylowman/dfdx", features = ["cuda", "nightly"] }
 smallvec = "1.10.0"
 anyhow = "1.0"
 serde = "1.0.147"

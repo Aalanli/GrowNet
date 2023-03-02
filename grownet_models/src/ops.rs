@@ -5,7 +5,6 @@ use anyhow::{Error, Result};
 use ndarray::prelude::*;
 use ndarray_rand::{rand, rand_distr::Normal, RandomExt};
 use num::{complex::ComplexFloat, Float};
-use tch::Tensor;
 
 const EPSILON: f32 = 1e-5;
 
@@ -255,46 +254,6 @@ fn gradcheck_softmax() {
 
 fn maximum<T: Float, D: Dimension>(a: &ArrayView<T, D>) -> T {
     a.fold(-T::max_value(), |a, b| a.max((*b).abs()))
-}
-
-/// Converts an image tensor NCWH to an image array of shape NWHC
-pub fn convert_image_tensor(t: &Tensor) -> Result<Array<f32, Ix4>> {
-    let dims: Vec<_> = t.size().iter().map(|x| *x as usize).collect();
-    if dims.len() != 4 || dims[1] != 3 {
-        return Err(Error::msg("tensor shape, expect NCWH"));
-    }
-    let t = t
-        .to_device(tch::Device::Cpu)
-        .to_dtype(tch::Kind::Float, false, true);
-    // convert to channels last
-    let t = t.permute(&[0, 2, 3, 1]);
-    let ptr = t.as_ptr() as *const f32;
-    let arr = unsafe {
-        ArrayView4::<f32>::from_shape_ptr((dims[0], dims[1], dims[2], dims[3]), ptr).to_owned()
-    };
-    Ok(arr)
-}
-
-pub fn convert_image_array(a: &ArrayView4<f32>) -> Result<Tensor> {
-    let slice = if let Some(a) = a.as_slice() {
-        a
-    } else {
-        return Err(Error::msg("array should be contiguous"));
-    };
-    let dim = a.dim();
-    let ts =
-        Tensor::of_slice(slice).reshape(&[dim.0 as i64, dim.1 as i64, dim.2 as i64, dim.3 as i64]);
-    Ok(ts)
-}
-
-/// user must ensure that internal type of tensor match T
-pub unsafe fn ts_to_vec<T: Clone>(t: &Tensor) -> Vec<T> {
-    let t = t.to_device(tch::Device::Cpu);
-    let len = t.size().iter().fold(1, |x, y| x * y) as usize;
-    let ptr = t.as_ptr() as *const T;
-
-    let s = &*std::ptr::slice_from_raw_parts(ptr, len);
-    s.to_vec()
 }
 
 /// Assumes that all the 3d arrays have the same size, this function

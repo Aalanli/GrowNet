@@ -101,11 +101,12 @@ pub fn baseline_spawn_fn(version_num: usize, config: Config) -> (Box<dyn FnOnce(
     let run_info = runinfo.clone();
     let spawn_fn = Box::new(move |commands: &mut Commands| -> Result<Entity> {
         let config = config;
-        run::models::baseline::build(&config).map(|x| {
-            let env = BaseTrainProcess(x);
-            let id = commands.spawn((run_info, env)).id();
-            id
-        })
+        // run::models::baseline::build(&config).map(|x| {
+        //     let env = BaseTrainProcess(x);
+        //     let id = commands.spawn((run_info, env)).id();
+        //     id
+        // })
+        todo!()
     });
     (spawn_fn, runinfo)
 }
