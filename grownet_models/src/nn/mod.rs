@@ -1,1 +1,2 @@
-pub mod cpu_ops;
+pub mod ops;
+pub mod parts;

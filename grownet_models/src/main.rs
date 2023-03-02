@@ -1,34 +1,81 @@
-use tch::{kind, Tensor};
-
-fn grad_example() {
-    let mut x = Tensor::from(2.0).set_requires_grad(true);
-    let y = &x * &x + &x + 36;
-    println!("{}", y.double_value(&[]));
-    x.zero_grad();
-    y.backward();
-    let dy_over_dx = x.grad();
-    println!("{}", dy_over_dx.double_value(&[]));
-}
+use af::{dim4, Array};
+use arrayfire::{self as af};
 
 fn main() {
-    tch::maybe_init_cuda();
-    let t = Tensor::of_slice(&[3, 1, 4, 1, 5]);
-    t.print();
-    let t = Tensor::randn(&[5, 4], kind::FLOAT_CUDA);
-    t.print();
-    (&t + 1.5).print();
-    (&t + 2.5).print();
-    let mut t = Tensor::of_slice(&[1.1f32, 2.1, 3.1]);
-    t += 42;
-    t.print();
-    println!("{:?} {}", t.size(), t.double_value(&[1]));
-    grad_example();
-    println!("Cuda available: {}", tch::Cuda::is_available());
-    println!("Cudnn available: {}", tch::Cuda::cudnn_is_available());
-    println!("{}", t);
-    let t = Tensor::randn(&[1000], kind::FLOAT_CUDA);
-    println!("{}", t);
-    let t = Tensor::randn(&[1000, 1000], kind::FLOAT_CUDA);
-    println!("{}", t);
-    println!("{}", t * 100)
+    af::set_backend(af::Backend::CPU);
+    let mut a = af::diag_create::<f32>(&af::randn(dim4!(5)), 0);
+    
+    af::print(&a);
+    println!("{:?}", af::any_true_all(&a));
+}
+
+#[cfg(test)]
+mod test {
+    use model_lib::nn::ops::activations::*;
+    use arrayfire::*;
+    use arrayfire as af;
+    use std::rc::Rc;
+    #[test]
+    fn test_close() {
+        let a: Array<f64> = randn(dim4!(3, 3, 3));
+        let b = randn(dim4!(3, 3, 3));
+        assert!(is_close(&a, &a, None, None));
+        assert!(!is_close(&a, &b, None, None));
+    }
+
+    #[test]
+    fn test_jacobian_linear() {
+        af::set_backend(Backend::CPU);
+        let x = randn::<f64>(dim4!(64));
+        let f = |x: &Array<f64>| {
+            x * 3.0
+        };
+        let jac = compute_jacobian(x, 1e-6, f);
+        let analytical = diag_create(&constant(3.0, dim4!(64)), 0);
+        assert!(is_close(&analytical, &jac, None, None));
+    }
+
+    #[test]
+    fn test_jacobian_pointwise() {
+        af::set_backend(Backend::CPU);
+        let x = randn::<f64>(dim4!(64));
+        let f = |x: &Array<f64>| {
+            x * 3.0 + sin(&x) * exp(&x)
+        };
+        let jac = compute_jacobian(x.clone(), 1e-6, f);
+        let ajac = 3.0 + (cos(&x) + sin(&x)) * exp(&x);
+        let analytical = diag_create(&ajac, 0);
+        assert!(is_close(&analytical, &jac, None, None));
+    }
+
+    #[test]
+    fn test_gradcheck_linear() {
+        af::set_backend(Backend::CPU);
+        let x = randn::<f64>(dim4!(64));
+        let f = |x: &Array<f64>| {
+            let f = |g: &Array<f64>| {
+                constant(3.0, g.dims()) * g
+            };
+            (x * 3.0, f)
+        };
+
+        grad_check(x, 1e-6, None, None, f);
+    }
+
+    fn pointwise_forward(x: &Array<f64>) -> (Array<f64>, impl FnMut(&Array<f64>) -> Array<f64>) {
+        let xs = Rc::new(x.clone());
+        let df = move |g: &Array<f64>| {
+            g * (3.0 + (cos(&*xs) + sin(&xs)) * exp(&xs))
+        };
+        
+        (x * 3.0 + sin(&x) * exp(&x), df)
+    }
+    #[test]
+    fn test_gradcheck_pointwise() {
+        af::set_backend(Backend::CPU);
+        let x = randn::<f64>(dim4!(64));
+
+        grad_check(x, 1e-6, None, None, pointwise_forward);
+    }
+
 }
