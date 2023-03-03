@@ -50,6 +50,8 @@ impl MaxPool2D {
     }
 
     pub fn forward<T: Float>(&self, x: &Array<T>) -> (Array<T>, impl Fn(&Array<T>) -> Array<T>) {
+        assert!(x.dims()[0] >= self.kernel_size[0] && x.dims()[1] >= self.kernel_size[1], 
+            "image size {}x{} too small for filter {}x{}", x.dims()[0], x.dims()[1], self.kernel_size[0], self.kernel_size[1]);
         let (output, row_ind, col_ind, _) = self.max_pool(x);
 
         let row_ind = row_ind;

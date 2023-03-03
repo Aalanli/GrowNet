@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use arrayfire::*;
+use arrayfire as af;
 
 use super::{Param, Float, init};
 
@@ -20,10 +21,10 @@ impl<T: Float> Linear<T> {
     }
 
     /// expect x to be [in_dim, H, ...], outputs [out_dim, H, ...]
-    pub fn forward(&self, x: &Array<T>) -> (Array<T>, impl FnMut(&mut Self, &Array<T>) -> Array<T>) {
+    pub fn forward(&self, x: &Array<T>) -> (Array<T>, impl Fn(&mut Self, &Array<T>) -> Array<T>) {
         let y = matmul(&self.w.w, &x, MatProp::NONE, MatProp::NONE);
         let y = if let Some(b) = &self.bias {
-            y + &b.w
+            add(&y, &b.w, true)
         } else {
             y
         };
@@ -44,3 +45,11 @@ impl<T: Float> Linear<T> {
     }
 }
 
+#[test]
+fn test_linear() {
+    let x = randn!(512, 4);
+    let mut lin = Linear::new(512, 10, true);
+
+    let (y, df) = lin.forward(&x);
+    df(&mut lin, &y);
+}

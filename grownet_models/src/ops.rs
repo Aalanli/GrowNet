@@ -132,7 +132,7 @@ pub fn st_dev<T: Float>(x: &[T], mu: Option<T>) -> T {
     std
 }
 
-pub fn st_dev_nd<T: Float>(x: &Array1<T>, mu: Option<T>) -> Array1<T> {
+pub fn st_dev_nd<T: Float>(x: &Array1<T>, _mu: Option<T>) -> Array1<T> {
     //let mu = mu.map_or_else(|| mean(x.as_slice().unwrap()), |x| x);
     let mut std = x.iter().fold(T::zero(), |x, y| x + y.powi(2));
     std = std / T::from(x.len()).unwrap();

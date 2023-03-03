@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use af::{Dim4, Array};
 use arrayfire::{self as af, dim4, HasAfEnum};
-use super::{Param, Float, init, RcArray};
+use super::{Param, Float, init};
 
 pub struct Conv2d<T: Float> {
     filter: Param<T>,
@@ -35,7 +35,7 @@ impl<T: Float> Conv2d<T> {
             pad: padding }
     }
 
-    pub fn forward(&self, x: &Rc<Array<T>>) -> (Rc<Array<T>>, impl FnMut(&mut Self, &Array<T>) -> Array<T>) {
+    pub fn forward(&self, x: &Array<T>) -> (Array<T>, impl Fn(&mut Self, &Array<T>) -> Array<T>) {
         let y = af::convolve2_nn(&x, &self.filter.w, 
             dim4!(self.stride[1], self.stride[0]), dim4!(self.pad[1], self.pad[0]), dim4!(1));
         
@@ -44,7 +44,7 @@ impl<T: Float> Conv2d<T> {
         } else {
             y
         };
-        let y = Rc::new(y);
+        let y = y;
         let y1 = y.clone();
         let x1 = x.clone();
         let back_fn = move |s: &mut Conv2d<T>, grad: &Array<T>| {

@@ -9,12 +9,15 @@ pub mod linear;
 pub mod maxpool;
 pub mod activations;
 pub mod batchnorm2d;
-pub mod instancenorm2d;
+pub mod instancenorm;
 pub mod utils;
+pub mod array_ops;
 
 use initializer as init;
 
-pub type RcArray<T> = Array<T>;
+pub use utils::{ones, zeros};
+pub use array_ops::{reshape, reduce_sum};
+
 
 pub struct Param<T: Float> {
     w: Array<T>,

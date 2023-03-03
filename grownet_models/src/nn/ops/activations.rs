@@ -3,7 +3,7 @@ use std::rc::Rc;
 use arrayfire::{self as af, dim4, Array};
 use super::Float;
 
-pub fn relu<T: Float>(a: &Array<T>) -> (Array<T>, impl FnMut(&Array<T>) -> Array<T>) {
+pub fn relu<T: Float>(a: &Array<T>) -> (Array<T>, impl Fn(&Array<T>) -> Array<T>) {
     let aref: &Array<T> = &*a;
     let y = af::maxof(&af::constant(T::zero(), dim4!(1)), aref, true);
 
