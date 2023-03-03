@@ -52,33 +52,33 @@ impl<T: Float> Initializer<T> {
         match self {
             Initializer::Constant(x) => constant(x, dims),
             Initializer::GlorotNormal => {
-                let standard_deviation = (2. / (fan_out + fan_in) as f32).sqrt();
+                let standard_deviation = T::from(2. / (fan_out + fan_in) as f32).unwrap().sqrt();
                 utils::scaled_normal(T::zero(), standard_deviation.into(), dims)
             },
             Initializer::GlorotUniform => {
-                let limit = (6. / (fan_out + fan_in) as f32).sqrt();
+                let limit = T::from(6. / (fan_out + fan_in) as f32).unwrap().sqrt();
                 utils::scaled_uniform((-limit).into(), limit.into(), dims)
             },
             Initializer::HeNormal => {
-                let standard_deviation = (2. / fan_in as f32).sqrt();
+                let standard_deviation = T::from(2. / fan_in as f32).unwrap().sqrt();
                 utils::scaled_normal(T::zero(), standard_deviation.into(), dims)
             },
             Initializer::HeUniform => {
-                let limit = (6. / fan_in as f32).sqrt();
+                let limit = T::from(6. / fan_in as f32).unwrap().sqrt();
                 utils::scaled_uniform((-limit).into(), limit.into(), dims)
             },
             Initializer::LecunNormal => {
-                let standard_deviation = (1. / fan_in as f32).sqrt();
+                let standard_deviation = T::from(1. / fan_in as f32).unwrap().sqrt();
                 utils::scaled_normal(T::zero(), standard_deviation.into(), dims)
             },
             Initializer::LecunUniform => {
-                let limit = (3. / fan_in as f32).sqrt();
+                let limit = T::from(3. / fan_in as f32).unwrap().sqrt();
                 utils::scaled_uniform((-limit).into(), limit.into(), dims)
             },
-            Initializer::Normal => utils::scaled_normal(T::zero(), (0.01).into(), dims),
+            Initializer::Normal => utils::scaled_normal(T::zero(), T::from(0.01).unwrap().into(), dims),
             Initializer::NormalScaled(mean, standard_deviation) => utils::scaled_normal(mean, standard_deviation, dims),
             Initializer::Ones => utils::ones(dims),
-            Initializer::Uniform => utils::scaled_uniform((-0.01).into(), (0.01).into(), dims),
+            Initializer::Uniform => utils::scaled_uniform(T::from(-0.01).unwrap().into(), T::from(0.01).unwrap().into(), dims),
             Initializer::UniformBounded(lb, ub) => utils::scaled_uniform(lb, ub, dims),
             Initializer::Zeros => utils::zeros(dims),
         }

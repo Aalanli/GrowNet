@@ -132,6 +132,35 @@ pub fn st_dev<T: Float>(x: &[T], mu: Option<T>) -> T {
     std
 }
 
+pub fn st_dev_nd<T: Float>(x: &Array1<T>, mu: Option<T>) -> Array1<T> {
+    //let mu = mu.map_or_else(|| mean(x.as_slice().unwrap()), |x| x);
+    let mut std = x.iter().fold(T::zero(), |x, y| x + y.powi(2));
+    std = std / T::from(x.len()).unwrap();
+    std = std.sqrt();
+    Array1::from_elem(1, std)
+}
+
+pub fn d_stdev<T: Float>(grad: &Array1<T>, x: &Array1<T>) -> Array1<T> {
+    let stdev = st_dev_nd(x, None);
+    let elem = stdev[0];
+    let n = T::from(x.dim() as f32).unwrap();
+    x.map(|x| grad[0] * *x / (n * elem))
+}
+
+#[test]
+fn test_dstdev() {
+    let x = Array1::random(16, Normal::new(0.0, 1.0).unwrap());
+    let f = |x: &Array1<f64>| {
+        st_dev_nd(x, None)
+    };
+    let x1 = x.clone();
+    let df = |grad: &Array1<f64>| {
+        d_stdev(grad, &x1)
+    };
+
+    grad_check(x, f, df, None, None, None).unwrap();
+}
+
 pub fn normalize<T: Float>(x: &[T], y: &mut [T], mu: Option<T>, std: Option<T>) -> (T, T) {
     let mu = mu.map_or_else(|| mean(x), |x| x);
     let std = std.map_or_else(|| st_dev(x, Some(mu)), |x| x);

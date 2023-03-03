@@ -20,7 +20,7 @@ impl<T: Float> Linear<T> {
     }
 
     /// expect x to be [in_dim, H, ...], outputs [out_dim, H, ...]
-    pub fn forward(&self, x: &Rc<Array<T>>) -> (Rc<Array<T>>, impl FnMut(&mut Self, &Array<T>) -> Array<T>) {
+    pub fn forward(&self, x: &Array<T>) -> (Array<T>, impl FnMut(&mut Self, &Array<T>) -> Array<T>) {
         let y = matmul(&self.w.w, &x, MatProp::NONE, MatProp::NONE);
         let y = if let Some(b) = &self.bias {
             y + &b.w
@@ -40,7 +40,7 @@ impl<T: Float> Linear<T> {
             }
             dx
         };
-        (Rc::new(y), back_fn)
+        (y, back_fn)
     }
 }
 

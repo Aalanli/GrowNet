@@ -67,3 +67,71 @@ impl<T: Float> Conv2d<T> {
         (y, back_fn)
     }
 }
+
+#[test]
+fn gradcheck_conv2d() {
+    use super::utils::grad_check;
+    use af::*;
+    set_backend(Backend::CPU);
+    let x = randn::<f64>(dim4!(24, 24, 3, 1));
+    let w = randn::<f64>(dim4!(3, 3, 3, 8));
+    let b = randn::<f64>(dim4!(1, 1, 8, 1));
+
+    let stride = [2, 2];
+    let pad = [1, 1];
+    // let dilation = [1, 1];
+    let fn_dx = |x: &Array<f64>| {
+        let y = af::convolve2_nn(&x, &w, 
+            dim4!(stride[1], stride[0]), dim4!(pad[1], pad[0]), dim4!(1));
+        
+        let y = add(&y, &b, true);
+        let y1 = y.clone();
+        let w1 = w.clone();
+        let x1 = x.clone();
+        let back = move |grad: &Array<f64>| {
+            let dx = af::convolve2_gradient_nn(
+                grad, &x1, &w1, &y1, 
+                dim4!(stride[1], stride[0]), dim4!(pad[1], pad[0]), dim4!(1), af::ConvGradientType::DATA);
+            dx
+        };
+        (y, back)
+    };
+
+    let fn_dw = |w: &Array<f64>| {
+        let y = af::convolve2_nn(&x, &w, 
+            dim4!(stride[1], stride[0]), dim4!(pad[1], pad[0]), dim4!(1));
+        
+        let y = add(&y, &b, true);
+        let y1 = y.clone();
+        let w1 = w.clone();
+        let x1 = x.clone();
+        let back = move |grad: &Array<f64>| {
+            let dx = af::convolve2_gradient_nn(
+                grad, &x1, &w1, &y1, 
+                dim4!(stride[1], stride[0]), dim4!(pad[1], pad[0]), dim4!(1), af::ConvGradientType::FILTER);
+            dx
+        };
+        (y, back)
+    };
+
+    let fn_db = |b: &Array<f64>| {
+        let y = af::convolve2_nn(&x, &w, 
+            dim4!(stride[1], stride[0]), dim4!(pad[1], pad[0]), dim4!(1));
+        
+        let y = add(&y, b, true);
+        let back = move |grad: &Array<f64>| {
+            let reordered = af::reorder_v2(&grad, 0, 1, Some(vec![3, 2]));
+            let dim = reordered.dims();
+            let flattened = af::moddims(&reordered, dim4!(dim[0] * dim[1] * dim[2], 1, dim[3]));
+            let db = af::sum(&flattened, 0);
+            //println!("{}", db.dims());
+            db
+        };
+        (y, back)
+    };
+
+
+    grad_check(x.clone(), None, None, None, fn_dx);
+    grad_check(w.clone(), None, None, None, fn_dw);
+    grad_check(b.clone(), None, None, None, fn_db);
+}

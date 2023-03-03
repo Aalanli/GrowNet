@@ -4,6 +4,7 @@ use std::rc::Rc;
 use arrayfire::*;
 use super::Float;
 
+#[derive(Clone)]
 pub struct MaxPool2D {
     kernel_size: [u64; 2],
     stride: [u64; 2]
@@ -48,12 +49,14 @@ impl MaxPool2D {
         (output, row_indices, col_indices, output_shape)
     }
 
-    pub fn forward<T: Float>(&self, x: &Rc<Array<T>>) -> (Rc<Array<T>>, impl FnMut(&Self, &Array<T>) -> Array<T>) {
+    pub fn forward<T: Float>(&self, x: &Array<T>) -> (Array<T>, impl Fn(&Array<T>) -> Array<T>) {
         let (output, row_ind, col_ind, _) = self.max_pool(x);
 
-        let row_ind = Rc::new(row_ind);
-        let col_ind = Rc::new(col_ind);
-        let back_fn = move |s: &Self, grad: &Array<T>| {
+        let row_ind = row_ind;
+        let col_ind = col_ind;
+        let s = self.clone();
+        let input_shape = x.dims();
+        let back_fn = move |grad: &Array<T>| {
             let batch_size = grad.dims().get()[3];
             let flat_input = flat(&*grad);
             let sparse = sparse(s.kernel_size[0] * s.kernel_size[1], grad.elements() as u64, &flat_input, &row_ind, &col_ind, SparseFormat::COO);
@@ -61,9 +64,24 @@ impl MaxPool2D {
             let num_channels = grad.dims()[2];
             let num_cols = dense.dims().get()[1] / (num_channels * batch_size);
             dense = moddims(&dense, Dim4::new(&[dense.dims().get()[0], num_cols, num_channels, batch_size]));
-            wrap(&dense, grad.dims().get()[0] as i64, grad.dims().get()[1] as i64, s.kernel_size[0] as i64, s.kernel_size[1] as i64, s.stride[0] as i64, s.stride[1] as i64, 0, 0, true)
+            wrap(&dense, input_shape.get()[0] as i64, input_shape.get()[1] as i64, s.kernel_size[0] as i64, s.kernel_size[1] as i64, s.stride[0] as i64, s.stride[1] as i64, 0, 0, true)
         };
 
-        (Rc::new(output), back_fn)
+        (output, back_fn)
     }
+}
+
+#[test]
+fn gradcheck_maxpool() {
+    set_backend(Backend::CPU);
+    use super::utils::grad_check;
+    let x = randn::<f64>(dim4!(16, 16, 3, 1));
+    let pool = MaxPool2D::new([2, 2], [1, 1]);
+    // let (y, f) = pool.forward(&x);
+    // f(&y);
+    let f = |x: &Array<f64>| {
+        pool.forward(x)
+    };
+    grad_check(x, None, None, None, f);
+
 }

@@ -22,7 +22,7 @@ pub fn zeros<T: Float>(dims: Dim4) -> Array<T> {
 }
 
 
-fn assign(a: &mut Array<f64>, i: usize, val: f64) {
+pub fn assign(a: &mut Array<f64>, i: usize, val: f64) {
     assert!(a.get_backend() == Backend::CPU);
     a.eval();
     unsafe {
@@ -68,7 +68,7 @@ pub fn compute_jacobian(x: Array<f64>, eps: f64, mut f: impl FnMut(&Array<f64>) 
         // print(&(&out1 - &out2));
 
         let dydxi = (out1 - out2) / eps2;
-        set_col(&mut jac, &dydxi, i as i64);
+        set_col(&mut jac, &flat(&dydxi), i as i64);
         assign(&mut x, i, orig);
     }
 
@@ -103,8 +103,15 @@ where FB: FnMut(&Array<f64>) -> Array<f64>
         let analytical = flat(&grad_fn(&grad));
         let numerical = flat(&row(&jacobian, i as i64));
         if !is_close(&numerical, &analytical, atol, rtol) {
-            af::print(&jacobian);
-            panic!("jacobian mismatch on row {}", i);
+            println!("jacobian mismatch on row {}", i);
+            println!("numerical | analytical");
+            let cat = join(1, &numerical, &analytical);
+            af::print(&cat);
+            if jacobian.elements() < 64 {
+                println!("full jacobian");
+                af::print(&jacobian);
+            }
+            panic!();
         }
         assign(&mut grad, i, 0.0);
     }

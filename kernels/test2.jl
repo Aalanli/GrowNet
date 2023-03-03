@@ -1,41 +1,29 @@
-function transpose_test(a::AbstractArray, i, j)
-    st_i = stride(a, i)
-    st_j = stride(a, j)
-    dims = size(a)
+using Zygote
 
-    for i = 0:dims[i]-1
-        for j = i:dims[j]-1
-            p = a[i * st_i + j * st_j + 1]
-            a[i * st_i + j * st_j + 1] = a[i * st_j + j * st_i + 1]
-            a[i * st_j + j * st_i + 1] = p
-        end
-    end
+function normalize(ci)
+    v = sum(ci .^ 2, dims=1) ./ size(ci)[1]
+    v = sqrt.(v .+ 1e-6)
+    
+    (ci ./ v, v)
 end
 
-function permute_test(a, dims)
-    for i = dims[1:end-1]
-        if dims[i] != i
-            transpose_test(a, i, dims[i])
-        end
-    end
+function my_dnormalize(grad, ci, v)
+    temp = ci .* v .^ 3 ./ size(ci)[1]
+    temp = sum(grad .* ci, dims=1) .* temp
+    dy_dci = grad .* v .- temp
+    return dy_dci
 end
 
-function test_permute()
-    a = randn(5, 5, 1)
-    b = deepcopy(a)
 
-    a = permutedims(a, [2, 1, 3])
-    #permute_test(b, [3, 2, 1])
-    transpose_test(b, 1, 2)
-    isapprox(a, b)
-end
+d_normalize(x, s) = gradient((x) -> sum(normalize(x)[1] .* s), x)
 
-function test_transpose()
-    a = randn(3, 7)
-    b = deepcopy(a)
-    a = transpose(a)
-    transpose_test(b, 1, 2)
-    b = reshape(b, (7, 3))
 
-    isapprox(a, b)
+function main()
+    ci = randn(16)
+    (norm, v) = normalize(ci)
+    gi = randn(16)
+    my_dnorm = my_dnormalize(gi, ci, v)
+    dnorm = d_normalize(ci, gi)[1]
+    println(my_dnorm)
+    println(dnorm)
 end

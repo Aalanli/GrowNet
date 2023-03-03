@@ -9,6 +9,7 @@ pub mod linear;
 pub mod maxpool;
 pub mod activations;
 pub mod batchnorm2d;
+pub mod instancenorm2d;
 pub mod utils;
 
 use initializer as init;
@@ -28,8 +29,7 @@ impl<T: Float> Param<T> {
 }
 
 pub trait Float: 
-    num::Num + 
-    From<f32> + 
+    num::Float + 
     HasAfEnum + 
     FloatingPoint + 
     ConstGenerator <
