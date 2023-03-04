@@ -3,7 +3,9 @@ use std::rc::Rc;
 use af::{Dim4, Array};
 use arrayfire::{self as af, dim4, HasAfEnum};
 use super::{Param, Float, init};
+use crate::Flatten;
 
+#[derive(Flatten)]
 pub struct Conv2d<T: Float> {
     filter: Param<T>,
     bias: Option<Param<T>>,

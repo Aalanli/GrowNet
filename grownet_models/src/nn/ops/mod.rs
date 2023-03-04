@@ -1,7 +1,9 @@
 use half::f16;
 
 use af::{ConstGenerator, FloatingPoint, RealFloating, Convertable};
-use arrayfire::{self as af, Array, HasAfEnum, dim4};
+pub use arrayfire::{self as af, Array, HasAfEnum, dim4};
+
+use crate::Flatten;
 
 pub mod initializer;
 pub mod conv;
@@ -20,14 +22,20 @@ pub use array_ops::{reshape, reduce_sum};
 
 
 pub struct Param<T: Float> {
-    w: Array<T>,
-    g: Array<T>
+    pub w: Array<T>,
+    pub g: Array<T>
 }
 
 impl<T: Float> Param<T> {
     fn new(w: Array<T>) -> Param<T> {
         let g = af::constant(T::zero(), w.dims());
         Param { w, g }
+    }
+}
+
+impl<T: Float + 'static> Flatten for Param<T> {
+    fn flatten<'a>(&'a mut self, path: String, world: &mut crate::World<'a>) {
+        world.push(path, self);
     }
 }
 
@@ -44,7 +52,8 @@ pub trait Float:
         MeanOutType = Self> + 
     Copy + 
     RealFloating + 
-    Convertable<OutType = Self> {}
+    Convertable<OutType = Self>
+    + 'static {}
 
 impl Float for f32 {}
 impl Float for f64 {}

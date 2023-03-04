@@ -2168,6 +2168,7 @@ dependencies = [
  "crossbeam",
  "derivative",
  "derive_more",
+ "grownet_macros",
  "half 2.2.1",
  "image",
  "ndarray",

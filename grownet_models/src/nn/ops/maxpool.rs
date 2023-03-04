@@ -3,8 +3,9 @@ use std::rc::Rc;
 
 use arrayfire::*;
 use super::Float;
+use crate::Flatten;
 
-#[derive(Clone)]
+#[derive(Clone, Flatten)]
 pub struct MaxPool2D {
     kernel_size: [u64; 2],
     stride: [u64; 2]

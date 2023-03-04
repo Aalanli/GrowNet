@@ -4,7 +4,9 @@ use arrayfire::*;
 use arrayfire as af;
 
 use super::{Param, Float, init};
+use crate::Flatten;
 
+#[derive(Flatten)]
 pub struct Linear<T: Float> {
     w: Param<T>,
     bias: Option<Param<T>>

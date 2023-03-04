@@ -2,11 +2,18 @@
 #![allow(unused_imports)]
 #![allow(unused_macros)]
 
-use std::path::PathBuf;
+use std::fmt::Display;
+use std::{path::PathBuf, collections::HashMap};
+use std::any::Any;
 
 use anyhow::{Context, Result};
 use ron;
 use serde::{de::DeserializeOwned, Serialize};
+use derive_more::{Deref, DerefMut};
+
+pub use grownet_macros::Flatten;
+pub mod flatten;
+pub use flatten::{Flatten, World};
 
 pub mod allocator;
 pub mod configs;
@@ -16,7 +23,6 @@ pub mod ops;
 pub use configs::{Config, Options};
 
 pub mod nn;
-
 
 
 /// Convert from idents and literals to Options

@@ -2,7 +2,9 @@ use arrayfire as af;
 use af::*;
 
 use super::{Float, Param, utils::{ones, zeros}};
+use crate::Flatten;
 
+#[derive(Flatten)]
 pub struct InstanceNorm2D<T: Float> {
     gamma: Param<T>,
     beta: Param<T>,

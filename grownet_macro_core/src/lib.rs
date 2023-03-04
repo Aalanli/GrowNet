@@ -1,85 +1,155 @@
-use anyhow::{Error, Result};
-use proc_macro2::TokenStream;
+use anyhow::{Error, Result, Context};
+use proc_macro2::{TokenStream, Span};
 use quote::quote;
 
 use syn::{parse2, Attribute, Data::Struct, DeriveInput, Fields, Generics, Ident, WhereClause};
+mod old;
 
-pub fn derive_macro_config(input: TokenStream) -> Result<TokenStream> {
-    let derive_input = parse2::<DeriveInput>(input)?;
-    let data_fields = BasicStructFields::new(derive_input)?;
-    let struct_name = data_fields.name;
-    let generics = data_fields.generics;
-    let where_clause = data_fields.where_clause;
-    let stripped_generics = data_fields.stripped_generics;
-    let named_field_idents: Vec<_> = data_fields.fields.iter().map(|x| x.0.clone()).collect();
-    let tokens = quote! {
-        impl #generics Configure for #struct_name #stripped_generics
-        #where_clause {
-            fn config(&self) -> String {
-                use std::collections::HashMap;
-                let mut configs = HashMap::<String, String>::new();
-                #(configs.insert(stringify!(#named_field_idents).to_string(), self.#named_field_idents.config());) *
-                ron::to_string(&configs).unwrap()
-            }
-            fn load_config(&mut self, config: &str) -> Result<()> {
-                use std::collections::HashMap;
-                let configs: HashMap::<String, String> = ron::from_str(config)?;
-                #(self.#named_field_idents.load_config(configs.get(stringify!(#named_field_idents)).unwrap())?;) *
-                Ok(())
-            }
-        }
-    };
-    Ok(tokens)
+use std::any::Any;
+#[derive(Default)]
+struct World<'a> {
+    objects: Vec<&'a mut dyn Any>,
+    field_path: Vec<String>,
 }
 
-pub fn derive_macro_ui(input: TokenStream) -> Result<TokenStream> {
-    let derive_input = parse2::<DeriveInput>(input)?;
-    let data_fields = BasicStructFields::new(derive_input)?;
-    let struct_name = data_fields.name;
-    let generics = data_fields.generics;
-    let where_clause = data_fields.where_clause;
-    let stripped_generics = data_fields.stripped_generics;
-    let named_field_idents: Vec<_> = data_fields.fields.iter().map(|x| x.0.clone()).collect();
-
-    let tokens = quote! {
-        impl #generics UI for #struct_name #stripped_generics
-        #where_clause {
-            fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
-                use bevy_egui::egui;
-                ui.vertical(|ui| {
-                    egui::CollapsingHeader::new(stringify!(#struct_name)).default_open(true).show(ui, |ui| {
-                        #(
-                            ui.horizontal(|ui| {
-                                ui.label(stringify!(#named_field_idents));
-                                self.#named_field_idents.ui(ui);
-                            });
-                        ) *
-                    });
-                });
-            }
-        }
-    };
-    Ok(tokens)
+trait Flatten {
+    fn flatten<'a>(&'a mut self, path: String, world: &mut World<'a>);
 }
 
-/// Filters the no_op attribute from the list of fields
-fn filter_tag_no_op(field: &syn::Field) -> Vec<Attribute> {
-    field
-        .attrs
-        .iter()
-        .filter(|x| {
-            if let Some(ident) = x.path.get_ident() {
-                if ident.to_string() != "no_op".to_string() {
-                    return true;
-                }
+/// two kinds of of attributes, one is #[flat(skip)], which does not flatten
+/// that argument, the other is #[flat(exclude)], which does not add that field
+/// into the world.
+pub fn derive_flatten(input: TokenStream) -> Result<TokenStream> {
+    let derive = parse2::<DeriveInput>(input)?;
+    let extracted_fields = extract_fields(&derive).context("failed to extract struct fields")?;
+    let SimpleDataStruct { 
+        generics, 
+        stripped_generics, 
+        where_clause, 
+        name: struct_name, 
+    } = SimpleDataStruct::new(derive)?;
+
+    let new_fields = match extracted_fields {
+        SimpleStructFields::Named(fields) => {
+            let new_fields: Result<Vec<_>> = fields.iter().map(|(id, attrs)| {
+                let attr_arg = compute_attributes(&attrs)?;
+                Ok((id.to_string(), attr_arg))
+            }).collect();
+            new_fields?
+        }
+        SimpleStructFields::Unnamed(fields) => {
+            let new_fields: Result<Vec<_>> = fields.iter().enumerate().map(|(id, attrs)| {
+                let attr_arg = compute_attributes(&attrs)?;
+                Ok((id.to_string(), attr_arg))
+            }).collect();
+            new_fields?
+        }
+        SimpleStructFields::Unit => {
+            Vec::new()
+        }
+    };
+
+    let mut commands = Vec::new();
+    for (name, opt) in new_fields[..new_fields.len() - 1].iter() {
+        let new_name = "/".to_string() + name;
+        let field_name = Ident::new(name, Span::call_site());
+        let code = match opt {
+            FlatAttrOptions::Include => {
+                quote!(
+                    self.#field_name.flatten(path.clone() + #new_name, world);
+                )
             }
-            return false;
+            FlatAttrOptions::Skip => {
+                quote!(
+                    world.push(path, self);
+                )
+            },
+            FlatAttrOptions::Exclude => {
+                quote!()
+            },
+        };
+        commands.push(code);
+    }
+    if new_fields.len() > 0 {
+        let (name, opt) = &new_fields[new_fields.len() - 1];
+        let new_name = "/".to_string() + name;
+        let field_name = Ident::new(name, Span::call_site());
+        let code = match opt {
+            FlatAttrOptions::Include => {
+                quote!(
+                    self.#field_name.flatten(path + #new_name, world);
+                )
+            },
+            FlatAttrOptions::Skip => {
+                quote!(
+                    world.push(path, self);
+                )
+            },
+            FlatAttrOptions::Exclude => {
+                quote!()
+            },
+        };
+        commands.push(code);
+    }
+
+    Ok(quote!(
+        impl #generics crate::Flatten for #struct_name #stripped_generics
+        #where_clause {
+            fn flatten<'a>(&'a mut self, path: String, world: &mut crate::World<'a>) {
+                #(#commands)*
+            }
+        }
+    ))
+}
+
+
+struct SimpleDataStruct {
+    generics: Generics,
+    stripped_generics: Generics,
+    where_clause: Option<WhereClause>,
+    name: Ident,
+}
+
+enum SimpleStructFields {
+    Named(Vec<(Ident, Vec<Attribute>)>),
+    Unnamed(Vec<Vec<Attribute>>),
+    Unit
+}
+
+fn extract_fields(derive: &DeriveInput) -> Result<SimpleStructFields> {
+    if let Struct(data) = &derive.data {
+        match &data.fields {
+            Fields::Named(fields) => {
+                let fields: Vec<_> = fields.named.iter().filter(|x| x.ident.is_some()).map(|x| {
+                    let id = x.ident.clone().unwrap();
+                    (id, x.attrs.clone())
+                }).collect();
+                Ok(SimpleStructFields::Named(fields))
+            }
+            Fields::Unnamed(fields) => {
+                let ranges: Vec<_> = fields.unnamed.iter().map(|x| x.attrs.clone()).collect();
+                Ok(SimpleStructFields::Unnamed(ranges))
+            }
+            Fields::Unit => Ok(SimpleStructFields::Unit),
+        }
+    } else {
+        return Err(Error::msg("Expected a struct"));
+    }
+}
+
+impl SimpleDataStruct {
+    fn new(derive: DeriveInput) -> Result<Self> {
+        let stripped_generics = strip_trait_bounds(&derive.generics);
+        let where_clause = derive.generics.where_clause.clone();
+        Ok(Self {
+            generics: derive.generics,
+            stripped_generics,
+            where_clause,
+            name: derive.ident,
         })
-        .map(|x| x.clone())
-        .collect()
+    }
 }
 
-/// Removes bounds on generic parameters, ex <T: Clone> is converted to <T>
 fn strip_trait_bounds(generics: &Generics) -> Generics {
     let mut generics = generics.clone();
     for g in &mut generics.params {
@@ -96,298 +166,106 @@ fn strip_trait_bounds(generics: &Generics) -> Generics {
     generics
 }
 
-struct BasicStructFields {
-    generics: Generics,
-    stripped_generics: Generics,
-    where_clause: Option<WhereClause>,
-    name: Ident,
-    fields: Vec<(TokenStream, Vec<Attribute>)>,
-    //field_type: Vec<Type>
+#[test]
+fn compute_attr_test() {
+    let basic_struct = quote!(
+        struct S {
+            #[flat(skip)]
+            a: f32,
+            #[skip]
+            b: std::rc::Rc(usize),
+            #[flat[skip]]
+            c: std::collections::Hashmap<i32, String>,
+            #[flat(exclude, skip)]
+            d: i32,
+            #[flat]
+            f: i32,
+            #[flat(exclude)]
+            g: i64,
+        }
+    );
+
+    let deriveinput = parse2::<DeriveInput>(basic_struct).unwrap();
+    let fields = extract_fields(&deriveinput).unwrap();
+    if let SimpleStructFields::Named(fields) = fields {
+        for f in fields {
+            for i in f.1 {
+                //println!("{:#?}", i);
+                println!("{:?}", compute_attr(&i));
+            }
+        }
+    }
+    //println!("{:#?}", deriveinput);
 }
 
-impl BasicStructFields {
-    fn new(derive: DeriveInput) -> Result<Self> {
-        let stripped_generics = strip_trait_bounds(&derive.generics);
-        let where_clause = derive.generics.where_clause.clone();
-        let (fields, _field_type) = if let Struct(data) = derive.data {
-            match data.fields {
-                Fields::Named(fields) => {
-                    let mut named_field_idents = Vec::new();
-                    let mut field_type = Vec::new();
-                    for f in fields.named.iter() {
-                        let filtered_attrs = filter_tag_no_op(f);
-                        if filtered_attrs.len() == f.attrs.len() {
-                            if let Some(id) = &f.ident {
-                                named_field_idents.push((quote!(#id), filtered_attrs));
-                                field_type.push(f.ty.clone());
-                            }
-                        }
+#[test]
+fn derive_flatten_test() {
+    let basic_struct = quote!(
+        struct Basic {
+            a: Vec<f32>,
+            b: HashMap<usize, String>,
+            #[flat(skip)]
+            c: fn(usize) -> usize,
+        }
+    );
+
+    let derived = derive_flatten(basic_struct);
+    println!("{}", derived.unwrap());
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum FlatAttrOptions {
+    Skip,
+    Exclude,
+    Include
+}
+
+fn compute_attr(attrs: &Attribute) -> Result<FlatAttrOptions> {
+    // first make sure that any attributes are surrounded by flat(...)
+    if let Some(ident) = attrs.path.get_ident() {
+        if ident.to_string() == "flat".to_string() {
+            let tokens = attrs.tokens.to_string();
+            let has_exclude = tokens.contains("exclude");
+            let has_skip = tokens.contains("skip");
+            if has_exclude && has_skip {
+                return Err(Error::msg("flat(...), cannot have both exclude and skip, choose exclude to exclude a field from being included, and skip to stop that field from being flattened."));
+            } else if has_exclude {
+                return Ok(FlatAttrOptions::Exclude);
+            } else if has_skip {
+                return Ok(FlatAttrOptions::Skip);
+            } else {
+                return Err(Error::msg("no option chosen, either choose flat(exclude) to exclude a field from being inserted into world, or choose flat(skip) to prevent that field from being flattened, but it is still inserted into world."));
+            }
+        }
+    }
+    Ok(FlatAttrOptions::Include)
+}
+
+fn compute_attributes(attrs: &[Attribute]) -> Result<FlatAttrOptions> {
+    let mut attr_arg = FlatAttrOptions::Include;
+    for attr in attrs.iter() {
+        let at = compute_attr(attr)?;
+        match attr_arg {
+            FlatAttrOptions::Include => { 
+                    if at != FlatAttrOptions::Include {
+                        attr_arg = at;
                     }
-                    (named_field_idents, field_type)
                 }
-                Fields::Unnamed(fields) => {
-                    let mut idx = Vec::new();
-                    let mut types = Vec::new();
-                    for (f, x) in fields.unnamed.iter().zip(0..) {
-                        let filtered_attrs = filter_tag_no_op(f);
-                        if filtered_attrs.len() == f.attrs.len() {
-                            idx.push(((x.to_string()).parse().unwrap(), filtered_attrs));
-                            types.push(f.ty.clone());
-                        }
-                    }
-                    (idx, types)
-                }
-                Fields::Unit => (Vec::new(), Vec::new()),
-            }
-        } else {
-            return Err(Error::msg("expected data struct"));
-        };
-        Ok(Self {
-            generics: derive.generics,
-            stripped_generics,
-            where_clause,
-            name: derive.ident,
-            fields,
-            //field_type
-        })
+            _ => { return Err(Error::msg("only only skip(...) attribute allowed")); }
+        } 
     }
+    Ok(attr_arg)
 }
 
-#[cfg(test)]
-mod config_derive {
-    use super::*;
-    #[test]
-    fn test_config() {
-        let tokens = quote!(
-            struct T {
-                a: f32,
-                ts: Vec<usize>,
-            }
-        );
+#[test]
+fn test_enum() {
+    let a = quote!(
+        enum T {
+            A,
+            B(usize)
+        }
+    );
 
-        let impl_config = derive_macro_config(tokens).unwrap();
-        let expected = quote!(
-            impl Config for T {
-                fn config(&self) -> String {
-                    use std::collections::HashMap;
-                    let mut configs = HashMap::<String, String>::new();
-                    configs.insert(stringify!(a).to_string(), self.a.config());
-                    configs.insert(stringify!(ts).to_string(), self.ts.config());
-                    ron::to_string(&configs).unwrap()
-                }
-                fn load_config(&mut self, config: &str) -> Result<()> {
-                    use std::collections::HashMap;
-                    let configs: HashMap::<String, String> = ron::from_str(config)?;
-                    self.a.load_config(configs.get(stringify!(a)).unwrap())?;
-                    self.ts.load_config(configs.get(stringify!(ts)).unwrap())?;
-                    Ok(())
-                }
-            }
-        );
-        //println!("{}", impl_config.to_string());
-        assert!(impl_config.to_string() == expected.to_string());
-    }
-
-    #[test]
-    fn test_config_generics() {
-        let tokens = quote!(
-            struct T<'a, S: Clone + Config, H: Config>
-            where
-                H: Clone,
-            {
-                a: &(&'a S, H),
-            }
-        );
-
-        let impl_config = derive_macro_config(tokens).unwrap();
-        let expected = quote!(
-            impl<'a, S: Clone + Config, H: Config> Config for T<'a, S, H>
-            where
-                H: Clone,
-            {
-                fn config(&self) -> String {
-                    use std::collections::HashMap;
-                    let mut configs = HashMap::<String, String>::new();
-                    configs.insert(stringify!(a).to_string(), self.a.config());
-                    ron::to_string(&configs).unwrap()
-                }
-                fn load_config(&mut self, config: &str) -> Result<()> {
-                    use std::collections::HashMap;
-                    let configs: HashMap<String, String> = ron::from_str(config)?;
-                    self.a.load_config(configs.get(stringify!(a)).unwrap())?;
-                    Ok(())
-                }
-            }
-        );
-        assert!(impl_config.to_string() == expected.to_string());
-    }
-
-    #[test]
-    fn test_config_tags() {
-        let tokens = quote!(
-            struct T<'a, S: Clone + Config, H: Config>
-            where
-                H: Clone,
-            {
-                a: &(&'a S, H),
-                #[no_op]
-                b: usize,
-                #[no_op]
-                c: usize,
-            }
-        );
-
-        let impl_config = derive_macro_config(tokens).unwrap();
-        let expected = quote!(
-            impl<'a, S: Clone + Config, H: Config> Config for T<'a, S, H>
-            where
-                H: Clone,
-            {
-                fn config(&self) -> String {
-                    use std::collections::HashMap;
-                    let mut configs = HashMap::<String, String>::new();
-                    configs.insert(stringify!(a).to_string(), self.a.config());
-                    ron::to_string(&configs).unwrap()
-                }
-                fn load_config(&mut self, config: &str) -> Result<()> {
-                    use std::collections::HashMap;
-                    let configs: HashMap<String, String> = ron::from_str(config)?;
-                    self.a.load_config(configs.get(stringify!(a)).unwrap())?;
-                    Ok(())
-                }
-            }
-        );
-        assert!(impl_config.to_string() == expected.to_string());
-    }
-
-    #[test]
-    fn test_config_generics2() {
-        let tokens = quote!(
-            struct T<'a, S: Copy>
-            where
-                S: Clone,
-            {
-                #[tag = "1 + 2"]
-                a: S,
-            }
-        );
-
-        let derive_input: DeriveInput = parse2(tokens).unwrap();
-        println!("{:#?}", derive_input);
-        let generics = &derive_input.generics;
-        let stripped_generics = strip_trait_bounds(&generics);
-        let where_clause = &generics.where_clause;
-        let new_tokens = quote!(
-            impl #generics Config for T #stripped_generics
-            #where_clause {
-
-            }
-        );
-        let expected = quote!(
-            impl<'a, S: Copy> Config for T<'a, S> where S: Clone {}
-        );
-        assert!(format!("{}", expected) == format!("{}", new_tokens));
-    }
-
-    #[test]
-    fn test_struct_attr() {
-        let tokens = quote!(
-            #[BuildTrait(VALUE)]
-            struct T {
-                u: usize,
-            }
-        );
-
-        let derive_input: DeriveInput = parse2(tokens).unwrap();
-        println!("{:#?}", derive_input);
-    }
-}
-
-#[cfg(test)]
-mod ui_derive {
-    use super::*;
-    #[test]
-    fn test_ui() {
-        let tokens = quote!(
-            struct T {
-                a: f32,
-                ts: Vec<usize>,
-            }
-        );
-
-        let impl_config = derive_macro_ui(tokens).unwrap();
-        let expected = quote!(
-            impl UI for T {
-                fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
-                    ui.vertical(|ui| {
-                        ui.label(stringify!(a));
-                        self.a.ui(ui);
-                        ui.label(stringify!(ts));
-                        self.ts.ui(ui);
-                    });
-                }
-            }
-        );
-        assert!(impl_config.to_string() == expected.to_string());
-    }
-
-    #[test]
-    fn test_ui_generics() {
-        let tokens = quote!(
-            struct T<'a, S: Clone + Config, H: Config>
-            where
-                H: Clone,
-            {
-                a: &(&'a S, H),
-            }
-        );
-
-        let impl_config = derive_macro_ui(tokens).unwrap();
-        let expected = quote!(
-            impl<'a, S: Clone + Config, H: Config> UI for T<'a, S, H>
-            where
-                H: Clone,
-            {
-                fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
-                    ui.vertical(|ui| {
-                        ui.label(stringify!(a));
-                        self.a.ui(ui);
-                    });
-                }
-            }
-        );
-        assert!(impl_config.to_string() == expected.to_string());
-    }
-
-    #[test]
-    fn test_ui_tags() {
-        let tokens = quote!(
-            struct T<'a, S: Clone + Config, H: Config>
-            where
-                H: Clone,
-            {
-                a: &(&'a S, H),
-                #[no_op]
-                b: usize,
-                #[no_op]
-                c: usize,
-            }
-        );
-
-        let impl_config = derive_macro_ui(tokens).unwrap();
-        let expected = quote!(
-            impl<'a, S: Clone + Config, H: Config> UI for T<'a, S, H>
-            where
-                H: Clone,
-            {
-                fn ui(&mut self, ui: &mut bevy_egui::egui::Ui) {
-                    ui.vertical(|ui| {
-                        ui.label(stringify!(a));
-                        self.a.ui(ui);
-                    });
-                }
-            }
-        );
-        assert!(impl_config.to_string() == expected.to_string());
-    }
+    let derived = parse2::<DeriveInput>(a).unwrap();
+    println!("{:#?}", derived);
 }
