@@ -18,7 +18,6 @@ pub use flatten::{Flatten, World};
 pub mod allocator;
 pub mod configs;
 pub mod datasets;
-pub mod datasetsv2;
 pub mod models;
 pub mod ops;
 pub use configs::{Config, Options};

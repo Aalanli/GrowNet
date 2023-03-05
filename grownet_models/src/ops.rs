@@ -1,6 +1,5 @@
 use std::borrow::Borrow;
 
-use crate::datasets::data::*;
 use anyhow::{Error, Result};
 use ndarray::prelude::*;
 use ndarray_rand::{rand, rand_distr::Normal, RandomExt};
@@ -285,20 +284,6 @@ fn maximum<T: Float, D: Dimension>(a: &ArrayView<T, D>) -> T {
     a.fold(-T::max_value(), |a, b| a.max((*b).abs()))
 }
 
-/// Assumes that all the 3d arrays have the same size, this function
-/// stacks all the images in the first dimension. [W, H, C] -> [B, W, H, C]
-pub fn concat_im_size_eq(imgs: &[&Array3<f32>]) -> Image {
-    let whc = imgs[0].dim();
-    let b = imgs.len();
-    let mut img = Array4::<f32>::zeros((b, whc.0, whc.1, whc.2));
-    for i in 0..b {
-        let mut smut = img.slice_mut(s![i, .., .., ..]);
-        smut.zip_mut_with(imgs[i], |a, b| {
-            *a = *b;
-        });
-    }
-    Image { image: img }
-}
 
 #[test]
 fn normalize_grad() {
