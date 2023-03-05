@@ -243,7 +243,4 @@ mod test {
         let x = randn::<f64>(dim4!(16));
         grad_check(x, None, None, None, softmax);
     }
-
-
-    
 }

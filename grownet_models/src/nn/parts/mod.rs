@@ -1,9 +1,9 @@
 use std::rc::Rc;
 use arrayfire::*;
-use super::ops;
+use super::{ops, Param};
 use ops::Float;
 
-use crate::Flatten;
+use crate::{Flatten, World};
 
 #[derive(Flatten)]
 pub struct ConvBlock<T: ops::Float> {
@@ -72,6 +72,57 @@ impl<T: Float> ConvLayer<T> {
         };
 
         (y, back_fn)
+    }
+}
+
+pub struct Adam<T: Float> {
+    mt_vt: Vec<(Array<T>, Array<T>)>,
+    optional_mt_vt: Vec<(Array<T>, Array<T>)>,
+    beta1: T,
+    beta2: T,
+    eps: T,
+    t: u64,
+}
+
+impl<T: Float> Adam<T> {
+    pub fn new<'a>(world: &mut World<'a>, beta1: T, beta2: T) -> Self {
+        use ops::zeros;
+        let mut mt_vt = Vec::new();
+
+        for param in world.query_mut::<Param<T>>() {
+            mt_vt.push((zeros(param.dims()), zeros(param.dims())));
+        }
+
+        let mut optional_mt_vt = Vec::new();
+        for param in world.query_mut::<Option<Param<T>>>() {
+            if let Some(param) = param {
+                optional_mt_vt.push((zeros(param.dims()), zeros(param.dims())));
+            }
+        }
+        
+        Self { mt_vt, optional_mt_vt, beta1, beta2, eps: T::from(1e-6).unwrap(), t: 0 }
+    }
+
+    pub fn update_step(param: &mut Param<T>, mt: &mut Array<T>, vt: &mut Array<T>, lr: T, beta1: T, beta2: T, t: u64, eps: T) {
+        *mt = &*mt * beta1 + &param.g * (T::one() - beta1);
+        *vt = &*vt * beta2 + pow(&*vt, &T::from(2.0).unwrap(), true) * (T::one() - beta2);
+        let mhat = &*mt / (T::one() - beta1.powf(T::from(t + 1).unwrap()));
+        let vhat = &*vt / (T::one() - beta2.powf(T::from(t + 1).unwrap()));
+
+        param.w -= mhat * lr / (sqrt(&vhat) + eps);
+    }
+
+    pub fn update<'a>(&mut self, world: &mut World<'a>, lr: T) {
+        let beta1 = self.beta1;
+        let beta2 = self.beta2;
+        for (param, (mt, vt)) in world.query_mut::<Param<T>>().zip(self.mt_vt.iter_mut()) {
+            Self::update_step(param, mt, vt, lr, beta1, beta2, self.t, self.eps);
+        }
+        for (param, (mt, vt)) in world.query_mut::<Option<Param<T>>>().filter(|x| x.is_some()).zip(self.optional_mt_vt.iter_mut()) {
+            let param = param.as_mut().unwrap();
+            Self::update_step(param, mt, vt, lr, beta1, beta2, self.t, self.eps);
+        }
+        self.t += 1;
     }
 }
 

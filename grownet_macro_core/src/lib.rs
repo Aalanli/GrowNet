@@ -5,17 +5,6 @@ use quote::quote;
 use syn::{parse2, Attribute, Data::Struct, DeriveInput, Fields, Generics, Ident, WhereClause};
 mod old;
 
-use std::any::Any;
-#[derive(Default)]
-struct World<'a> {
-    objects: Vec<&'a mut dyn Any>,
-    field_path: Vec<String>,
-}
-
-trait Flatten {
-    fn flatten<'a>(&'a mut self, path: String, world: &mut World<'a>);
-}
-
 /// two kinds of of attributes, one is #[flat(skip)], which does not flatten
 /// that argument, the other is #[flat(exclude)], which does not add that field
 /// into the world.

@@ -2,7 +2,7 @@ use crate::nn::ops::{self as ops, *};
 use arrayfire::*;
 use crate::nn::parts::*;
 
-use crate::Flatten;
+use crate::{Flatten, World};
 
 #[derive(Flatten)]
  pub struct FastResnet<T: Float> {
@@ -70,7 +70,7 @@ fn test_fastresnet() {
 
     use crate::World;
     let mut world = World::from(&mut resnet);
-    for (path, item) in world.query_with_path::<Param<f32>>() {
+    for (path, item) in world.query_mut_with_path::<Param<f32>>() {
         println!("{}, params {}", path, item.w.elements());
     }  
 }
@@ -92,4 +92,19 @@ fn bench_fastresnet() {
     }
 
     println!("avg {} sec/step", inst.elapsed().as_secs_f32() / 10.0);
+}
+
+
+#[test]
+fn test_adam_update() {
+    let x = randn!(128, 128, 3, 8);
+    let mut resnet = FastResnet::<f32>::new(10);
+    let (y, df) = resnet.forward(&x);
+    let _grad = df(&mut resnet, &y);
+
+    let mut world = World::new();
+    resnet.flatten("".to_string(), &mut world);
+    let mut adam = Adam::new(&mut world, 0.8f32, 0.999f32);
+
+    adam.update(&mut world, 0.02);
 }

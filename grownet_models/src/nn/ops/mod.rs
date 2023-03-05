@@ -1,6 +1,6 @@
 use half::f16;
 
-use af::{ConstGenerator, FloatingPoint, RealFloating, Convertable};
+use af::{ConstGenerator, FloatingPoint, RealFloating, Convertable, Dim4};
 pub use arrayfire::{self as af, Array, HasAfEnum, dim4};
 
 use crate::Flatten;
@@ -27,9 +27,13 @@ pub struct Param<T: Float> {
 }
 
 impl<T: Float> Param<T> {
-    fn new(w: Array<T>) -> Param<T> {
+    pub fn new(w: Array<T>) -> Param<T> {
         let g = af::constant(T::zero(), w.dims());
         Param { w, g }
+    }
+
+    pub fn dims(&self) -> Dim4 {
+        self.w.dims()
     }
 }
 

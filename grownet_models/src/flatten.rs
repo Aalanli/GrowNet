@@ -20,7 +20,7 @@ impl<'a> World<'a> {
         Default::default()
     }
 
-    pub fn query<'b, T: 'static>(&'b mut self) -> impl Iterator<Item = &'a mut T> + 'b {
+    pub fn query_mut<'b, T: 'static>(&'b mut self) -> impl Iterator<Item = &'a mut T> + 'b {
         self.objects.iter_mut()
             .map(|x| {
                 // compiler error otherwise, saying 'b: 'a is necessary, implying this function
@@ -37,7 +37,7 @@ impl<'a> World<'a> {
             .map(|x| x.unwrap())
     }
 
-    pub fn query_with_path<'b, T: 'static>(&'b mut self) -> impl Iterator<Item = (&'a str, &'a mut T)> + 'b {
+    pub fn query_mut_with_path<'b, T: 'static>(&'b mut self) -> impl Iterator<Item = (&'a str, &'a mut T)> + 'b {
         self.objects.iter_mut().zip(self.field_path.iter())
             .map(|(x, path)| {
                 // compiler error otherwise, saying 'b: 'a is necessary, implying this function
@@ -170,7 +170,7 @@ fn test_struct1() {
     let mut test = Test::default();
     test.a += 1.0;
     test.flatten("".to_string(), &mut world);
-    for i in world.query::<f32>() {
+    for i in world.query_mut::<f32>() {
         println!("{}", i);
     }
     
