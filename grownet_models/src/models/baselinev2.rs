@@ -96,7 +96,6 @@ fn transform_data<'a>(imgs: impl Iterator<Item = nd::ArrayView2<'a, u8>> + 'a, b
 
 fn accuracy(logits: &Array<f32>, labels: &Array<u32>) -> f32 {
     let (_, index) = af::imax(logits, 0);
-    println!("{}", index.dims());
     let avg = af::mean(&af::eq(&index, &moddims(&labels, dim4!(1, labels.dims()[0])), false), 1);
     let mut acc = [0.0f32];
     avg.host(&mut acc);

@@ -215,8 +215,6 @@ impl PlotViewerV1 {
         let image_bufs = self.params.render(need_render)?;
         Ok(image_bufs)
     }
-
-    
 }
 
 // Five step rendering pipeline
@@ -289,10 +287,16 @@ impl ViewCache {
 }
 
 /// Step 4
-#[derive(Resource, Serialize, Deserialize, Default)]
+#[derive(Resource, Serialize, Deserialize)]
 struct ComputeRender {
     smooth: usize,
     res: (usize, usize)
+}
+
+impl Default for ComputeRender {
+    fn default() -> Self {
+        ComputeRender { smooth: 1, res: (512, 348) }
+    }
 }
 
 struct RenderedBatch {

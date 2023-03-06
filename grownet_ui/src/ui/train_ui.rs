@@ -13,10 +13,10 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use model_lib::models::{self, TrainRecv};
 use model_lib::Config;
 
-use crate::{ops, config_ui_adjust, CONFIG_PATH, RUN_DATA_PATH};
+use crate::{ops, config_ui_adjust};
 use crate::run_systems::{self as run, config_ui_show, ModelPlots, PlotViewerV1};
 use run::{Models, Despawn, Kill, Spawn, SpawnRun};
-use super::{AppState, OperatingState, OpenPanel, UIParams, handle_pane_options};
+use super::{Serializer, AppState, OperatingState, OpenPanel, UIParams, handle_pane_options};
 
 
 pub struct TrainUIPlugin;
@@ -234,24 +234,18 @@ fn run_queue(
 /// Startup System
 fn setup_train_ui(
     mut train_ui: ResMut<TrainingUI>,
+    serializer: Res<Serializer>
 ) {
-    let root_path: std::path::PathBuf = CONFIG_PATH.into();
-    ops::try_deserialize(&mut *train_ui, &root_path.join("train_ui").with_extension("config"));
+    serializer.deserialize("train_ui", &mut *train_ui);
 }
 
 /// write train state to disk
 /// Shutdown system
 fn save_train_ui(
     train_ui: Res<TrainingUI>,
+    mut serializer: ResMut<Serializer>
 ) {
-    // load configurations from disk
-    let root_path: std::path::PathBuf = CONFIG_PATH.into();
-    if !root_path.exists() {
-        std::fs::create_dir_all(&root_path).expect("unable to create config dir at save_train_ui");
-    }
-    eprintln!("serializing train_ui");
-    // save config files to disk
-    ops::serialize(&*train_ui, &root_path.join("train_ui").with_extension("config"));
+    serializer.serialize("train_ui", &*train_ui)
 }
 
 

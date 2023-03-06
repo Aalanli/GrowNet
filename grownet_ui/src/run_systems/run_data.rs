@@ -15,8 +15,7 @@ pub use models::{TrainProcess, TrainRecv, TrainSend, PlotPoint};
 pub use crate::ui::OperatingState;
 pub use super::{ModelPlots, PlotId, PlotViewerV1};
 
-use crate::{ops};
-use crate::CONFIG_PATH;
+use crate::{ops, Serializer};
 
 /// Plugin to instantiate all run data resources, and saving/loading logic
 pub struct RunDataPlugin;
@@ -45,11 +44,11 @@ fn setup_run_data(
     mut plots: ResMut<ModelPlots>,
     mut plot_viewer: ResMut<PlotViewerV1>,
     mut console: ResMut<Console>,
+    serializer: Res<Serializer>
 ) {
-    eprintln!("loading run data");
-    ops::try_deserialize(&mut *plots, &(CONFIG_PATH.to_owned() + "/model_plots.config").into());
-    ops::try_deserialize(&mut *console, &(CONFIG_PATH.to_owned() + "/model_console.config").into());
-    ops::try_deserialize(&mut *plot_viewer, &(CONFIG_PATH.to_owned() + "/plot_viewer.config").into());
+    serializer.deserialize("model_plots", &mut *plots);
+    serializer.deserialize("model_console", &mut *console);
+    serializer.deserialize("plot_viewer", &mut *plot_viewer);
 }
 
 /// write run data to disk
@@ -57,15 +56,11 @@ fn save_run_data(
     plots: Res<ModelPlots>,
     plot_viewer: Res<PlotViewerV1>,
     console: Res<Console>,
+    mut serializer: ResMut<Serializer>
 ) {
-    // load configurations from disk
-    let root_path: std::path::PathBuf = CONFIG_PATH.into();
-
-    eprintln!("serializing run_data");
-    // save config files to disk
-    ops::serialize(&*plots, &root_path.join("model_plots").with_extension("config"));
-    ops::serialize(&*console, &root_path.join("model_console").with_extension("config"));
-    ops::serialize(&*plot_viewer, &root_path.join("plot_viewer").with_extension("config"));
+    serializer.serialize("model_plots", &*plots);
+    serializer.serialize("model_console", &*console);
+    serializer.serialize("plot_viewer", &*plot_viewer);
 }
 
 /// Enum of all the model variants

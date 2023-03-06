@@ -1,10 +1,12 @@
 use core::hash::Hash;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt::Display;
 use std::fs;
 use std::path;
+use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, Error};
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy::window::{WindowCloseRequested, WindowClosed};
@@ -12,6 +14,7 @@ use bevy_egui::{egui, EguiContext};
 use bincode;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use crate::Serializer;
 
 // pub mod data_ui;
 pub mod train_ui;
@@ -22,6 +25,7 @@ pub struct UIPlugin;
 impl Plugin for UIPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(UIParams::default())
+            .insert_resource(Serializer::default())
             .add_startup_system_to_stage(StartupStage::Startup, setup_ui)
             .add_state(AppState::Models)
             .add_state(OperatingState::Active)
@@ -77,23 +81,8 @@ fn handle_pane_options(ui: &mut egui::Ui, panel: &mut OpenPanel) {
     ui.separator();
 }
 
-fn setup_ui(mut params: ResMut<UIParams>, mut egui_context: ResMut<EguiContext>) {
-    let root_path: path::PathBuf = crate::CONFIG_PATH.into();
-
-    let config_file = root_path.join("ui_config").with_extension("ron");
-    // loading configurations of main ui components
-    if config_file.exists() {
-        eprintln!("loading from config file {}", config_file.to_str().unwrap());
-        let result: Result<String, _> = ron::from_str(&fs::read_to_string(&config_file).unwrap());
-        match result {
-            Ok(config) => {
-                params.load_config(&config);
-            }
-            Err(e) => {
-                eprintln!("unable to deserialize ui_params {}", e);
-            }
-        }
-    }
+fn setup_ui(mut params: ResMut<UIParams>, mut egui_context: ResMut<EguiContext>, serializer: Res<Serializer>) {
+    serializer.deserialize("ui_config", &mut *params);
 
     // startup tasks that one must do to update the ui
     change_font_size(params.font_delta, egui_context.ctx_mut());
@@ -101,20 +90,9 @@ fn setup_ui(mut params: ResMut<UIParams>, mut egui_context: ResMut<EguiContext>)
 
 fn save_ui(
     params: Res<UIParams>,
+    mut serializer: ResMut<Serializer>
 ) {
-    let root_path: path::PathBuf = crate::CONFIG_PATH.into();
-    if !root_path.exists() {
-        fs::create_dir_all(&root_path).unwrap();
-    }
-
-    eprintln!("saving ui config");
-    let config_file = root_path.join("ui_config").with_extension("ron");
-
-    let main_ui_config = params.config();
-
-    let serialized = ron::to_string(&main_ui_config).unwrap();
-    fs::write(&config_file, serialized).unwrap();
-    
+    serializer.serialize("ui_config", &*params);
 }
 
 /// cleanup when user tries to close the window
@@ -147,6 +125,7 @@ pub struct UIParams {
     pub run_queue_max_active: usize,
     pub run_queue_num_errs: usize,
 }
+
 
 /// The state for the entire app, which characterizes the two main modes of operation
 /// Menu involves only light ui tasks, while Trainer may involve some heavy compute,
