@@ -19,6 +19,9 @@ pub fn try_deserialize<T: DeserializeOwned>(x: &mut T, path: &std::path::PathBuf
 
 pub fn serialize<T: Serialize>(x: &T, path: &std::path::PathBuf) {
     eprintln!("serializing {}", path.to_str().unwrap());
+    if !path.parent().expect(&format!("path {} does not have a parent", path.display())).exists() {
+        std::fs::create_dir_all(path.parent().unwrap()).expect("failed to create directory for serialize");
+    }
     let train_data_writer = std::fs::File::create(path).unwrap();
     bincode::serialize_into(train_data_writer, x).expect("unable to serialize");
 }

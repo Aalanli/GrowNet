@@ -37,6 +37,21 @@ pub fn softmax<T: Float>(a: &Array<T>) -> (Array<T>, impl Fn(&Array<T>) -> Array
     (out, back_fn)
 }
 
+pub fn log_softmax<T: Float>(a: &Array<T>) -> (Array<T>, impl Fn(&Array<T>) -> Array<T>) {
+    let shifted = af::sub(a, &af::max(a, 0), true);
+    let exp = af::exp(&shifted);
+    let sum = af::sum(&exp, 0);
+
+    let out = af::sub(&shifted, &af::log(&sum), true);
+    let df = move |grad: &Array<T>| {
+        let softmax = af::div(&exp, &sum, true);
+        let dot_g = af::mul(&af::sum(grad, 0), &softmax, true);
+        af::sub(grad, &dot_g, true)
+    };
+
+    (out, df)
+}
+
 #[cfg(test)]
 mod test {
     use arrayfire::*;
@@ -48,6 +63,13 @@ mod test {
         set_backend(Backend::CPU);
         let x = randn::<f64>(dim4!(CHECKDIM));
         grad_check(x, None, None, None, softmax);
+    }
+
+    #[test]
+    fn grad_check_log_softmax() {
+        set_backend(Backend::CPU);
+        let x = randn::<f64>(dim4!(CHECKDIM));
+        grad_check(x, None, None, None, log_softmax);
     }
 
     #[test]

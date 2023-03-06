@@ -1,6 +1,6 @@
 use core::panic;
 
-use ndarray::prelude::*;
+use ndarray::{prelude::*, DimAdd, IntoDimension, RawData};
 use arrayfire as af;
 use image::{self, ImageBuffer};
 
@@ -28,19 +28,20 @@ pub fn from_afarray(im: af::Array<f32>) -> Array4<f32> {
 
 /// stack arrays together, making a new dimension in the first axis, requires that all
 /// arrays are the same size
-pub fn batch(imgs: &[&Array3<f32>]) -> Array4<f32> {
+pub fn batch_im(imgs: &[Array3<f32>]) -> Array4<f32> {
     let whc = imgs[0].dim();
     let b = imgs.len();
     let mut img = Array4::<f32>::zeros((b, whc.0, whc.1, whc.2));
     for i in 0..b {
         assert!(imgs[i].dim() == whc, "batch requires that all inputs be of equal size");
         let mut smut = img.slice_mut(s![i, .., .., ..]);
-        smut.zip_mut_with(imgs[i], |a, b| {
+        smut.zip_mut_with(&imgs[i], |a, b| {
             *a = *b;
         });
     }
     img
 }
+
 
 /// convert an array of shape [3, h, w] or [h, w, 3] to an RgbImage, panics if any other shape is given 
 pub fn to_image(im: Array3<u8>) -> image::RgbImage {
@@ -57,6 +58,12 @@ pub fn to_image(im: Array3<u8>) -> image::RgbImage {
     } else {
         panic!("not a rbg image, expected channel first or channel last with 3 channels");
     }
+}
+
+pub fn to_image_grayscale(im: Array2<u8>) -> image::GrayImage {
+    let (h, w) = im.dim();
+        let buf = im.as_slice().unwrap().to_vec();
+        image::ImageBuffer::from_raw(w as u32, h as u32, buf).unwrap()
 }
 
 /// converts an image of width w, and height to a ndarray, if channel_last is true the resulting shape is 

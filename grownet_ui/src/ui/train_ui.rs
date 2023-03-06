@@ -106,7 +106,7 @@ fn train_menu_ui(
                         match train_ui.model {
                             run::Models::BASELINE => {
                                 let (spawn_fn, runinfo) = 
-                                    run::baseline::baseline_spawn_fn(train_ui.baseline.version_num as usize, train_ui.baseline.get_config());
+                                    run::baseline::baseline_spawn_fn(train_ui.baseline.version_num as usize, train_ui.baseline.get_config(), train_ui.baseline.get_global_config());
                                 app_state.set(AppState::Trainer).unwrap();
                                 train_ui.baseline.version_num += 1;
                                 run_queue.add_run(runinfo, spawn_fn);
@@ -268,12 +268,19 @@ pub struct TrainingUI {
 
 impl Default for TrainingUI {
     fn default() -> Self {
-        // Self { 
-        //     baseline: ConfigEnviron::new("baseline",models::baseline::baseline_config()), 
-        //     model: run::Models::BASELINE,
-        //     run_ids: HashSet::new()
-        // }
-        todo!()
+        use model_lib::*;
+        Self { 
+            baseline: ConfigEnviron::new(
+                "baseline",
+                models::baselinev2::baseline_config(),
+                config!(
+                    ("train_log_steps", 50),
+                    ("dataset_path", "assets/ml_datasets")
+                )
+            ), 
+            model: run::Models::BASELINE,
+            run_ids: HashSet::new()
+        }
     }
 }
 
@@ -287,14 +294,14 @@ pub struct ConfigEnviron {
     // saved_configs: CheckedList<Config>,
     saved_runs: CheckedList<run::RunInfo>,
     version_num: u32,
-
+    global_config: Config,
     // checkpoint configs
     // checkpoint_folder: PathBuf,
     // num_kept_checkpoints: u32,
 }
 
 impl ConfigEnviron {
-    pub fn new(name: &str, config: Config) -> Self {
+    pub fn new(name: &str, config: Config, global_config: Config) -> Self {
         // let checkpoint_folder = PathBuf::from(RUN_DATA_PATH).join(name);
         // if !checkpoint_folder.exists() {
         //     std::fs::create_dir(&checkpoint_folder).expect(&format!("unable to create checkpoint folder for {}", name));
@@ -306,6 +313,7 @@ impl ConfigEnviron {
             // saved_configs: CheckedList { header: name.to_string() + " saved configs", deletion: true, ..default() },
             saved_runs: CheckedList { title: name.to_string() + " saved runs", default_open: false, deletion: true, ..default()},
             version_num: 0,
+            global_config
             // num_kept_checkpoints: 3,
             // checkpoint_folder,
         }
@@ -313,6 +321,10 @@ impl ConfigEnviron {
 
     pub fn get_config(&self) -> Config {
         self.config.clone()
+    }
+
+    pub fn get_global_config(&self) -> Config {
+        self.global_config.clone()
     }
 
     pub fn add_run(&mut self, run: run::RunInfo) {
@@ -328,6 +340,11 @@ impl ConfigEnviron {
         ui.horizontal(|ui| {
             ui.allocate_ui(space, |ui| {
                 ui.vertical(|ui| {
+                    egui::ScrollArea::vertical().id_source("global config").show(ui, |ui| {
+                        ui.label("global config");
+                        config_ui_adjust(&mut self.global_config, ui);
+                    });
+                    ui.label("");
                     ui.horizontal(|ui| {
                         // reset current config logic
                         if !self.saved_runs.is_checked() {
@@ -348,7 +365,7 @@ impl ConfigEnviron {
                         }
                     });
                     egui::ScrollArea::vertical().id_source("configs").show(ui, |ui| {
-                        ui.label(format!("v{}", self.version_num));
+                        ui.label(format!("local configs: version {}", self.version_num));
                         config_ui_adjust(&mut self.config, ui);
                     });
                 });

@@ -2218,6 +2218,7 @@ dependencies = [
  "grownet_macros",
  "half 2.2.1",
  "image",
+ "itertools",
  "mnist",
  "ndarray",
  "ndarray-rand",

@@ -1,8 +1,15 @@
-use crate::nn::ops::{self as ops, *};
-use arrayfire::*;
-use crate::nn::parts::*;
+use std::marker::PhantomData;
 
-use crate::{Flatten, World};
+use anyhow::{Result, Error};
+use arrayfire::*;
+use crossbeam::channel::unbounded;
+
+use crate::nn::ops::{self as ops, *};
+use crate::nn::parts::*;
+use crate::datasets::{transforms, mnist};
+
+use crate::{Flatten, World, Config, config, Options, opt};
+use crate::nn::parts::Adam;
 
 #[derive(Flatten)]
  pub struct FastResnet<T: Float> {
@@ -58,6 +65,192 @@ impl<T: Float> FastResnet<T> {
 
         (x10, df)
     }
+}
+
+pub fn baseline_config() -> Config {
+    config!(
+        ("lr", 0.008),
+        ("batch_size", 8),
+        ("epochs", 10)
+    )
+}
+
+use ndarray as nd;
+use image;
+use itertools::Itertools;
+
+use super::TrainProcess;
+fn transform_data<'a>(imgs: impl Iterator<Item = nd::ArrayView2<'a, u8>> + 'a, batch_size: usize) -> impl Iterator<Item = nd::Array4<f32>> + 'a {
+    let pre_iter = imgs
+        .map(|bk_img| {
+            let bk_img = bk_img.to_owned();
+            let im = transforms::to_image_grayscale(bk_img);
+            let rgb_im = image::DynamicImage::ImageLuma8(im).to_rgb8();
+            let array = transforms::from_image(rgb_im, false);
+            array.map(|x| *x as f32 / 255.0)
+        });
+    Batcher::new(pre_iter, batch_size).map(|x| {
+        transforms::batch_im(&x)
+    })
+}
+
+fn accuracy(logits: &Array<f32>, labels: &Array<u32>) -> f32 {
+    let (_, index) = af::imax(logits, 0);
+    println!("{}", index.dims());
+    let avg = af::mean(&af::eq(&index, &moddims(&labels, dim4!(1, labels.dims()[0])), false), 1);
+    let mut acc = [0.0f32];
+    avg.host(&mut acc);
+    acc[0]
+}
+
+pub struct Batcher<T> {
+    iter: T,
+    len: usize,
+}
+
+impl<T> Batcher<T> {
+    pub fn new(iter: T, len: usize) -> Self {
+        Self { iter, len }
+    }
+}
+
+impl<T, Item> Iterator for Batcher<T>
+where T: Iterator<Item = Item> {
+    type Item = Vec<Item>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut span = Vec::new();
+        span.reserve_exact(self.len);
+        for _ in 0..self.len {
+            if let Some(x) = self.iter.next() {
+                span.push(x);
+            } else {
+                return None;
+            }
+        }
+        Some(span)
+    }
+}
+
+pub trait Batch<T: Iterator> {
+    fn batch(self, batch_size: usize) -> Batcher<T>;
+}
+
+impl<T, Item> Batch<T> for T
+where T: Iterator<Item = Item> {
+    fn batch(self, batch_size: usize) -> Batcher<T> {
+        Batcher::new(self, batch_size)
+    }
+}
+
+pub fn run(config: &Config) -> Result<TrainProcess> {
+    use super::{PlotPoint, TrainRecv, TrainSend, RunStats};
+    let lr: f64 = config.uget("lr").into();
+    let batch_size: isize = config.uget("batch_size").into();
+    let epochs: isize = config.uget("epochs").into();
+
+    let (command_sender, command_recv) = unbounded::<TrainSend>();
+    let (log_sender, log_recv) = unbounded::<TrainRecv>();
+
+    let train_log_steps: isize = config.uget("train_log_steps").into();
+    let data_dir: String = config.uget("dataset_path").into();
+    let dataset = mnist::Mnist::new(&data_dir)?;
+
+    let sender = log_sender;
+    let recv = command_recv;
+    let handle = std::thread::spawn(move || {
+        let dataset = dataset;
+        
+        let mut model = FastResnet::<f32>::new(10);
+        let mut adam = {
+            let mut world = World::new();
+            model.flatten("".to_string(), &mut world);
+            
+            world = world.clear();
+            Adam::new(&mut world, 0.88, 0.99) 
+        };
+
+        let mut steps = 0;
+        let mut running_loss = 0.0;
+        let mut running_acc = 0.0;
+        let mut steps_since_last_log = 0;
+
+        let setup_test_iter = || {
+            let test_iter = dataset.iter_test_img();
+            let test_imgs = transform_data(test_iter, batch_size as usize);
+            let test_labels = dataset.iter_test_label().map(|x| *x)
+                .batch(batch_size as usize)
+                .map(|x| { nd::Array1::from_vec(x) });
+            let test_combined = test_imgs.zip(test_labels).map(|(img, label)| {
+                (transforms::to_afarray(&img), Array::new(label.as_slice().unwrap(), dim4!(label.len() as u64)))
+            });
+            test_combined
+        };
+
+        let mut test_iter = setup_test_iter();
+
+        for epoch in 0..epochs {
+            let train_iter = dataset.iter_train_img();
+            let train_imgs = transform_data(train_iter, batch_size as usize);
+            let train_labels = dataset.iter_train_label().map(|x| *x)
+                .batch(batch_size as usize)
+                .map(|x| { nd::Array1::from_vec(x) });
+            let train_iter = train_imgs.zip(train_labels).map(|(img, label)| {
+                (transforms::to_afarray(&img), Array::new(label.as_slice().unwrap(), dim4!(label.len() as u64)))
+            });
+
+            for (img, label) in train_iter {
+                steps += 1isize;
+                let (logits, df) = model.forward(&img);
+                let (loss, dl_dlogit) = ops::loss::cross_entropy(&logits, &ops::loss::one_hot(label.cast(), 10));
+                let dl = dl_dlogit(&Array::new(&[1.0], dim4!(1)));
+                df(&mut model, &dl);
+
+                let mut world = World::new();
+                model.flatten("".to_string(), &mut world);
+                adam.update(&mut world, lr);
+
+                let mut loss_host = [0.0f32];
+                loss.host(loss_host.as_mut_slice());
+
+                running_loss += loss_host[0];
+                running_acc += accuracy(&logits, &label.cast());
+                steps_since_last_log += 1isize;
+
+                if steps % train_log_steps == 0 {
+                    sender
+                        .send(TrainRecv::PLOT(super::PlotPoint { 
+                            title: "train loss", 
+                            x_title: "step", 
+                            y_title: "cross entropy", 
+                            x: steps as f64, 
+                            y: (running_loss / steps_since_last_log as f32) as f64
+                        }))
+                        .unwrap();
+                    sender
+                        .send(TrainRecv::PLOT(super::PlotPoint { 
+                            title: "train accuracy", 
+                            x_title: "step", 
+                            y_title: "accuracy", 
+                            x: steps as f64, 
+                            y: (running_acc / steps_since_last_log as f32) as f64
+                        })).unwrap();
+                    steps_since_last_log = 1;
+                    running_acc = 0.0;
+                    running_loss = 0.0;
+                }
+
+                if let Ok(TrainSend::KILL) = recv.try_recv() {
+                    return;
+                }
+            }
+
+        }
+    });
+    Ok(TrainProcess {
+        send: command_sender,
+        recv: log_recv,
+        handle: Some(handle),
+    })
 }
 
 #[test]

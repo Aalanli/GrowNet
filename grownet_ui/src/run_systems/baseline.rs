@@ -90,7 +90,7 @@ fn run_baseline(
     }
 }
 
-pub fn baseline_spawn_fn(version_num: usize, config: Config) -> (Box<dyn FnOnce(&mut Commands) -> Result<Entity> + Send + Sync>, run::RunInfo) {
+pub fn baseline_spawn_fn(version_num: usize, mut config: Config, global_config: Config) -> (Box<dyn FnOnce(&mut Commands) -> Result<Entity> + Send + Sync>, run::RunInfo) {
     let runinfo = run::RunInfo {
         model_class: "baseline".into(),
         version: version_num,
@@ -98,15 +98,15 @@ pub fn baseline_spawn_fn(version_num: usize, config: Config) -> (Box<dyn FnOnce(
         config: config.clone(),
         ..Default::default()
     };
+    config.disjoint_union(&global_config).expect("global_config and config overlap");
     let run_info = runinfo.clone();
     let spawn_fn = Box::new(move |commands: &mut Commands| -> Result<Entity> {
         let config = config;
-        // run::models::baseline::build(&config).map(|x| {
-        //     let env = BaseTrainProcess(x);
-        //     let id = commands.spawn((run_info, env)).id();
-        //     id
-        // })
-        todo!()
+        run::models::baselinev2::run(&config).map(|x| {
+            let env = BaseTrainProcess(x);
+            let id = commands.spawn((run_info, env)).id();
+            id
+        })
     });
     (spawn_fn, runinfo)
 }

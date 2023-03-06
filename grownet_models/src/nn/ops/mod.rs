@@ -14,6 +14,7 @@ pub mod batchnorm2d;
 pub mod instancenorm;
 pub mod utils;
 pub mod array_ops;
+pub mod loss;
 
 use initializer as init;
 
