@@ -34,7 +34,8 @@ impl Plugin for TrainUIPlugin {
             )
             .add_system_set(SystemSet::on_update(AppState::Trainer)
                 .with_system(train_env_ui)
-                .with_system(queue_ui))
+                // .with_system(queue_ui)
+            )
             .add_system_set(
                 SystemSet::on_update(OperatingState::Active).with_system(run_queue))
             .add_system_set(
@@ -75,15 +76,16 @@ fn train_menu_ui(
 
         let height = ui.available_height();
         ui.horizontal(|ui| {
-            // to this to prevent that
-            // the left most panel showing a list of model options
-
             let original_width = ui.available_width();
             let width = original_width * *config_width_delta;
+            // do this to let the inner config environments to set their preferred width. Otherwise, elements
+            // before the widest element is squished.
             let mut needed_width = 1.0;
-            // update any configurations using the ui
+            // update any configurations using the ui, we need to set height this way, as otherwise inner scrolling
+            // widgets will not work
             ui.allocate_ui(egui::Vec2::new(width, height), |ui| {
                 ui.vertical(|ui| {
+                    // which model configuration to show
                     egui::ComboBox::from_label("models")
                         .selected_text(format!("{}", train_ui.model))
                         .show_ui(ui, |ui| {
@@ -100,19 +102,18 @@ fn train_menu_ui(
                         }
                     }
 
+                    // The config environments of each specific model type
                     match train_ui.model {
                         run::Models::BASELINE => {
                             needed_width = train_ui.baseline.ui(ui).width();
                         }
                     }
 
-                    // TODO: add some keybindings to certain buttons
-                    // entry point for launching training
-                    // only launch things if the operating state is active
-                    //ui.separator();
-                    //ui.label("run queue");
-                    //ui.shrink_height_to_current();
+                    // TODO: add some keybindings to launch training tasks
+                    // TODO: make this section stick to the bottom
                     ui.with_layout(egui::Layout::top_down(egui::Align::BOTTOM), |ui| {
+                        // entry point for launching training
+                        // only launch things if the operating state is active
                         if *op_state.current() == OperatingState::Active && ui.button("Launch Training").clicked() {
                             match train_ui.model {
                                 run::Models::BASELINE => {
@@ -127,6 +128,7 @@ fn train_menu_ui(
                         if *op_state.current() == OperatingState::Cleanup {
                             ui.label("killing any active tasks");
                         }
+                        // the running queue displays the status of running tasks
                         run_queue.ui(ui, killer, &*stats);
                     });
 
@@ -134,11 +136,13 @@ fn train_menu_ui(
 
             });
 
+            // set the preferred width of the inner config environs
             *config_width_delta = needed_width / original_width;
-            //println!("{}", *config_width_delta);
 
             let width = ui.available_width();
             // plot viewer
+            // once again, we set the maximum height so that inner scolling widgets are not squished
+            // plot_viewer expects horizontal to be the layout
             ui.allocate_ui(egui::Vec2::new(width, height), |ui| {
                 plot_viewer.ui(ui, &*plots);
             });
@@ -153,8 +157,11 @@ fn train_menu_ui(
 fn train_env_ui(
     mut egui_context: ResMut<EguiContext>,
     mut state: ResMut<State<AppState>>,
-    mut viewer: ResMut<PlotViewerV1>,
-    plots: Res<ModelPlots>, 
+    mut queue: ResMut<RunQueue>,
+    stats: Res<run::RunStats>,
+    killer: EventWriter<Kill>,
+    // mut viewer: ResMut<PlotViewerV1>,
+    // plots: Res<ModelPlots>, 
     console: Res<run::Console>,    
 ) {
     egui::Window::new("train").show(egui_context.ctx_mut(), |ui| {
@@ -173,23 +180,11 @@ fn train_env_ui(
                 console.console_ui(ui);
             });
 
-            // TODO: Add plotting utilites
-            ui.separator();
-            ui.heading("plots");
-            viewer.ui(ui, &*plots);
+            // ui.separator();
+            // ui.heading("plots");
+            // viewer.ui(ui, &*plots);
+            queue.ui(ui, killer, &*stats);
         });
-    });
-}
-
-/// the queue ui on the training side
-fn queue_ui(
-    mut egui_context: ResMut<EguiContext>,
-    mut queue: ResMut<RunQueue>,
-    stats: Res<run::RunStats>,
-    killer: EventWriter<Kill>,
-) {
-    egui::Window::new("run queue").show(egui_context.ctx_mut(), |ui| {
-        queue.ui(ui, killer, &*stats);
     });
 }
 
@@ -356,9 +351,11 @@ impl ConfigEnviron {
     pub fn ui(&mut self, ui: &mut egui::Ui) -> egui::Rect {
         let response = ui.group(|ui| {
             egui::ScrollArea::vertical().id_source("global config").show(ui, |ui| {
-                ui.label("global config");
+                ui.label(egui::RichText::new("global config").heading().underline());
                 ui.separator();
                 config_ui_adjust(&mut self.global_config, ui);
+                ui.separator();
+                ui.label(egui::RichText::new("local config").heading().underline());
                 ui.separator();
                 ui.horizontal(|ui| {
                     // reset current config logic
@@ -381,10 +378,11 @@ impl ConfigEnviron {
                 });
                 
                 config_ui_adjust(&mut self.config, ui);
-                // ui.separator();
-                // ui.collapsing("past configs", |ui| {
-                //     self.saved_runs.ui(ui, |ui, run| { run.show_basic(ui); });
-                // });
+                ui.separator();
+                
+                ui.collapsing("past configs", |ui| {
+                    self.saved_runs.ui(ui, |ui, run| { run.show_basic(ui); });
+                });
             });
         });
         response.response.rect

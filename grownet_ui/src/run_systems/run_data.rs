@@ -29,7 +29,7 @@ impl Plugin for RunDataPlugin {
             .add_event::<Kill>()
             .insert_resource(run_sender)
             .insert_resource(run_recv)
-            .insert_resource(PlotViewerV1::default())
+            // .insert_resource(PlotViewerV1::default())
             .insert_resource(PlotViewerV2::default())
             .insert_resource(ModelPlots::default())
             .insert_resource(Console::default())
@@ -43,28 +43,28 @@ impl Plugin for RunDataPlugin {
 /// possibly load run data from disk
 fn setup_run_data(
     mut plots: ResMut<ModelPlots>,
-    mut plot_viewer: ResMut<PlotViewerV1>,
+    // mut plot_viewer: ResMut<PlotViewerV1>,
     mut plot_viewer2: ResMut<PlotViewerV2>,
     mut console: ResMut<Console>,
     serializer: Res<Serializer>
 ) {
     serializer.deserialize("model_plots", &mut *plots);
     serializer.deserialize("model_console", &mut *console);
-    serializer.deserialize("plot_viewer", &mut *plot_viewer);
+    // serializer.deserialize("plot_viewer", &mut *plot_viewer);
     serializer.deserialize("plot_viewer2", &mut *plot_viewer2);
 }
 
 /// write run data to disk
 fn save_run_data(
     plots: Res<ModelPlots>,
-    plot_viewer: Res<PlotViewerV1>,
+    // plot_viewer: Res<PlotViewerV1>,
     plot_viewer2: Res<PlotViewerV2>,
     console: Res<Console>,
     mut serializer: ResMut<Serializer>
 ) {
     serializer.serialize("model_plots", &*plots);
     serializer.serialize("model_console", &*console);
-    serializer.serialize("plot_viewer", &*plot_viewer);
+    // serializer.serialize("plot_viewer", &*plot_viewer);
     serializer.serialize("plot_viewer2", &*plot_viewer2);
 }
 

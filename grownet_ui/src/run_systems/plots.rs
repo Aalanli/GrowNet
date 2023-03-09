@@ -226,16 +226,8 @@ impl PlotViewerV1 {
     }
 }
 
-use egui::plot;
 
-#[derive(Resource, Serialize, Deserialize)]
-pub struct PlotViewerV2 {
-    display_model: Models,
-    display_runs: HashMap<Models, Vec<((u8, u8, u8), String, bool)>>, // (line color, run_names, display)
-    display_titles: HashMap<Models, Vec<(String, bool)>>, // (title_names, display)
-    // some ui configuration parameters
-    graphs_per_row: usize
-}
+use egui::plot;
 
 fn get_or_insert<'a, K: std::hash::Hash + Eq + Clone, T>(map: &'a mut HashMap<K, T>, key: &K, default: impl Fn() -> T) -> &'a mut T {
     if !map.contains_key(key) {
@@ -260,6 +252,16 @@ fn get_run_color(run_name: &str) -> (u8, u8, u8) {
     let color_id = hasher.finish();
     let color = Palette99::pick(color_id as usize).mix(0.9);
     color.rgb()
+}
+
+
+#[derive(Resource, Serialize, Deserialize)]
+pub struct PlotViewerV2 {
+    display_model: Models,
+    display_runs: HashMap<Models, Vec<((u8, u8, u8), String, bool)>>, // (line color, run_names, display)
+    display_titles: HashMap<Models, Vec<(String, bool)>>, // (title_names, display)
+    // some ui configuration parameters
+    graphs_per_row: usize
 }
 
 impl PlotViewerV2 {
