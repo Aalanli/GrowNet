@@ -14,7 +14,7 @@ use model_lib::models::{self, TrainRecv};
 use model_lib::Config;
 
 use crate::{ops, config_ui_adjust};
-use crate::run_systems::{self as run, config_ui_show, ModelPlots, PlotViewerV1};
+use crate::run_systems::{self as run, config_ui_show, ModelPlots, PlotViewerV1, PlotViewerV2};
 use run::{Models, Despawn, Kill, Spawn, SpawnRun};
 use super::{Serializer, AppState, OperatingState, OpenPanel, UIParams, handle_pane_options};
 
@@ -53,9 +53,12 @@ fn train_menu_ui(
     mut params: ResMut<UIParams>,
     mut train_ui: ResMut<TrainingUI>,
     mut run_queue: ResMut<RunQueue>,
+    mut plot_viewer: ResMut<PlotViewerV2>,
+    plots: Res<ModelPlots>,
     stats: Res<run::RunStats>,
     run_recv: ResMut<run::RunRecv>,
     killer: EventWriter<Kill>,
+    mut config_width_delta: Local<f32>
 ) {
     egui::CentralPanel::default().show(egui_context.ctx_mut(), |ui| {
         let prev_panel = params.open_panel;
@@ -70,55 +73,76 @@ fn train_menu_ui(
             app_state.set(AppState::Menu).unwrap(); // should be fine to not return here
         }
 
-        let space = ui.available_size();
+        let height = ui.available_height();
         ui.horizontal(|ui| {
             // to this to prevent that
-            ui.allocate_ui(space, |ui| {
-                // the left most panel showing a list of model options
+            // the left most panel showing a list of model options
+
+            let original_width = ui.available_width();
+            let width = original_width * *config_width_delta;
+            let mut needed_width = 1.0;
+            // update any configurations using the ui
+            ui.allocate_ui(egui::Vec2::new(width, height), |ui| {
                 ui.vertical(|ui| {
-                    ui.selectable_value(&mut train_ui.model, run::Models::BASELINE, "baseline");
-                    
-                });
-
-                // load any runinfos sent from training processes
-                while let Ok(run) = run_recv.try_recv() {
-                    if !train_ui.run_ids.contains(&run.2) {
-                        train_ui.run_ids.insert(run.2);
-                        match run.0 {
-                            Models::BASELINE => { train_ui.baseline.add_run(run.1); }
-                        }
-                    }
-                }
-
-                // update any configurations using the ui
-                ui.vertical(|ui| match train_ui.model {
-                    run::Models::BASELINE => {
-                        train_ui.baseline.ui(ui);
-                    }
-                });
-
-                // Launching training
-                ui.vertical(|ui| {
-                    // TODO: add some keybindings to certain buttons
-                    // entry point for launching training
-                    // only launch things if the operating state is active
-                    if *op_state.current() == OperatingState::Active && ui.button("Launch Training").clicked() {
-                        match train_ui.model {
-                            run::Models::BASELINE => {
-                                let (spawn_fn, runinfo) = 
-                                    run::baseline::baseline_spawn_fn(train_ui.baseline.version_num as usize, train_ui.baseline.get_config(), train_ui.baseline.get_global_config());
-                                app_state.set(AppState::Trainer).unwrap();
-                                train_ui.baseline.version_num += 1;
-                                run_queue.add_run(runinfo, spawn_fn);
+                    egui::ComboBox::from_label("models")
+                        .selected_text(format!("{}", train_ui.model))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut train_ui.model, Models::BASELINE, "baseline");
+                        });
+        
+                    // load any runinfos sent from training processes
+                    while let Ok(run) = run_recv.try_recv() {
+                        if !train_ui.run_ids.contains(&run.2) {
+                            train_ui.run_ids.insert(run.2);
+                            match run.0 {
+                                Models::BASELINE => { train_ui.baseline.add_run(run.1); }
                             }
                         }
                     }
-                    if *op_state.current() == OperatingState::Cleanup {
-                        ui.label("killing any active tasks");
+
+                    match train_ui.model {
+                        run::Models::BASELINE => {
+                            needed_width = train_ui.baseline.ui(ui).width();
+                        }
                     }
-                    run_queue.ui(ui, killer, &*stats);
+
+                    // TODO: add some keybindings to certain buttons
+                    // entry point for launching training
+                    // only launch things if the operating state is active
+                    //ui.separator();
+                    //ui.label("run queue");
+                    //ui.shrink_height_to_current();
+                    ui.with_layout(egui::Layout::top_down(egui::Align::BOTTOM), |ui| {
+                        if *op_state.current() == OperatingState::Active && ui.button("Launch Training").clicked() {
+                            match train_ui.model {
+                                run::Models::BASELINE => {
+                                    let (spawn_fn, runinfo) = 
+                                        run::baseline::baseline_spawn_fn(train_ui.baseline.version_num as usize, train_ui.baseline.get_config(), train_ui.baseline.get_global_config());
+                                    //app_state.set(AppState::Trainer).unwrap();
+                                    train_ui.baseline.version_num += 1;
+                                    run_queue.add_run(runinfo, spawn_fn);
+                                }
+                            }
+                        }
+                        if *op_state.current() == OperatingState::Cleanup {
+                            ui.label("killing any active tasks");
+                        }
+                        run_queue.ui(ui, killer, &*stats);
+                    });
+
                 });
+
             });
+
+            *config_width_delta = needed_width / original_width;
+            //println!("{}", *config_width_delta);
+
+            let width = ui.available_width();
+            // plot viewer
+            ui.allocate_ui(egui::Vec2::new(width, height), |ui| {
+                plot_viewer.ui(ui, &*plots);
+            });
+            
         });
     });
 }
@@ -329,51 +353,48 @@ impl ConfigEnviron {
         self.saved_runs.get_checked().or_else(|| self.saved_runs.get_latest())
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
-        let space = ui.available_size();
-        ui.horizontal(|ui| {
-            ui.allocate_ui(space, |ui| {
-                ui.vertical(|ui| {
-                    egui::ScrollArea::vertical().id_source("global config").show(ui, |ui| {
-                        ui.label("global config");
-                        config_ui_adjust(&mut self.global_config, ui);
-                    });
-                    ui.label("");
-                    ui.horizontal(|ui| {
-                        // reset current config logic
-                        if !self.saved_runs.is_checked() {
-                            if ui.button("reset config").clicked() {
-                                self.config.update(&self.default).unwrap();
-                            }
-                        } else {
-                            // something is checked, default to past config
-                            let checked = self.saved_runs.get_checked_num().unwrap();
-                            if ui
-                                .button(format!("reset config with past config {}", checked))
-                                .clicked()
-                            {
-                                if let Some(a) = self.saved_runs.get_checked() {
-                                    self.config.update(&a.config).unwrap();
-                                }
+    pub fn ui(&mut self, ui: &mut egui::Ui) -> egui::Rect {
+        let response = ui.group(|ui| {
+            egui::ScrollArea::vertical().id_source("global config").show(ui, |ui| {
+                ui.label("global config");
+                ui.separator();
+                config_ui_adjust(&mut self.global_config, ui);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    // reset current config logic
+                    if !self.saved_runs.is_checked() {
+                        if ui.button("reset local config").clicked() {
+                            self.config.update(&self.default).unwrap();
+                        }
+                    } else {
+                        // something is checked, default to past config
+                        let checked = self.saved_runs.get_checked_num().unwrap();
+                        if ui
+                            .button(format!("reset local with past config {}", checked))
+                            .clicked()
+                        {
+                            if let Some(a) = self.saved_runs.get_checked() {
+                                self.config.update(&a.config).unwrap();
                             }
                         }
-                    });
-                    egui::ScrollArea::vertical().id_source("configs").show(ui, |ui| {
-                        ui.label(format!("local configs: version {}", self.version_num));
-                        config_ui_adjust(&mut self.config, ui);
-                    });
+                    }
                 });
                 
-                // implement adding and deletion from config stack
-                // self.saved_configs.ui(ui, |x, y| { x.update(&y).unwrap(); });
-                ui.vertical(|ui| {
-                    egui::ScrollArea::vertical().id_source("runs").show(ui, |ui| {
-                        self.saved_runs.ui(ui, |ui, run| { run.show_basic(ui); });
-                    });
-                });
-                // TODO: show past training runs
+                config_ui_adjust(&mut self.config, ui);
+                // ui.separator();
+                // ui.collapsing("past configs", |ui| {
+                //     self.saved_runs.ui(ui, |ui, run| { run.show_basic(ui); });
+                // });
             });
         });
+        response.response.rect
+        
+        
+        // implement adding and deletion from config stack
+        // self.saved_configs.ui(ui, |x, y| { x.update(&y).unwrap(); });
+        
+        // TODO: show past training runs
+
     }
 }
 
@@ -411,7 +432,6 @@ impl<T> CheckedList<T> {
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui, mut f: impl FnMut(&mut egui::Ui, &T)) {
-        egui::ScrollArea::vertical().id_source(&self.title).show(ui, |ui| {
             // use pub_runs as dummy display
             let mut i = 0;
             while i < self.saved.len() {
@@ -450,7 +470,6 @@ impl<T> CheckedList<T> {
                 }
                 i += 1;
             }
-        });
     }
     
 }
@@ -482,7 +501,7 @@ impl RunQueue {
                 for msg in self.spawn_errors.iter() {
                     ui.label(egui::RichText::new(msg).color(egui::Color32::RED));
                 }
-                ui.separator();
+                //ui.separator();
             }
             // show a list of queued runs, with option to remove a run
             ui.label("queued runs");

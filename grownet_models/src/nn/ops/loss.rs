@@ -9,7 +9,7 @@ use super::{Float, utils::grad_check};
 /// expects logits to be of shape [N, B], and gtruth to be the same shape
 pub fn cross_entropy<T: Float>(logits: &Array<T>, gtruth: &Array<T>) -> (Array<T>, impl Fn(&Array<T>) -> Array<T>) {
     let (y, df) = super::activations::log_softmax(logits);
-    let result = mean(&sum(&mul(&y, gtruth, false), 0), 1);
+    let result = mean(&sum(&mul(&y, gtruth, false), 0), 1) * T::from(-1.0).unwrap();
 
     let gt = gtruth.clone();
     let df1 = move |grad: &Array<T>| {

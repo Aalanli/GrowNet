@@ -27,6 +27,7 @@ pub use plots::{
     PlotLine,      // A Vec<(f64, f64)> representing (x, y) coordinates, where x is monotonically increasing
     PlotId,        // A unique identifier for each line
     PlotViewerV1,  // The Ui to show the plots
+    PlotViewerV2
 };
 
 

@@ -13,6 +13,15 @@ use super::run_data::Models;
 use model_lib::models::PlotPoint;
 
 
+// Five step rendering pipeline
+// 1. figure out the entire set of lines to render, as in, what lines should the current plot show
+//      based off of models, run_name, dataset, etc.
+// 2. Batch together lines so that each batch represents a single graph/plot, under which multiple lines could fall under
+// 3. Figure out if the batch needs to be rendered after all
+// 4. Recompute lines based off of metrics if necessary, and render the line to a raw buffer (Vec<u8>)
+// 5. Update the plot cache
+
+
 /// Use line stats to quickly compare if two lines are equal, and lightly cache resulting statistics
 #[derive(Clone, Copy)]
 struct LineStats {
@@ -217,14 +226,153 @@ impl PlotViewerV1 {
     }
 }
 
-// Five step rendering pipeline
-// 1. figure out the entire set of lines to render, as in, what lines should the current plot show
-//      based off of models, run_name, dataset, etc.
-// 2. Batch together lines so that each batch represents a single graph/plot, under which multiple lines could fall under
-// 3. Figure out if the batch needs to be rendered after all
-// 4. Recompute lines based off of metrics if necessary, and render the line to a raw buffer (Vec<u8>)
-// 5. Update the plot cache
+use egui::plot;
 
+#[derive(Resource, Serialize, Deserialize)]
+pub struct PlotViewerV2 {
+    display_model: Models,
+    display_runs: HashMap<Models, Vec<((u8, u8, u8), String, bool)>>, // (line color, run_names, display)
+    display_titles: HashMap<Models, Vec<(String, bool)>>, // (title_names, display)
+    // some ui configuration parameters
+    graphs_per_row: usize
+}
+
+fn get_or_insert<'a, K: std::hash::Hash + Eq + Clone, T>(map: &'a mut HashMap<K, T>, key: &K, default: impl Fn() -> T) -> &'a mut T {
+    if !map.contains_key(key) {
+        map.insert(key.clone(), default());
+    }
+    map.get_mut(key).unwrap()
+}
+
+fn contains<T>(vec: &Vec<T>, mut f: impl FnMut(&T) -> bool) -> Option<usize> {
+    for (i, x) in vec.iter().enumerate() {
+        if f(x) {
+            return Some(i);
+        }
+    }
+    None
+}
+
+fn get_run_color(run_name: &str) -> (u8, u8, u8) {
+    use std::hash::Hasher;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hasher.write(run_name.as_bytes());
+    let color_id = hasher.finish();
+    let color = Palette99::pick(color_id as usize).mix(0.9);
+    color.rgb()
+}
+
+impl PlotViewerV2 {
+    pub fn ui(&mut self, ui: &mut egui::Ui, lines: &ModelPlots) {
+        // adjust local rendering parameters, filters, etc.
+        // ui to adjust which lines to show
+        let cur_display_titles = get_or_insert(&mut self.display_titles, &self.display_model, || Vec::new());
+        let cur_display_runs = get_or_insert(&mut self.display_runs, &self.display_model, || Vec::new());
+        ui.vertical(|ui| {
+            egui::ComboBox::from_id_source("filter by model")
+                .selected_text(format!("{}", self.display_model))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.display_model, Models::BASELINE, "baseline");
+                });
+                                // pick which titles to show
+            ui.collapsing("graphs", |ui| {
+                for (title_name, display) in cur_display_titles.iter_mut() {
+                    ui.checkbox(display, &*title_name);
+                }
+            });
+
+            // pick which runs to show
+            for (color, run_name, display) in cur_display_runs.iter_mut() {
+                ui.horizontal(|ui| {
+                    let color = if *display {
+                        *color
+                    } else {
+                        (5, 10, 10)
+                    };
+                    if ui.add(egui::Button::new("  ").fill(egui::Color32::from_rgb(color.0, color.1, color.2))).clicked() {
+                        *display = !*display;
+                    }
+                    ui.label(&*run_name);
+                });
+            }
+            ui.label("graphs per row");
+            ui.add(egui::Slider::new(&mut self.graphs_per_row, 1..=5));
+        });
+
+        // now actually show the lines
+        let all_lines = lines.lines.iter().filter(|(id, _)| id.model == self.display_model);
+        let mut to_plot = Vec::new();
+        for (pid, line) in all_lines {
+            let title_idx = contains(cur_display_titles, |(title, _)| pid.title.eq(title));
+            let run_idx = contains(cur_display_runs, |(_, run_name, _)| pid.run_name.eq(run_name));
+            if title_idx.is_none() {
+                cur_display_titles.insert(0, (pid.title.clone(), true));
+            }
+            if run_idx.is_none() {
+                let run_color = get_run_color(&pid.run_name);
+                cur_display_runs.insert(0, (run_color, pid.run_name.clone(), true));
+            }
+            if title_idx.is_none() || run_idx.is_none() {
+                to_plot.push((pid, line));
+            } else if cur_display_titles[title_idx.unwrap()].1 && cur_display_runs[run_idx.unwrap()].2 {
+                to_plot.push((pid, line));
+            }
+        }
+
+        ui.ctx().request_repaint();
+        let batch_by_title = PlotBatch::batch_by_title(to_plot.into_iter());
+        let available_width = ui.available_width();
+        self.graphs_per_row = self.graphs_per_row.min(batch_by_title.len()).max(1);
+        let graph_width = available_width / self.graphs_per_row as f32;
+        let num_cols = (batch_by_title.len() + self.graphs_per_row - 1) / self.graphs_per_row;
+        // println!("{}", num_cols);
+        ui.vertical(|ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for col in 0..num_cols {
+                    ui.horizontal(|ui| {
+                        // println!("{:?}", col*graphs_per_row..((col + 1) * graphs_per_row).min(batch_by_title.len()));
+                        for i in col*self.graphs_per_row..((col + 1) * self.graphs_per_row).min(batch_by_title.len()) {
+                            ui.vertical(|ui| {
+                                let graph = &batch_by_title[i];
+                                ui.label(&graph.gid.0);
+                                let plot = plot::Plot::new(&graph.gid.0)
+                                    .auto_bounds_x().auto_bounds_y()
+                                    .allow_scroll(false)
+                                    .allow_drag(false)
+                                    .view_aspect(1.5)
+                                    .width(graph_width);
+                                plot.show(ui, |plot_ui| {
+                                    for (pid, line) in &graph.plots {
+                                        let color = get_run_color(&pid.run_name);
+                                        let line = plot::Line::new(plot::PlotPoints::from_iter(line.iter().map(|point| [point.0, point.1])))
+                                            .color(egui::Color32::from_rgb(color.0, color.1, color.2))
+                                            .style(plot::LineStyle::Solid);
+                                        plot_ui.line(line);
+                                    }
+                                });
+                                ui.shrink_width_to_current();
+                                ui.separator();
+                            });
+                        }
+                    });
+                }
+            });
+        });
+            
+        
+    }
+
+}
+
+impl Default for PlotViewerV2 {
+    fn default() -> Self {
+        Self { 
+            display_model: Models::BASELINE, 
+            display_runs: HashMap::new(),
+            display_titles: HashMap::new(),
+            graphs_per_row: 1 }
+    }
+}
 
 /// Step 1
 #[derive(Resource, Serialize, Deserialize, Default)]
@@ -444,6 +592,9 @@ pub fn batch<T: Copy>(items: impl Iterator<Item = T>, eq: impl Fn(T, T) -> bool)
     set
 } 
 
+fn get_line_color(pid: &PlotId) -> usize {
+    todo!()
+}
 
 fn render<'a>(
     title: &str,
@@ -476,8 +627,13 @@ fn render<'a>(
         if let Some(y) = y_title { c.y_desc(y); }
         c.draw()?;
 
-        for (idx, (name, line)) in lines.enumerate() {
-            let color = Palette99::pick(idx).mix(0.9);
+        for (_idx, (name, line)) in lines.enumerate() {
+            // make it so that each run gets its own color
+            use std::hash::Hasher;
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            hasher.write(name.as_bytes());
+            let color_id = hasher.finish();
+            let color = Palette99::pick(color_id as usize).mix(0.9);
             chart
                 .draw_series(LineSeries::new(
                     line.iter().map(|x| (x.0, x.1))

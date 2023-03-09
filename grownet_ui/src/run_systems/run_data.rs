@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub use model_lib::{models, Config};
 pub use models::{TrainProcess, TrainRecv, TrainSend, PlotPoint};
 pub use crate::ui::OperatingState;
-pub use super::{ModelPlots, PlotId, PlotViewerV1};
+pub use super::{ModelPlots, PlotId, PlotViewerV1, PlotViewerV2};
 
 use crate::{ops, Serializer};
 
@@ -30,6 +30,7 @@ impl Plugin for RunDataPlugin {
             .insert_resource(run_sender)
             .insert_resource(run_recv)
             .insert_resource(PlotViewerV1::default())
+            .insert_resource(PlotViewerV2::default())
             .insert_resource(ModelPlots::default())
             .insert_resource(Console::default())
             .insert_resource(RunStats::default())
@@ -43,24 +44,28 @@ impl Plugin for RunDataPlugin {
 fn setup_run_data(
     mut plots: ResMut<ModelPlots>,
     mut plot_viewer: ResMut<PlotViewerV1>,
+    mut plot_viewer2: ResMut<PlotViewerV2>,
     mut console: ResMut<Console>,
     serializer: Res<Serializer>
 ) {
     serializer.deserialize("model_plots", &mut *plots);
     serializer.deserialize("model_console", &mut *console);
     serializer.deserialize("plot_viewer", &mut *plot_viewer);
+    serializer.deserialize("plot_viewer2", &mut *plot_viewer2);
 }
 
 /// write run data to disk
 fn save_run_data(
     plots: Res<ModelPlots>,
     plot_viewer: Res<PlotViewerV1>,
+    plot_viewer2: Res<PlotViewerV2>,
     console: Res<Console>,
     mut serializer: ResMut<Serializer>
 ) {
     serializer.serialize("model_plots", &*plots);
     serializer.serialize("model_console", &*console);
     serializer.serialize("plot_viewer", &*plot_viewer);
+    serializer.serialize("plot_viewer2", &*plot_viewer2);
 }
 
 /// Enum of all the model variants

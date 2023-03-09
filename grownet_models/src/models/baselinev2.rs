@@ -157,7 +157,7 @@ pub fn run(config: &Config) -> Result<TrainProcess> {
     let sender = log_sender;
     let recv = command_recv;
     let handle = std::thread::spawn(move || {
-        let dataset = dataset;
+        let mut dataset = dataset;
         
         let mut model = FastResnet::<f32>::new(10);
         let mut adam = {
@@ -173,21 +173,22 @@ pub fn run(config: &Config) -> Result<TrainProcess> {
         let mut running_acc = 0.0;
         let mut steps_since_last_log = 0;
 
-        let setup_test_iter = || {
-            let test_iter = dataset.iter_test_img();
-            let test_imgs = transform_data(test_iter, batch_size as usize);
-            let test_labels = dataset.iter_test_label().map(|x| *x)
-                .batch(batch_size as usize)
-                .map(|x| { nd::Array1::from_vec(x) });
-            let test_combined = test_imgs.zip(test_labels).map(|(img, label)| {
-                (transforms::to_afarray(&img), Array::new(label.as_slice().unwrap(), dim4!(label.len() as u64)))
-            });
-            test_combined
-        };
+        // let setup_test_iter = || {
+        //     let test_iter = dataset.iter_test_img();
+        //     let test_imgs = transform_data(test_iter, batch_size as usize);
+        //     let test_labels = dataset.iter_test_label().map(|x| *x)
+        //         .batch(batch_size as usize)
+        //         .map(|x| { nd::Array1::from_vec(x) });
+        //     let test_combined = test_imgs.zip(test_labels).map(|(img, label)| {
+        //         (transforms::to_afarray(&img), Array::new(label.as_slice().unwrap(), dim4!(label.len() as u64)))
+        //     });
+        //     test_combined
+        // };
 
-        let mut test_iter = setup_test_iter();
+        // let mut test_iter = setup_test_iter();
 
         for epoch in 0..epochs {
+            dataset.shuffle_train();
             let train_iter = dataset.iter_train_img();
             let train_imgs = transform_data(train_iter, batch_size as usize);
             let train_labels = dataset.iter_train_label().map(|x| *x)

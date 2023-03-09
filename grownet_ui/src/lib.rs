@@ -15,7 +15,7 @@ use bevy_egui::egui;
 use num::Num;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-const ROOT_PATH: &'static str = "assets";
+const ROOT_CONFIG_PATH: &'static str = "assets/config";
 
 pub use run_systems::{config_ui_adjust, config_ui_show};
 
@@ -28,7 +28,7 @@ pub struct Serializer {
 
 impl Default for Serializer {
     fn default() -> Self {
-        let root_path = PathBuf::from(ROOT_PATH);
+        let root_path = PathBuf::from(ROOT_CONFIG_PATH);
         if !root_path.exists() {
             std::fs::create_dir_all(&root_path).expect("unable to setup path manager");
         }
@@ -45,7 +45,7 @@ impl Serializer {
             if !qualifed_path.parent().expect(&format!("path {} does not have a parent", qualifed_path.display())).exists() {
                 std::fs::create_dir_all(qualifed_path.parent().unwrap()).expect("failed to create directory for serialize");
             }
-            let train_data_writer = std::fs::File::create(path).unwrap();
+            let train_data_writer = std::fs::File::create(&qualifed_path).unwrap();
             println!("serializing to {}", qualifed_path.display());
             bincode::serialize_into(train_data_writer, x).expect("unable to serialize");
             self.saved_paths.insert(qualifed_path);
@@ -56,8 +56,13 @@ impl Serializer {
         let qualifed_path = self.root_path.join(path);
         if qualifed_path.exists() {
             println!("deserializing from {}", qualifed_path.display());
-            let reader = std::fs::File::open(path).expect("unable to open file");
-            *x = bincode::deserialize_from(reader).unwrap();
+            let reader = std::fs::File::open(&qualifed_path).expect("unable to open file");
+            match bincode::deserialize_from::<std::fs::File, T>(reader) {
+                Ok(de) => { *x = de; },
+                Err(e) => {
+                    eprintln!("failed to deserializing from {} due to {e}", qualifed_path.display());
+                }
+            }
         }
     }
 }
