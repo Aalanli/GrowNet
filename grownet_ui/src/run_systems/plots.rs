@@ -254,6 +254,40 @@ fn get_run_color(run_name: &str) -> (u8, u8, u8) {
     color.rgb()
 }
 
+struct SmoothIter<It> {
+    window_size: usize,
+    window: VecDeque<(f64, f64)>,
+    sum: f64,
+    iter: It
+}
+
+impl<It> SmoothIter<It> {
+    fn new(iter: It, window: usize) -> Self {
+        let mut sum_window = VecDeque::new();
+        sum_window.reserve_exact(window);
+        Self { window_size: window, window: sum_window, sum: 0.0, iter }
+    }
+}
+
+impl<It: Iterator<Item = (f64, f64)>> Iterator for SmoothIter<It> {
+    type Item = (f64, f64);
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(point) = self.iter.next() {
+            if self.window.len() < self.window_size {
+                self.window.push_back(point);
+                self.sum += point.1;
+            } else {
+                let prev_point = self.window.pop_front().unwrap();
+                self.sum -= prev_point.1;
+                self.sum += point.1;
+                self.window.push_back(point);
+            }
+            Some((point.0, self.sum / self.window.len() as f64))
+        } else {
+            None
+        }
+    }
+}
 
 #[derive(Resource, Serialize, Deserialize)]
 pub struct PlotViewerV2 {
@@ -261,7 +295,8 @@ pub struct PlotViewerV2 {
     display_runs: HashMap<Models, Vec<((u8, u8, u8), String, bool)>>, // (line color, run_names, display)
     display_titles: HashMap<Models, Vec<(String, bool)>>, // (title_names, display)
     // some ui configuration parameters
-    graphs_per_row: usize
+    graphs_per_row: usize,
+    smooth_window: usize,
 }
 
 impl PlotViewerV2 {
@@ -299,6 +334,9 @@ impl PlotViewerV2 {
             }
             ui.label("graphs per row");
             ui.add(egui::Slider::new(&mut self.graphs_per_row, 1..=5));
+            ui.label("smooth window");
+            ui.add(egui::DragValue::new(&mut self.smooth_window));
+            self.smooth_window = self.smooth_window.max(1);
         });
 
         // now actually show the lines
@@ -346,7 +384,10 @@ impl PlotViewerV2 {
                                 plot.show(ui, |plot_ui| {
                                     for (pid, line) in &graph.plots {
                                         let color = get_run_color(&pid.run_name);
-                                        let line = plot::Line::new(plot::PlotPoints::from_iter(line.iter().map(|point| [point.0, point.1])))
+                                        let smoothed_line = SmoothIter::new(
+                                            line.iter().map(|point| *point), self.smooth_window)
+                                            .map(|point| [point.0, point.1]);
+                                        let line = plot::Line::new(plot::PlotPoints::from_iter(smoothed_line))
                                             .color(egui::Color32::from_rgb(color.0, color.1, color.2))
                                             .style(plot::LineStyle::Solid);
                                         plot_ui.line(line);
@@ -372,7 +413,9 @@ impl Default for PlotViewerV2 {
             display_model: Models::BASELINE, 
             display_runs: HashMap::new(),
             display_titles: HashMap::new(),
-            graphs_per_row: 1 }
+            graphs_per_row: 1,
+            smooth_window: 1,
+        }
     }
 }
 
