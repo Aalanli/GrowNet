@@ -635,10 +635,6 @@ pub fn batch<T: Copy>(items: impl Iterator<Item = T>, eq: impl Fn(T, T) -> bool)
     }
 
     set
-} 
-
-fn get_line_color(pid: &PlotId) -> usize {
-    todo!()
 }
 
 fn render<'a>(
