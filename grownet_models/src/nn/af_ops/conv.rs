@@ -72,7 +72,7 @@ impl<T: Float> Conv2d<T> {
 
 #[test]
 fn gradcheck_conv2d() {
-    use super::utils::grad_check;
+    use super::utils::af_grad_check;
     use af::*;
     set_backend(Backend::CPU);
     let x = randn::<f64>(dim4!(24, 24, 3, 1));
@@ -133,7 +133,7 @@ fn gradcheck_conv2d() {
     };
 
 
-    grad_check(x.clone(), None, None, None, fn_dx);
-    grad_check(w.clone(), None, None, None, fn_dw);
-    grad_check(b.clone(), None, None, None, fn_db);
+    af_grad_check(x.clone(), None, None, None, fn_dx);
+    af_grad_check(w.clone(), None, None, None, fn_dw);
+    af_grad_check(b.clone(), None, None, None, fn_db);
 }

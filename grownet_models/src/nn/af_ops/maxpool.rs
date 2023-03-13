@@ -77,7 +77,7 @@ impl MaxPool2D {
 #[test]
 fn gradcheck_maxpool() {
     set_backend(Backend::CPU);
-    use super::utils::grad_check;
+    use super::utils::af_grad_check;
     let x = randn::<f64>(dim4!(16, 16, 3, 1));
     let pool = MaxPool2D::new([2, 2], [1, 1]);
     // let (y, f) = pool.forward(&x);
@@ -85,6 +85,6 @@ fn gradcheck_maxpool() {
     let f = |x: &Array<f64>| {
         pool.forward(x)
     };
-    grad_check(x, None, None, None, f);
+    af_grad_check(x, None, None, None, f);
 
 }

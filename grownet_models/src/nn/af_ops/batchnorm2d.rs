@@ -180,7 +180,7 @@ impl<T: Float> BatchNorm2D<T> {
 
 #[test]
 fn test_forward_backward() {
-    use super::utils::{grad_check, assign};
+    use super::utils::{af_grad_check, assign};
     set_backend(Backend::CPU);
     let dim = 2;
     let mut batchnorm = BatchNorm2D::new(4);
@@ -193,7 +193,7 @@ fn test_forward_backward() {
 
 #[test]
 fn gradcheck_batchnorm2d() {
-    use super::utils::{grad_check, assign};
+    use super::utils::{af_grad_check, assign};
     set_backend(Backend::CPU);
     let dim = 4;
     let input = randn::<f64>(dim4!(dim, dim));
@@ -222,6 +222,6 @@ fn gradcheck_batchnorm2d() {
     assign(&mut testg, 0, 1.0);
     print(&f(&testg));
 
-    grad_check(input, None, None, None, test_dinput);    
+    af_grad_check(input, None, None, None, test_dinput);    
 
 }

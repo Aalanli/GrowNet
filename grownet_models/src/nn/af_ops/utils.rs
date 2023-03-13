@@ -44,7 +44,7 @@ fn get(a: &mut Array<f64>, i: usize) -> f64 {
 }
 
 /// compute the jacobian matrix using finite differences, only works if f is 'relatively' pure
-pub fn compute_jacobian(x: Array<f64>, eps: f64, mut f: impl FnMut(&Array<f64>) -> Array<f64>) -> Array<f64> {
+pub fn af_compute_jacobian(x: Array<f64>, eps: f64, mut f: impl FnMut(&Array<f64>) -> Array<f64>) -> Array<f64> {
     af::set_backend(Backend::CPU);
     let mut x = x.clone();
     let nd = x.elements() as usize;
@@ -78,7 +78,7 @@ pub fn compute_jacobian(x: Array<f64>, eps: f64, mut f: impl FnMut(&Array<f64>) 
 /// checks the gradient by finite differences, first computing the jacobian
 /// works only if f is pure in the sense the two calls with identical data
 /// evalulates to the same thing
-pub fn grad_check<FB>(x: Array<f64>, eps: Option<f64>, atol: Option<f64>, rtol: Option<f64>, mut f: impl FnMut(&Array<f64>) -> (Array<f64>, FB))
+pub fn af_grad_check<FB>(x: Array<f64>, eps: Option<f64>, atol: Option<f64>, rtol: Option<f64>, mut f: impl FnMut(&Array<f64>) -> (Array<f64>, FB))
 where FB: FnMut(&Array<f64>) -> Array<f64>
 {
     af::set_backend(Backend::CPU);
@@ -89,7 +89,7 @@ where FB: FnMut(&Array<f64>) -> Array<f64>
 
     let eps = eps.unwrap_or(1e-6);
     // m * n
-    let jacobian = compute_jacobian(x.clone(), eps, jac_fn);
+    let jacobian = af_compute_jacobian(x.clone(), eps, jac_fn);
     let (mut grad, mut grad_fn) = f(&x);
     grad = mul(&grad, &0.0, true);
     grad.eval();
@@ -149,7 +149,7 @@ mod test {
             x * 3.0
         };
         x.eval();
-        let jac = compute_jacobian(x, 1e-4, f);
+        let jac = af_compute_jacobian(x, 1e-4, f);
         let analytical = diag_create(&constant(3.0, dim4!(diml)), 0);
         //af::print(&jac);
         //af::print(&analytical);
@@ -163,7 +163,7 @@ mod test {
         let f = |x: &Array<f64>| {
             x * 3.0 + sin(&x) * exp(&x)
         };
-        let jac = compute_jacobian(x.clone(), 1e-6, f);
+        let jac = af_compute_jacobian(x.clone(), 1e-6, f);
         let ajac = 3.0 + (cos(&x) + sin(&x)) * exp(&x);
         let analytical = diag_create(&ajac, 0);
         assert!(is_close(&analytical, &jac, None, None));
@@ -180,7 +180,7 @@ mod test {
             (x * 3.0, f)
         };
 
-        grad_check(x, None, None, None, f);
+        af_grad_check(x, None, None, None, f);
     }
 
     fn pointwise_forward(x: &Array<f64>) -> (Array<f64>, impl FnMut(&Array<f64>) -> Array<f64>) {
@@ -196,7 +196,7 @@ mod test {
         af::set_backend(Backend::CPU);
         let x = randn::<f64>(dim4!(64));
 
-        grad_check(x, None, None, None, pointwise_forward);
+        af_grad_check(x, None, None, None, pointwise_forward);
     }
 
     fn stateful_forward(x: &Array<f64>) -> (Array<f64>, impl FnMut(&Array<f64>) -> Array<f64>) {
@@ -216,7 +216,7 @@ mod test {
         af::set_backend(Backend::CPU);
         let x = randn::<f64>(dim4!(64));
 
-        grad_check(x, None, None, None, stateful_forward);
+        af_grad_check(x, None, None, None, stateful_forward);
     }
 
     pub fn softmax<T: Float>(a: &Array<T>) -> (Array<T>, impl Fn(&Array<T>) -> Array<T>) {
@@ -241,6 +241,6 @@ mod test {
     fn test_softmax() {
         set_backend(Backend::CPU);
         let x = randn::<f64>(dim4!(16));
-        grad_check(x, None, None, None, softmax);
+        af_grad_check(x, None, None, None, softmax);
     }
 }

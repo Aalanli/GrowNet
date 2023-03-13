@@ -1,4 +1,5 @@
-pub mod ops;
+pub mod af_ops;
+pub mod nd_ops;
 pub mod parts;
 
-pub use ops::Param;
+pub use af_ops::Param;

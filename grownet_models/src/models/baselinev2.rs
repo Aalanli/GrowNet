@@ -4,7 +4,7 @@ use anyhow::{Result, Error};
 use arrayfire::*;
 use crossbeam::channel::unbounded;
 
-use crate::nn::ops::{self as ops, *};
+use crate::nn::af_ops::{self as af_ops, *};
 use crate::nn::parts::*;
 use crate::datasets::{transforms, mnist};
 
@@ -16,10 +16,10 @@ use crate::nn::parts::Adam;
     pre: ConvBlock<T>,
     layer1: ConvLayer<T>,
     inter: ConvBlock<T>,
-    max_pool: ops::maxpool::MaxPool2D,
+    max_pool: af_ops::maxpool::MaxPool2D,
     layer2: ConvLayer<T>,
-    max_pool2: ops::maxpool::MaxPool2D,
-    linear: ops::linear::Linear<T>
+    max_pool2: af_ops::maxpool::MaxPool2D,
+    linear: af_ops::linear::Linear<T>
 }
 
 impl<T: Float> FastResnet<T> {
@@ -28,10 +28,10 @@ impl<T: Float> FastResnet<T> {
             pre: ConvBlock::new(3, 64), 
             layer1: ConvLayer::new(64, 128), 
             inter: ConvBlock::new(128, 256), 
-            max_pool: ops::maxpool::MaxPool2D::new([2, 2], [2, 2]), 
+            max_pool: af_ops::maxpool::MaxPool2D::new([2, 2], [2, 2]), 
             layer2: ConvLayer::new(256, 512), 
-            max_pool2: ops::maxpool::MaxPool2D::new([3, 3], [2, 2]), 
-            linear: ops::linear::Linear::new(512, classes, true)
+            max_pool2: af_ops::maxpool::MaxPool2D::new([3, 3], [2, 2]), 
+            linear: af_ops::linear::Linear::new(512, classes, true)
         }
     }
 
@@ -44,9 +44,9 @@ impl<T: Float> FastResnet<T> {
         
         let (x6, df6) = self.max_pool2.forward(&x5); // [w, h, c, b]
         let dims = x6.dims();
-        let (x7, df7) = ops::reshape(&x6, dim4!(dims[0] * dims[1], dims[2], dims[3]));
-        let (x8, df8) = ops::reduce_sum(&x7, 0);
-        let (x9, df9) = ops::reshape(&x8, dim4!(dims[2], dims[3]));
+        let (x7, df7) = af_ops::reshape(&x6, dim4!(dims[0] * dims[1], dims[2], dims[3]));
+        let (x8, df8) = af_ops::reduce_sum(&x7, 0);
+        let (x9, df9) = af_ops::reshape(&x8, dim4!(dims[2], dims[3]));
         let (x10, df10) = self.linear.forward(&x9);
 
         let df = move |s: &mut Self, grad: &Array<T>| {
@@ -201,7 +201,7 @@ pub fn run(config: &Config) -> Result<TrainProcess> {
             for (img, label) in train_iter {
                 steps += 1isize;
                 let (logits, df) = model.forward(&img);
-                let (loss, dl_dlogit) = ops::loss::cross_entropy(&logits, &ops::loss::one_hot(label.cast(), 10));
+                let (loss, dl_dlogit) = af_ops::loss::cross_entropy(&logits, &af_ops::loss::one_hot(label.cast(), 10));
                 let dl = dl_dlogit(&Array::new(&[1.0], dim4!(1)));
                 df(&mut model, &dl);
 

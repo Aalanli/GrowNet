@@ -3,7 +3,7 @@ use arrayfire as af;
 
 use ndarray as nd;
 
-use super::{Float, utils::grad_check};
+use super::{Float, utils::af_grad_check};
 
 
 /// expects logits to be of shape [N, B], and gtruth to be the same shape
@@ -41,5 +41,5 @@ fn test_crossentropy() {
     let a = randn::<f64>(dim4!(8));
     let gt = randn::<f64>(dim4!(8));
 
-    grad_check(a, None, None, None, |x| { cross_entropy(x, &gt) })
+    af_grad_check(a, None, None, None, |x| { cross_entropy(x, &gt) })
 }

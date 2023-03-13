@@ -45,26 +45,26 @@ fn matmul<T: Float>(a: &Array<T>, b: &Array<T>) -> (Array<T>, impl Fn(&Array<T>)
 #[test]
 fn gradcheck_reducesum() {
     set_backend(Backend::CPU);
-    use super::utils::grad_check;
+    use super::utils::af_grad_check;
     let x = randn::<f64>(dim4!(16, 1, 2, 1));
-    grad_check(x, None, None, None, |x| reduce_sum(x, 0));
+    af_grad_check(x, None, None, None, |x| reduce_sum(x, 0));
 }
 
 #[test]
 fn gradcheck_matmul() {
     set_backend(Backend::CPU);
-    use super::utils::grad_check;
+    use super::utils::af_grad_check;
     let a = randn::<f64>(dim4!(16, 14));
     let b = randn::<f64>(dim4!(14, 15));
     let b1 = b.clone();
-    grad_check(a.clone(), None, None, None, move |x: &Array<f64>| {
+    af_grad_check(a.clone(), None, None, None, move |x: &Array<f64>| {
         let (y, f) = matmul(x, &b1);
         let df = move |g: &Array<f64>| f(g).0;
         (y, df)
     });
 
     let a1 = a.clone();
-    grad_check(b, None, None, None, move |x: &Array<f64>| {
+    af_grad_check(b, None, None, None, move |x: &Array<f64>| {
         let (y, f) = matmul(&a1, x);
         let df = move |g: &Array<f64>| f(g).1;
         (y, df)

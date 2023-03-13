@@ -56,26 +56,26 @@ pub fn log_softmax<T: Float>(a: &Array<T>) -> (Array<T>, impl Fn(&Array<T>) -> A
 mod test {
     use arrayfire::*;
     use super::*;
-    use super::super::utils::grad_check;
+    use super::super::utils::af_grad_check;
     const CHECKDIM: u64 = 7;
     #[test]
     fn grad_check_softmax() {
         set_backend(Backend::CPU);
         let x = randn::<f64>(dim4!(CHECKDIM));
-        grad_check(x, None, None, None, softmax);
+        af_grad_check(x, None, None, None, softmax);
     }
 
     #[test]
     fn grad_check_log_softmax() {
         set_backend(Backend::CPU);
         let x = randn::<f64>(dim4!(CHECKDIM));
-        grad_check(x, None, None, None, log_softmax);
+        af_grad_check(x, None, None, None, log_softmax);
     }
 
     #[test]
     fn grad_check_relu() {
         set_backend(Backend::CPU);
         let x = randn::<f64>(dim4!(CHECKDIM));
-        grad_check(x, None, None, None, relu);
+        af_grad_check(x, None, None, None, relu);
     }
 }

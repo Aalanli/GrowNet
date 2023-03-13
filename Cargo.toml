@@ -19,4 +19,5 @@ opt-level = 1
 opt-level = 3
 
 [profile.release]
-debug = true
+#debug = true
+lto = true

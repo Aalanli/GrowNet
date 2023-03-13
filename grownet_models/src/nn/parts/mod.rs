@@ -1,28 +1,28 @@
 use std::rc::Rc;
 use arrayfire::*;
-use super::{ops, Param};
-use ops::Float;
+use super::{af_ops, Param};
+use af_ops::Float;
 
 use crate::{Flatten, World};
 
 #[derive(Flatten)]
-pub struct ConvBlock<T: ops::Float> {
-    conv: ops::conv::Conv2d<T>,
-    instance_norm: ops::instancenorm::InstanceNorm2D<T>
+pub struct ConvBlock<T: af_ops::Float> {
+    conv: af_ops::conv::Conv2d<T>,
+    instance_norm: af_ops::instancenorm::InstanceNorm2D<T>
 }
 
-impl<T: ops::Float> ConvBlock<T> {
+impl<T: af_ops::Float> ConvBlock<T> {
     pub fn new(in_chan: u64, out_chan: u64) -> Self {
         Self { 
-            conv: ops::conv::Conv2d::new(in_chan, out_chan, [3, 3], [1, 1], [1, 1], false), 
-            instance_norm: ops::instancenorm::InstanceNorm2D::new(out_chan)
+            conv: af_ops::conv::Conv2d::new(in_chan, out_chan, [3, 3], [1, 1], [1, 1], false), 
+            instance_norm: af_ops::instancenorm::InstanceNorm2D::new(out_chan)
         }
     }
 
     pub fn forward(&self, x: &Array<T>) -> (Array<T>, impl Fn(&mut Self, &Array<T>) -> Array<T>) {
         let (x, f1) = self.conv.forward(x);
         let (x, f2) = self.instance_norm.forward(&x);
-        let (x, f3) = ops::activations::relu(&x);
+        let (x, f3) = af_ops::activations::relu(&x);
 
         let back_fn = move |s: &mut Self, grad: &Array<T>| {
             let g0 = f3(&grad);
@@ -39,7 +39,7 @@ impl<T: ops::Float> ConvBlock<T> {
 #[derive(Flatten)]
 pub struct ConvLayer<T: Float> {
     pre: ConvBlock<T>,
-    max_pool: ops::maxpool::MaxPool2D,
+    max_pool: af_ops::maxpool::MaxPool2D,
     block1: ConvBlock<T>,
     block2: ConvBlock<T>,
 }
@@ -48,7 +48,7 @@ impl<T: Float> ConvLayer<T> {
     pub fn new(in_chan: u64, out_chan: u64) -> Self {
         Self { 
             pre: ConvBlock::new(in_chan, out_chan), 
-            max_pool: ops::maxpool::MaxPool2D::new([2, 2], [2, 2]),
+            max_pool: af_ops::maxpool::MaxPool2D::new([2, 2], [2, 2]),
             block1: ConvBlock::new(out_chan, out_chan), 
             block2: ConvBlock::new(out_chan, out_chan)
         }
@@ -86,7 +86,7 @@ pub struct Adam<T: Float> {
 
 impl<T: Float> Adam<T> {
     pub fn new<'a>(world: &mut World<'a>, beta1: T, beta2: T) -> Self {
-        use ops::zeros;
+        use af_ops::zeros;
         let mut mt_vt = Vec::new();
 
         for param in world.query_mut::<Param<T>>() {

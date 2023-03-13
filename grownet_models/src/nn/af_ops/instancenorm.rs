@@ -1,6 +1,8 @@
 use arrayfire as af;
 use af::*;
 
+use ndarray as nd;
+
 use super::{Float, Param, utils::{ones, zeros}};
 use crate::Flatten;
 
@@ -50,7 +52,7 @@ pub fn instancenorm2d<T: Float>(x: &Array<T>) -> (Array<T>, impl Fn(&Array<T>) -
     let dims = x.dims();
     let rdims = dim4!(dims[0] * dims[1], 1, dims[2], dims[3]);
     let flat = moddims(x, rdims);
-    let (n, f) = af_instancenorm(&flat, T::from(1e-6).unwrap(), 0);
+    let (n, f) = instancenorm(&flat, T::from(1e-6).unwrap(), 0);
     let out = moddims(&n, dims);
     let new_f = move |grad: &Array<T>| {
         let reshape = moddims(grad, rdims);
@@ -63,7 +65,7 @@ pub fn instancenorm2d<T: Float>(x: &Array<T>) -> (Array<T>, impl Fn(&Array<T>) -
 
 
 /// norm along ith dimension
-pub fn af_instancenorm<T: Float>(x: &Array<T>, eps: T, dim: u64) -> (Array<T>, impl Fn(&Array<T>) -> Array<T>) {
+pub fn instancenorm<T: Float>(x: &Array<T>, eps: T, dim: u64) -> (Array<T>, impl Fn(&Array<T>) -> Array<T>) {
     let mu = mean(x, dim as i64);
     let ci = sub(x, &mu, true);
     let n = ci.dims()[dim as usize];
@@ -111,27 +113,27 @@ fn std<T: Float>(xi: &Array<T>, dim: u64) -> (Array<T>, impl Fn(&Array<T>) -> Ar
 #[test]
 fn gradcheck_std() {
     set_backend(Backend::CPU);
-    use super::utils::grad_check;
+    use super::utils::af_grad_check;
     let x = randn::<f64>(dim4!(16, 1));
-    grad_check(x, Some(1e-7), None, None, |x| std(x, 0));
+    af_grad_check(x, Some(1e-7), None, None, |x| std(x, 0));
 }
 
 
 #[test]
 fn gradcheck_instancenorm() {
     set_backend(Backend::CPU);
-    use super::utils::grad_check;
+    use super::utils::af_grad_check;
     let x = randn::<f64>(dim4!(16, 1));
-    grad_check(x, Some(1e-7), None, None, |x| af_instancenorm(x, 1e-8, 0));
+    af_grad_check(x, Some(1e-7), None, None, |x| instancenorm(x, 1e-8, 0));
 
     let x = randn::<f64>(dim4!(4, 4));
-    grad_check(x, Some(1e-7), None, None, |x| af_instancenorm(x, 1e-8, 1));
+    af_grad_check(x, Some(1e-7), None, None, |x| instancenorm(x, 1e-8, 1));
 }
 
 #[test]
 fn gradcheck_instancenorm2d() {
     set_backend(Backend::CPU);
-    use super::utils::grad_check;
+    use super::utils::af_grad_check;
     let x = randn::<f64>(dim4!(16, 16, 3, 1));
-    grad_check(x, Some(1e-7), None, None, |x| instancenorm2d(x));
+    af_grad_check(x, Some(1e-7), None, None, |x| instancenorm2d(x));
 }
