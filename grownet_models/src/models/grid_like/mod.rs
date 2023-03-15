@@ -1,5 +1,5 @@
-mod m0;
-mod m0ctx;
+pub mod m0;
+pub mod m0ctx;
 
 /// Simplest computation block, a differentiable function, whose update method must strictly follow the forward method
 pub trait Node {

@@ -1,17 +1,21 @@
 mod utils;
-mod instancenorm;
+pub mod context;
+pub mod ops_owned;
+pub mod ops_ctx;
 
-use rand_distr::{Distribution, StandardNormal};
 pub use utils::*;
-pub use instancenorm::*;
+pub use ops_ctx as ctx;
+pub use ops_owned as owned;
 
+use rand_distr::{Distribution, StandardNormal, uniform::SampleUniform, Normal, Uniform};
 use ndarray as nd;
 use nd::prelude::*;
+use nd::{RemoveAxis, IntoDimension, Zip};
 use num::Float;
-use ndarray_rand::{rand, rand_distr::Normal, RandomExt};
+use num_traits::FromPrimitive;
 
-pub trait GDim: nd::ShapeBuilder + Clone {}
-impl<T: nd::ShapeBuilder + Clone> GDim for T {}
+use ndarray_rand::{rand::thread_rng, RandomExt};
+
 
 pub struct Param<T, D> {
     pub w: Array<T, D>,
@@ -21,11 +25,11 @@ pub struct Param<T, D> {
 impl<T: Float, D: Dimension> Param<T, D>
 where StandardNormal: Distribution<T> 
 {
-    pub fn zeros<Sh: GDim<Dim = D>>(dim: Sh) -> Param<T, D> {
+    pub fn zeros<Sh: IntoDimension<Dim = D> + Clone>(dim: Sh) -> Param<T, D> {
         Param { w: Array::zeros(dim.clone()), g: Array::zeros(dim) }
     }
 
-    pub fn randn<Sh: GDim<Dim = D>>(dim: Sh) -> Param<T, D> {
+    pub fn randn<Sh: IntoDimension<Dim = D> + Clone>(dim: Sh) -> Param<T, D> {
         let w = Array::random(dim.clone(), Normal::new(T::zero(), T::one()).unwrap());
         let g = Array::zeros(dim);
         Param { w, g }

@@ -1,9 +1,3 @@
-use ndarray as nd;
-use nd::{prelude::*, RemoveAxis, Zip};
-
-use num::Float;
-use num_traits::FromPrimitive;
-
 use super::*;
 
 pub struct InstanceNorm<T, D> {
@@ -11,7 +5,6 @@ pub struct InstanceNorm<T, D> {
     inv_sd: Array<T, D>,
     axis: usize,
 }
-
 
 pub fn var_axis<A, D>(x: &ArrayView<A, D>, axis: usize) -> (Array<A, D>, Array<A, D>)
 where

@@ -3,13 +3,13 @@ use ndarray as nd;
 use num::Float;
 use rand::thread_rng;
 
-use crate::nn::nd_ops as ops;
+use crate::nn::nd_ops::{*, ops_owned as ops};
 use crate::ops::relu;
 
 
 pub struct SimpleLinearNode {
-    w: ops::Param<f32, Ix2>,
-    b: ops::Param<f32, Ix2>,
+    w: Param<f32, Ix2>,
+    b: Param<f32, Ix2>,
     ictx: Option<ops::InstanceNorm<f32, Ix2>>,
     norm_x: Option<Array<f32, Ix2>>,
     y: Option<Array<f32, Ix2>>
@@ -18,8 +18,8 @@ pub struct SimpleLinearNode {
 impl SimpleLinearNode {
     pub fn new(dim: usize) -> Self {
         SimpleLinearNode { 
-            w: ops::Param::randn([dim, dim]), 
-            b: ops::Param::zeros([1, dim]), 
+            w: Param::randn([dim, dim]), 
+            b: Param::zeros([1, dim]), 
             ictx: None,
             norm_x: None,
             y: None,
@@ -88,10 +88,10 @@ impl SimpleGrid {
         Self { grid, value_grid1: value_grid.clone(), value_grid2: value_grid, xyz }
     }
 
-    // expect x is of shape [b, d, y, x]
-    pub fn forward(&mut self, xs: &ArrayView4<f32>) -> Array4<f32> {
-        let (b, d, y, x) = xs.dim();
-        let xs = xs.into_shape((b, d, y * x)).expect("incorrect input shape").permuted_axes([2, 0, 1]);
+    // expect x is of shape [y, x, b, d]
+    pub fn forward(&mut self, xs: &ArrayView4<f32>) -> ArrayView4<f32> {
+        let (y, x, b, d) = xs.dim();
+        let xs = xs.into_shape((y * x, b, d)).expect("incorrect input shape");
         // permute and copy into value grid, so that the shape is [y * x, b, d]
         self.value_grid1.zip_mut_with(&xs, |v, x| {
             *v = *x;
@@ -128,7 +128,7 @@ impl SimpleGrid {
             std::mem::swap(&mut self.value_grid1, &mut self.value_grid2);
         }
         // now the output should be in self.value_grid1
-        let output = self.value_grid1.clone().permuted_axes([1, 2, 0]).into_shape([b, d, y, x]).unwrap();
+        let output = self.value_grid1.view().into_shape([y, x, b, d]).unwrap();
         output
     }
 
@@ -149,7 +149,7 @@ fn test_linear_node() {
 #[test]
 fn test_simple_compute_grid() {
     let mut grid = SimpleGrid::new([16, 16, 16], 1, 8);
-    let input = ops::randn((1, 8, 16, 16));
+    let input = ops::randn((16, 16, 1, 8));
     let _output = grid.forward(&input.view());
 }
 
