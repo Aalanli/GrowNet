@@ -77,7 +77,7 @@ pub fn allocation_test(c: &mut Criterion) {
 pub fn simple_grid_benchmark(c: &mut Criterion) {
     use ndarray::prelude::*;
     use model_lib::models::grid_like::{m0, m0ctx};
-    use model_lib::nn::nd_ops::context::FlatCtx;
+    use model_lib::nn::nd_ops::context::{FlatCtx, NaiveCtx, BlockCtx};
 
     let xyz = black_box([32, 32, 32]);
     let batch_size = black_box(4);
@@ -92,7 +92,23 @@ pub fn simple_grid_benchmark(c: &mut Criterion) {
     let mut ctx_temp = FlatCtx::<f32>::new(10usize.pow(8u32));
     let mut grid = m0ctx::SimpleGrid::new(xyz, dim);
 
-    c.bench_function("grid ctx", |b| 
+    c.bench_function("grid ctx flat", |b| 
+        b.iter(|| { grid.forward(&ctx_temp,&xs.view()); ctx_temp.clear(); }));
+
+    let mut ctx_temp = NaiveCtx::<f32>::new();
+    let mut grid = m0ctx::SimpleGrid::new(xyz, dim);
+
+    let mut group = c.benchmark_group("grid ctx naive");    
+    group.sample_size(10);
+    group.bench_function("grid ctx naive", |b| {
+        b.iter(|| { grid.forward(&ctx_temp,&xs.view()); ctx_temp.clear(); })
+    });
+    group.finish();
+
+    let mut ctx_temp = BlockCtx::<f32>::new(10usize.pow(5u32));
+    let mut grid = m0ctx::SimpleGrid::new(xyz, dim);
+
+    c.bench_function("grid ctx block 10e5", |b| 
         b.iter(|| { grid.forward(&ctx_temp,&xs.view()); ctx_temp.clear(); }));
     
 }

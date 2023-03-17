@@ -2,6 +2,7 @@ use super::*;
 pub mod norm;
 pub use norm::*;
 
+
 pub fn dmatmul<T: Float + 'static>(grad: &Array2<T>, a: &Array2<T>, b: &Array2<T>) -> (Array2<T>, Array2<T>) {
     let db = a.t().dot(grad);
     let da = grad.dot(&b.t());
