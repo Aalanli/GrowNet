@@ -95,21 +95,21 @@ pub fn simple_grid_benchmark(c: &mut Criterion) {
     c.bench_function("grid ctx flat", |b| 
         b.iter(|| { grid.forward(&ctx_temp,&xs.view()); ctx_temp.clear(); }));
 
-    let mut ctx_temp = NaiveCtx::<f32>::new();
-    let mut grid = m0ctx::SimpleGrid::new(xyz, dim);
+    // let mut ctx_temp = NaiveCtx::<f32>::new();
+    // let mut grid = m0ctx::SimpleGrid::new(xyz, dim);
 
-    let mut group = c.benchmark_group("grid ctx naive");    
-    group.sample_size(10);
-    group.bench_function("grid ctx naive", |b| {
-        b.iter(|| { grid.forward(&ctx_temp,&xs.view()); ctx_temp.clear(); })
-    });
-    group.finish();
+    // let mut group = c.benchmark_group("grid ctx naive");    
+    // group.sample_size(10);
+    // group.bench_function("grid ctx naive", |b| {
+    //     b.iter(|| { grid.forward(&ctx_temp,&xs.view()); ctx_temp.clear(); })
+    // });
+    // group.finish();
 
-    let mut ctx_temp = BlockCtx::<f32>::new(10usize.pow(5u32));
-    let mut grid = m0ctx::SimpleGrid::new(xyz, dim);
+    // let mut ctx_temp = BlockCtx::<f32>::new(10usize.pow(5u32));
+    // let mut grid = m0ctx::SimpleGrid::new(xyz, dim);
 
-    c.bench_function("grid ctx block 10e5", |b| 
-        b.iter(|| { grid.forward(&ctx_temp,&xs.view()); ctx_temp.clear(); }));
+    // c.bench_function("grid ctx block 10e5", |b| 
+    //     b.iter(|| { grid.forward(&ctx_temp,&xs.view()); ctx_temp.clear(); }));
     
 }
 

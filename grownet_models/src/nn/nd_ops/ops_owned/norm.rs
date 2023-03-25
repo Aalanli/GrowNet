@@ -40,8 +40,15 @@ where
     let (var, mu) = var_axis(x, axis);
     
     let inv_sd = var.mapv_into(|x| A::one() / (x + eps).sqrt());
-    let ci = x - mu;
-    let out = &ci * &inv_sd;
+    let mut ci = x.to_owned();
+    let mut out = Array::zeros(x.raw_dim());
+
+    nd::Zip::from(&mut ci).and(&mut out).and_broadcast(&mu).and_broadcast(&inv_sd)
+        .for_each(|ci, out, mu, inv_sd| {
+            *ci = *ci - *mu;
+            *out = *ci * *inv_sd;
+        });
+    
     (out, InstanceNorm { ci, inv_sd, axis })
 }
 

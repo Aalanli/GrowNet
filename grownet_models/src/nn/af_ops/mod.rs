@@ -15,6 +15,7 @@ pub mod instancenorm;
 pub mod utils;
 pub mod array_ops;
 pub mod loss;
+pub mod sequential;
 
 use initializer as init;
 

@@ -13,7 +13,7 @@ pub fn cross_entropy<T: Float>(logits: &Array<T>, gtruth: &Array<T>) -> (Array<T
 
     let gt = gtruth.clone();
     let df1 = move |grad: &Array<T>| {
-        let partial = mul(&gt, grad, true) / T::from(y.dims()[1]).unwrap();
+        let partial = mul(&gt, grad, true) / T::from(y.dims()[1]).unwrap().neg(); // super important, since we want to minimize the loss
         df(&partial)
     };
     (result, df1)

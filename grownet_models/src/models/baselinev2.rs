@@ -9,7 +9,54 @@ use crate::nn::parts::*;
 use crate::datasets::{transforms, mnist};
 
 use crate::{Flatten, World, Config, config, Options, opt};
-use crate::nn::parts::Adam;
+use crate::nn::parts::{Adam, SGDSimple};
+
+#[derive(Flatten)]
+pub struct SimpleResnet<T: Float> {
+    pre: ConvBlock<T>,
+    max_pool: af_ops::maxpool::MaxPool2D,
+    linear: af_ops::linear::Linear<T>
+}
+
+/// expects an array of shape [w, h, c, n], and reduces it to shape [c, n]
+fn flatten_imwh<F: Float>(x: &Array<F>) -> (Array<F>, impl Fn(&Array<F>) -> Array<F>) {
+    let dims = x.dims();
+    let (x7, df7) = af_ops::reshape(&x, dim4!(dims[0] * dims[1], dims[2], dims[3]));
+    let (x8, df8) = af_ops::reduce_sum(&x7, 0);
+    let (x9, df9) = af_ops::reshape(&x8, dim4!(dims[2], dims[3]));
+    let df = move |grad: &Array<F>| {
+        let dx8 = df9(grad);
+        let dx7 = df8(&dx8);
+        let dx6 = df7(&dx7);
+        dx6
+    };
+    (x9, df)
+}
+
+impl<F: Float> SimpleResnet<F> {
+    pub fn new(classes: u64) -> Self {
+        Self {
+            pre: ConvBlock::new(3, 64),
+            max_pool: af_ops::maxpool::MaxPool2D::new([2, 2], [2, 2]), 
+            linear: af_ops::linear::Linear::new(64, classes, true)
+        }
+    }
+
+    pub fn forward(&self, x: &Array<F>) -> (Array<F>, impl Fn(&mut Self, &Array<F>) -> Array<F>) {
+        let (x1, df1) = self.pre.forward(x);
+        let (x2, df2) = self.max_pool.forward(&x1);
+        let (x3, df3) = flatten_imwh(&x2);
+        let (x4, df4) = self.linear.forward(&x3);
+        let df = move |s: &mut Self, grad: &Array<F>| {
+            let dx4 = df4(&mut s.linear, grad);
+            let dx3 = df3(&dx4);
+            let dx2 = df2(&dx3);
+            df1(&mut s.pre, &dx2)
+        };
+        (x4, df)
+    }
+}
+
 
 #[derive(Flatten)]
  pub struct FastResnet<T: Float> {
@@ -157,16 +204,20 @@ pub fn run(config: &Config) -> Result<TrainProcess> {
     let sender = log_sender;
     let recv = command_recv;
     let handle = std::thread::spawn(move || {
+        af::set_backend(Backend::CUDA);        
+
         let mut dataset = dataset;
         
-        let mut model = FastResnet::<f32>::new(10);
-        let mut adam = {
-            let mut world = World::new();
-            model.flatten("".to_string(), &mut world);
-            
-            world = world.clear();
-            Adam::new(&mut world, 0.88, 0.99) 
-        };
+        // let mut model = FastResnet::<f32>::new(10);
+        let mut model = SimpleResnet::<f32>::new(10);
+        // let mut world = World::new();
+        // let mut adam = {
+        //     model.flatten("".to_string(), &mut world);
+        //     Adam::new(&mut world, 0.88, 0.99) 
+        // };
+
+        // world.clear();
+        let mut optim = SGDSimple { lr: lr as f32 };
 
         let mut steps = 0;
         let mut running_loss = 0.0;
@@ -207,7 +258,7 @@ pub fn run(config: &Config) -> Result<TrainProcess> {
 
                 let mut world = World::new();
                 model.flatten("".to_string(), &mut world);
-                adam.update(&mut world, lr);
+                optim.update(&mut world);
 
                 let mut loss_host = [0.0f32];
                 loss.host(loss_host.as_mut_slice());
@@ -240,11 +291,14 @@ pub fn run(config: &Config) -> Result<TrainProcess> {
                 }
 
                 if let Ok(TrainSend::KILL) = recv.try_recv() {
+                    
                     return;
                 }
             }
 
         }
+
+        af::set_backend(Backend::CPU);        
     });
     Ok(TrainProcess {
         send: command_sender,
@@ -253,10 +307,93 @@ pub fn run(config: &Config) -> Result<TrainProcess> {
     })
 }
 
+
+pub fn run_on_main(config: &Config) {
+    use super::{PlotPoint, TrainRecv, TrainSend, RunStats};
+    let lr: f64 = config.uget("lr").into();
+    let batch_size: isize = config.uget("batch_size").into();
+    let epochs: isize = config.uget("epochs").into();
+
+    let train_log_steps: isize = config.uget("train_log_steps").into();
+    let data_dir: String = config.uget("dataset_path").into();
+    let dataset = mnist::Mnist::new(&data_dir).unwrap();
+
+    let mut dataset = dataset;
+    
+    // let mut model = FastResnet::<f32>::new(10);
+    let mut model = SimpleResnet::<f32>::new(10);
+
+    let mut optim = SGDSimple { lr: lr as f32 };
+
+    let mut steps = 0;
+    let mut running_loss = 0.0;
+    let mut running_acc = 0.0;
+    let mut steps_since_last_log = 0;
+
+    for epoch in 0..epochs {
+        dataset.shuffle_train();
+        let train_iter = dataset.iter_train_img();
+        let train_imgs = transform_data(train_iter, batch_size as usize);
+        let train_labels = dataset.iter_train_label().map(|x| *x)
+            .batch(batch_size as usize)
+            .map(|x| { nd::Array1::from_vec(x) });
+        let train_iter = train_imgs.zip(train_labels).map(|(img, label)| {
+            (transforms::to_afarray(&img), Array::new(label.as_slice().unwrap(), dim4!(label.len() as u64)))
+        });
+
+        for (img, label) in train_iter {
+            steps += 1isize;
+            let (logits, df) = model.forward(&img);
+            let (loss, dl_dlogit) = af_ops::loss::cross_entropy(&logits, &af_ops::loss::one_hot(label.cast(), 10));
+            let dl = dl_dlogit(&Array::new(&[1.0], dim4!(1)));
+            df(&mut model, &dl);
+
+            let mut world = World::new();
+            model.flatten("".to_string(), &mut world);
+            optim.update(&mut world);
+
+            let mut loss_host = [0.0f32];
+            loss.host(loss_host.as_mut_slice());
+
+            running_loss += loss_host[0];
+            running_acc += accuracy(&logits, &label.cast());
+            steps_since_last_log += 1isize;
+
+            if steps % train_log_steps == 0 {
+                println!("loss {}, running_steps {}", running_loss, steps_since_last_log);
+                println!("steps {}, loss {}", steps, (running_loss / steps_since_last_log as f32));
+                println!("acc  {}", (running_acc / steps_since_last_log as f32));
+        
+                steps_since_last_log = 1;
+                running_acc = 0.0;
+                running_loss = 0.0;
+            }
+            break;
+        }
+    }
+
+}
+
+
 #[test]
 fn test_fastresnet() {
     let x = randn!(28, 28, 3, 8);
     let mut resnet = FastResnet::new(10);
+
+    let (y, df) = resnet.forward(&x);
+    let _grad = df(&mut resnet, &y);
+
+    use crate::World;
+    let mut world = World::from(&mut resnet);
+    for (path, item) in world.query_mut_with_path::<Param<f32>>() {
+        println!("{}, params {}", path, item.w.elements());
+    }  
+}
+
+#[test]
+fn test_simpleresnet() {
+    let x = randn!(28, 28, 3, 8);
+    let mut resnet = SimpleResnet::new(10);
 
     let (y, df) = resnet.forward(&x);
     let _grad = df(&mut resnet, &y);

@@ -43,6 +43,16 @@ trait TracePath: 'static + Sized {
 
 impl Trace for Test {}
 
+trait TraceV2<T, F: FnMut(&mut T)> {
+    fn trace(&mut self, f: F);
+}
+
+impl<F: FnMut(&mut Test)> TraceV2<Test, F> for Test {
+    fn trace(&mut self, _f: F) {
+
+    }
+}
+
 
 #[test]
 fn test() {
@@ -50,5 +60,6 @@ fn test() {
     a.trace(|_x: &Test| {
 
     });
+    
 }
 

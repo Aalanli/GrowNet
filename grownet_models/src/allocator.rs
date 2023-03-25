@@ -192,6 +192,14 @@ impl<T: Float> SimpleAllocator<T> for ArrayAllocator<T> {
     }
 }
 
+#[test]
+fn boxed() {
+    use std::any::Any;
+    let a = (3, 'd', 3.4);
+    let b: Box<dyn Any> = Box::new(a);
+    let c = (*b).downcast_ref::<(i32, char, f64)>().unwrap();
+}
+
 /* Fancy Allocator current too complex, disfavoring it for something simpler
 mod fancy_allocator {
     use super::*;
@@ -661,8 +669,8 @@ where
     if overflow {
         return co_broadcast::<D2, D1, Output>(shape2, shape1);
     }
-    // The output should be the same length as shape1.
-    let mut out = Output::zeros(shape1.ndim());
+
+    let mut out = Output::default();
     for (out, s) in out.slice_mut().iter_mut().zip(shape1.slice().iter()) {
         *out = *s;
     }

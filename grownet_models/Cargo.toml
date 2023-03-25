@@ -13,8 +13,28 @@ path = "src/lib.rs"
 name = "grownet_models"
 path = "src/main.rs"
 
+[[bin]]
+name = "temp"
+path = "src/temp.rs"
+
+[[bin]]
+name = "grid_prof"
+path = "src/grid_prof.rs"
+
+[[bin]]
+name = "grid_prof2"
+path = "src/grid_prof2.rs"
+
 [[bench]]
 name = "simple_grid"
+harness = false
+
+[[bench]]
+name = "allocator"
+harness = false
+
+[[bench]]
+name = "fn_ptr"
 harness = false
 
 [dependencies]
@@ -41,6 +61,9 @@ byteorder = "1.4.3"
 mnist = {version = "0.5.0", features = ["download"]}
 cifar-ten = {version = "0.5.1", features = ["download"]}
 itertools = "0.10.5"
+burn = "0.6.0"
+burn-autodiff = "0.6.0"
+burn-ndarray = "0.6.0"
 
 [dev-dependencies]
 criterion = "0.3"

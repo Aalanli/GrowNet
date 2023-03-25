@@ -75,6 +75,22 @@ impl<T: Float> ConvLayer<T> {
     }
 }
 
+pub struct SGDSimple<T: Float> {
+    pub lr: T,
+}
+
+impl<T: Float> SGDSimple<T> {
+    pub fn update<'a>(&mut self, world: &mut World<'a>) {
+        for param in world.query_mut::<Param<T>>() {
+            param.w -= &param.g * self.lr;
+
+        }
+        for param in world.query_mut::<Option<Param<T>>>().filter(|x| x.is_some()).map(|x| x.as_mut().unwrap()) {
+            param.w -= &param.g * self.lr;
+        }
+    }
+}
+
 pub struct Adam<T: Float> {
     mt_vt: Vec<(Array<T>, Array<T>)>,
     optional_mt_vt: Vec<(Array<T>, Array<T>)>,

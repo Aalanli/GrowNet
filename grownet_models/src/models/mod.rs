@@ -11,7 +11,7 @@ use std::thread::{spawn, JoinHandle};
 use crate::{Config};
 // pub mod baseline;
 pub mod baselinev2;
-// pub mod baselinev3;
+pub mod baselinev3;
 // pub mod baselinev2;
 pub mod grid_like;
 mod m1;

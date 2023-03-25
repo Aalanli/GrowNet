@@ -16,6 +16,7 @@ pub mod flatten;
 pub use flatten::{Flatten, World};
 
 pub mod allocator;
+pub mod ctx;
 pub mod configs;
 pub mod datasets;
 pub mod models;

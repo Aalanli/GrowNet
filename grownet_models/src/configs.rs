@@ -391,7 +391,7 @@ impl Config {
 
     /// Updates config at that entry, errors if key does not exist
     /// or if the variants are not the same
-    pub fn update_key(&mut self, key: &String, val: &Options) -> Result<()> {
+    pub fn update_key(&mut self, key: &str, val: &Options) -> Result<()> {
         let entry = self
             .map
             .get_mut(key)

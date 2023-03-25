@@ -211,22 +211,22 @@ enum FlatAttrOptions {
 
 fn compute_attr(attrs: &Attribute) -> Result<FlatAttrOptions> {
     // first make sure that any attributes are surrounded by flat(...)
-    if let Some(ident) = attrs.path.get_ident() {
-        if ident.to_string() == "flat".to_string() {
-            let tokens = attrs.tokens.to_string();
-            let has_exclude = tokens.contains("exclude");
-            let has_skip = tokens.contains("skip");
-            if has_exclude && has_skip {
-                return Err(Error::msg("flat(...), cannot have both exclude and skip, choose exclude to exclude a field from being included, and skip to stop that field from being flattened."));
-            } else if has_exclude {
-                return Ok(FlatAttrOptions::Exclude);
-            } else if has_skip {
-                return Ok(FlatAttrOptions::Skip);
-            } else {
-                return Err(Error::msg("no option chosen, either choose flat(exclude) to exclude a field from being inserted into world, or choose flat(skip) to prevent that field from being flattened, but it is still inserted into world."));
-            }
-        }
-    }
+    // if let Some(ident) = attrs.path.get_ident() {
+    //     if ident.to_string() == "flat".to_string() {
+    //         let tokens = attrs.tokens.to_string();
+    //         let has_exclude = tokens.contains("exclude");
+    //         let has_skip = tokens.contains("skip");
+    //         if has_exclude && has_skip {
+    //             return Err(Error::msg("flat(...), cannot have both exclude and skip, choose exclude to exclude a field from being included, and skip to stop that field from being flattened."));
+    //         } else if has_exclude {
+    //             return Ok(FlatAttrOptions::Exclude);
+    //         } else if has_skip {
+    //             return Ok(FlatAttrOptions::Skip);
+    //         } else {
+    //             return Err(Error::msg("no option chosen, either choose flat(exclude) to exclude a field from being inserted into world, or choose flat(skip) to prevent that field from being flattened, but it is still inserted into world."));
+    //         }
+    //     }
+    // }
     Ok(FlatAttrOptions::Include)
 }
 

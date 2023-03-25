@@ -68,6 +68,38 @@ impl<T: Float> Conv2d<T> {
         };
         (y, back_fn)
     }
+
+    pub fn forward2(&self, x: &Array<T>) -> (Array<T>) {
+        let y = af::convolve2_nn(&x, &self.filter.w, 
+            dim4!(self.stride[1], self.stride[0]), dim4!(self.pad[1], self.pad[0]), dim4!(1));
+        
+        // let y = if let Some(x) = &self.bias {
+        //     y + &x.w  
+        // } else {
+        //     y
+        // };
+        let y = y;
+        // let y1 = y.clone();
+        // let x1 = x.clone();
+        // let back_fn = move |s: &mut Conv2d<T>, grad: &Array<T>| {
+        //     let dx = af::convolve2_gradient_nn(
+        //         grad, &x1, &s.filter.w, &y1, 
+        //         dim4!(s.stride[1], s.stride[0]), dim4!(s.pad[1], s.pad[0]), dim4!(1), af::ConvGradientType::DATA);
+        //     let dw = af::convolve2_gradient_nn(
+        //         grad, &x1, &s.filter.w, &y1, 
+        //         dim4!(s.stride[1], s.stride[0]), dim4!(s.pad[1], s.pad[0]), dim4!(1), af::ConvGradientType::FILTER);
+        //     s.filter.g += dw;
+        //     if let Some(b) = &mut s.bias {
+        //         let reordered = af::reorder_v2(&grad, 0, 1, Some(vec![3, 2]));
+        //         let dim = reordered.dims();
+        //         let flattened = af::moddims(&reordered, dim4!(dim[0] * dim[1] * dim[2], 1, dim[3]));
+        //         let db = af::sum(&flattened, 0);
+        //         b.g += db;
+        //     }
+        //     dx
+        // };
+        (y)
+    }
 }
 
 #[test]

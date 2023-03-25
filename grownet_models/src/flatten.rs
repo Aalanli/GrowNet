@@ -5,19 +5,29 @@ use std::collections::HashMap;
 use derive_more::{Deref, DerefMut};
 use grownet_macros::Flatten;
 
-#[derive(Default)]
 pub struct World<'a> {
     objects: Vec<&'a mut dyn Any>,
     field_path: Vec<String>,
+    filter: fn(&dyn Any) -> bool
 }
 
 pub trait Flatten {
     fn flatten<'a>(&'a mut self, path: String, world: &mut World<'a>);
 }
 
+impl<'a> Default for World<'a> {
+    fn default() -> Self {
+        Self { objects: Vec::new(), field_path: Vec::new(), filter: |_| true }
+    }
+}
+
 impl<'a> World<'a> {
     pub fn new() -> World<'a> {
         Default::default()
+    }
+
+    pub fn set_filter(&mut self, f: fn(&dyn Any) -> bool) {
+        self.filter = f;
     }
 
     pub fn query_mut<'b, T: 'static>(&'b mut self) -> impl Iterator<Item = &'a mut T> + 'b {
@@ -61,14 +71,33 @@ impl<'a> World<'a> {
 
     pub fn push<T: 'static>(&mut self, push: String, a: &'a mut T) {
         let a: &mut dyn Any = a;
-        self.objects.push(a);
-        self.field_path.push(push);
+        let filter = self.filter;
+        if filter(&*a) {
+            self.objects.push(a);
+            self.field_path.push(push);
+        }
     }
 
-    pub fn clear(mut self) -> Self {
+    pub fn clear<'p>(mut self) -> World<'p> {
         self.objects.clear();
         self.field_path.clear();
-        self
+        let World {
+            mut objects, field_path, filter
+        } = self;
+
+        // remove the lifetime of the current world, producing a new world, since we set len to 0
+        let new_objects = unsafe {
+            let cap = objects.capacity();
+            let ptr = objects.as_mut_ptr();
+            std::mem::forget(objects);
+            let ptr = ptr as *mut *mut dyn Any;
+            let ptr = ptr as *mut &mut dyn Any;
+            Vec::from_raw_parts(ptr, 0, cap)
+        };
+
+        World {
+            objects: new_objects, field_path, filter
+        }
     }
 }
 
