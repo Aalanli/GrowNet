@@ -7,17 +7,17 @@ use num_traits::{Float, Num};
 use super::*;
 
 
-type ExecOut<'a, T, D> = Result<ArrayAllocView<'a, T, D>>;
+type ExecOut<'a, T, D> = ArrayAllocView<'a, T, D>;
 pub trait Exec {
     type F;
     type OutDim: Dimension;
     fn exec(self, ctx: &ArrayAlloc) -> ExecOut<Self::F, Self::OutDim>;
-    fn outdim(&self) -> Result<Self::OutDim>;
+    fn outdim(&self) -> Self::OutDim;
 }
 
 pub trait BroadCastIter<T, D> {
     type Iter<'a>: Iterator<Item = T> where T: 'a;
-    fn broadcast<'a>(self, dim: D, ctx: &'a ArrayAlloc) -> Result<Self::Iter<'a>>;
+    fn broadcast<'a>(self, dim: D, ctx: &'a ArrayAlloc) -> Self::Iter<'a>;
 }
 
 impl<T: Copy, D: Dimension> Exec for ArrayId<T, D> {
@@ -25,11 +25,11 @@ impl<T: Copy, D: Dimension> Exec for ArrayId<T, D> {
     type OutDim = D;
     #[inline]
     fn exec(self, ctx: &ArrayAlloc) -> ExecOut<Self::F, Self::OutDim> {
-        Ok(ctx.request(self.dim()))
+        ctx.request(self.dim())
     }
     #[inline]
-    fn outdim(&self) -> Result<Self::OutDim> {
-        Ok(self.dim())
+    fn outdim(&self) -> Self::OutDim {
+        self.dim()
     }
 }
 
@@ -45,37 +45,34 @@ where It: Iterator<Item = &'a T>
 }
 
 impl<T: Clone, D1: Dimension, D2> BroadCastIter<T, D2> for ArrayId<T, D1>
-where D2: DimMax<D1> + Dimension
+where D2: DimMax<D1> + Dimension + PartialEq<D1>
 {
     type Iter<'a> = OwnedIter<nd::iter::Iter<'a, T, D2>> where T: 'a;
     #[inline]
-    fn broadcast<'a>(self, dim: D2, ctx: &'a ArrayAlloc) -> Result<Self::Iter<'a>> {
+    fn broadcast<'a>(self, dim: D2, ctx: &'a ArrayAlloc) -> Self::Iter<'a> {
         let original_dim = self.dim();
-        let view = ctx.to_slice(self);
-        if let Some(view) = view {
-            let arr: Option<ArrayView<T, D2>> = view.broadcast(dim.clone());
-            if let Some(arr) = arr {
-                // unfortunately, to get around borrow checker, this is safe to do as ptr was non-owning anyways
-                // the lifetime of the return from broadcast has the lifetime of the view, not the original
-                // reference, even though the return does not reference the view in any way (eg. dims), so we extend the lifetime
-                // to that of the original reference type to avoid "returning reference to local variable" error.
-                let arr = unsafe { 
-                    std::mem::transmute::<ArrayView<T, D2>, ArrayView<'a, T, D2>>(arr)
-                };
-                return Ok(OwnedIter(arr.into_iter()));
-            } else {
-                return Err(Error::msg(format!("Array with shape {:?} does not broadcast with {:?}", view.raw_dim(), dim)));
+        let view = ctx.to_slice(self).expect("unable to retrieve view");
+        let arr = if dim == original_dim {
+            unsafe { 
+                let ptr = view.as_ptr();
+                ArrayView::from_shape_ptr(dim, ptr)
             }
-        }
-        Err(Error::msg(format!("Array id with shape {:?} does not exist in ctx", original_dim)))
+        } else {
+            let arr: ArrayView<T, D2> = view.broadcast(dim.clone()).expect("unable to broadcast");
+            let arr = unsafe { 
+                std::mem::transmute::<ArrayView<T, D2>, ArrayView<'a, T, D2>>(arr)
+            };
+            arr
+        };
+        OwnedIter(arr.into_iter())
     }
 }
 
 impl<T: Num + Copy + 'static, D2: Dimension> BroadCastIter<T, D2> for T {
     type Iter<'a> = std::iter::Repeat<T> where T: 'a;
 
-    fn broadcast<'a>(self, _dim: D2, _ctx: &'a ArrayAlloc) -> Result<Self::Iter<'a>> {
-        Ok(std::iter::repeat(self))
+    fn broadcast<'a>(self, _dim: D2, _ctx: &'a ArrayAlloc) -> Self::Iter<'a> {
+        std::iter::repeat(self)
     }
 }
 
@@ -86,11 +83,11 @@ impl<T: Num + Copy> Exec for T {
     fn exec(self, ctx: &ArrayAlloc) -> ExecOut<Self::F, Self::OutDim> {
         let mut alloc = ctx.request::<Self::F, _, _>((1,));
         alloc.view().fill(self);
-        Ok(alloc)
+        alloc
     }
 
-    fn outdim(&self) -> Result<Self::OutDim> {
-        Ok((1,).into_dimension())
+    fn outdim(&self) -> Self::OutDim {
+        (1,).into_dimension()
     }
 }
 
@@ -316,17 +313,17 @@ where
     type OutDim = D;
     #[inline]
     fn exec(self, ctx: &ArrayAlloc) -> ExecOut<Self::F, Self::OutDim> {
-        let outdim = self.outdim()?;
-        let exec = UniExecIter(self.arr.broadcast(outdim.clone(), ctx)?, self.f);
+        let outdim = self.outdim();
+        let exec = UniExecIter(self.arr.broadcast(outdim.clone(), ctx), self.f);
         let mut alloc_view = ctx.request::<Y, _, _>(outdim);
         alloc_view.view().iter_mut().zip(exec).for_each(|(x, y)| {
             *x = y;
         });
-        Ok(alloc_view)
+        alloc_view
     }
 
     #[inline]
-    fn outdim(&self) -> Result<Self::OutDim> {
+    fn outdim(&self) -> Self::OutDim {
         self.arr.outdim()
     }
 }
@@ -344,24 +341,24 @@ where
     type OutDim = <D2 as DimMax<D1>>::Output;
     #[inline]
     fn exec(self, ctx: &ArrayAlloc) -> ExecOut<Self::F, Self::OutDim> {
-        let outdim = self.outdim()?;
+        let outdim = self.outdim();
         let mut alloc_view = ctx.request::<TC, _, _>(outdim.clone());
-        let it1 = self.lhs.broadcast(outdim.clone(), ctx)?;
-        let it2 = self.rhs.broadcast(outdim, ctx)?;
+        let it1 = self.lhs.broadcast(outdim.clone(), ctx);
+        let it2 = self.rhs.broadcast(outdim, ctx);
         let addexec = BinExecIter(it1, it2, self.f);
         alloc_view.view().iter_mut().zip(addexec).for_each(|(x, y)| {
             *x = y;
         });
-        Ok(alloc_view)
+        alloc_view
     }
     
     #[inline]
-    fn outdim(&self) -> Result<Self::OutDim> {
-        let dim1 = self.lhs.outdim()?;
-        let dim2 = self.rhs.outdim()?;
+    fn outdim(&self) -> Self::OutDim {
+        let dim1 = self.lhs.outdim();
+        let dim2 = self.rhs.outdim();
         match broadcast(&dim1, &dim2) {
-            Ok(xs) => Ok(xs),
-            Err(_) => Err(Error::msg(format!("unable to broadcast {:?} + {:?}", dim1, dim2)))
+            Ok(xs) => xs,
+            Err(_) => panic!("unable to broadcast {:?} + {:?}", dim1, dim2)
         }
     }
 }
@@ -377,9 +374,9 @@ where
     type Iter<'a> = UniExecIter<<A as BroadCastIter<X, D>>::Iter<'a>, F>;
     
     #[inline]
-    fn broadcast<'a>(self, dim: D, ctx: &'a ArrayAlloc) -> Result<Self::Iter<'a>> {
-        let it = self.arr.broadcast(dim, ctx)?;
-        Ok(UniExecIter(it, self.f))
+    fn broadcast<'a>(self, dim: D, ctx: &'a ArrayAlloc) -> Self::Iter<'a> {
+        let it = self.arr.broadcast(dim, ctx);
+        UniExecIter(it, self.f)
     }
 }
 
@@ -398,10 +395,10 @@ where
         <B as BroadCastIter<TB, <D2 as DimMax<D1>>::Output>>::Iter<'s>, F>;
 
     #[inline]
-    fn broadcast<'a>(self, dim: <D2 as DimMax<D1>>::Output, ctx: &'a ArrayAlloc) -> Result<Self::Iter<'a>> {
-        let it1 = self.lhs.broadcast(dim.clone(), ctx)?;
-        let it2 = self.rhs.broadcast(dim, ctx)?;
-        Ok(BinExecIter(it1, it2, self.f))
+    fn broadcast<'a>(self, dim: <D2 as DimMax<D1>>::Output, ctx: &'a ArrayAlloc) -> Self::Iter<'a> {
+        let it1 = self.lhs.broadcast(dim.clone(), ctx);
+        let it2 = self.rhs.broadcast(dim, ctx);
+        BinExecIter(it1, it2, self.f)
     }
 }
 
@@ -463,7 +460,7 @@ fn test_add() {
     let id2 = a.request::<f32, _, _>((2, 2)).randn().id();
     let id3 = a.request::<f32, _, _>((2, 2)).randn().id();
     let c = powi(sin((id1 + id2 + id3) * id3 / id2), 2);
-    let d = c.exec(&a).unwrap();
+    let d = c.exec(&a);
 
     let view1 = a.to_slice(id1).unwrap();
     let view2 = a.to_slice(id2).unwrap();
@@ -485,7 +482,7 @@ fn test_add1() {
     let id2 = alloc.request::<f32, _, _>((2, 2)).fill(-1.0).id();
 
     println!("{:?}", (id1 + id2).outdim());
-    let c = (id1 + id2).exec(&alloc).unwrap();
+    let c = (id1 + id2).exec(&alloc);
     let (view, _) = c.destructure();
 
     let view1 = alloc.to_slice(id1).unwrap();

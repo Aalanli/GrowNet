@@ -285,11 +285,8 @@ impl Default for TrainingUI {
         Self { 
             baseline: ConfigEnviron::new(
                 "baseline",
-                models::baselinev2::baseline_config(),
-                config!(
-                    ("train_log_steps", 50),
-                    ("dataset_path", "assets/ml_datasets")
-                )
+                models::baselinev3::baseline_config(),
+                config!()
             ), 
             model: run::Models::BASELINE,
             run_ids: HashSet::new()

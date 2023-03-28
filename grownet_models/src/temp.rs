@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_macros)]
 
 pub fn black_box<T>(dummy: T) -> T {
     unsafe {
@@ -21,7 +24,7 @@ fn main() {
     //     let b = alloc.request::<f32, _, _>(shape2).ones().id();
     //     for _ in 0..iteration {
     //         let exec = (a + b) / a * a;
-    //         out += &*exec.exec(&alloc).unwrap().view();
+    //         out += &*exec.exec(&alloc).view();
     //     }
     //     alloc.clear();
     // }

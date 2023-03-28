@@ -1,3 +1,7 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_macros)]
+
 pub fn black_box<T>(dummy: T) -> T {
     unsafe {
         let ret = std::ptr::read_volatile(&dummy);
@@ -20,7 +24,7 @@ fn main() {
     let mut grid = m0::SimpleGrid::new(xyz, batch_size, dim);
 
     let mut y = 0.0;
-    for i in 0..iters {
+    for _ in 0..iters {
         let out = grid.forward(&xs.view());
         y += out[(0, 0, 0, 0)];
     }

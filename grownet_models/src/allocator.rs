@@ -197,7 +197,7 @@ fn boxed() {
     use std::any::Any;
     let a = (3, 'd', 3.4);
     let b: Box<dyn Any> = Box::new(a);
-    let c = (*b).downcast_ref::<(i32, char, f64)>().unwrap();
+    let _c = (*b).downcast_ref::<(i32, char, f64)>().unwrap();
 }
 
 /* Fancy Allocator current too complex, disfavoring it for something simpler

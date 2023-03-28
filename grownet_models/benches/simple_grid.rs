@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_macros)]
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 pub fn allocation_test(c: &mut Criterion) {

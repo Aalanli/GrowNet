@@ -69,7 +69,7 @@ impl<T: Float> Conv2d<T> {
         (y, back_fn)
     }
 
-    pub fn forward2(&self, x: &Array<T>) -> (Array<T>) {
+    pub fn forward2(&self, x: &Array<T>) -> Array<T> {
         let y = af::convolve2_nn(&x, &self.filter.w, 
             dim4!(self.stride[1], self.stride[0]), dim4!(self.pad[1], self.pad[0]), dim4!(1));
         
@@ -98,7 +98,7 @@ impl<T: Float> Conv2d<T> {
         //     }
         //     dx
         // };
-        (y)
+        y
     }
 }
 

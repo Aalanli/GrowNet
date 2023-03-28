@@ -238,7 +238,7 @@ pub fn run(config: &Config) -> Result<TrainProcess> {
 
         // let mut test_iter = setup_test_iter();
 
-        for epoch in 0..epochs {
+        for _epoch in 0..epochs {
             dataset.shuffle_train();
             let train_iter = dataset.iter_train_img();
             let train_imgs = transform_data(train_iter, batch_size as usize);
@@ -330,7 +330,7 @@ pub fn run_on_main(config: &Config) {
     let mut running_acc = 0.0;
     let mut steps_since_last_log = 0;
 
-    for epoch in 0..epochs {
+    for _epoch in 0..epochs {
         dataset.shuffle_train();
         let train_iter = dataset.iter_train_img();
         let train_imgs = transform_data(train_iter, batch_size as usize);

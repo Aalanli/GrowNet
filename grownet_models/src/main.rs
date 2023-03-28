@@ -1,3 +1,7 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_macros)]
+
 use arrayfire::*;
 use model_lib::Options;
 use model_lib::models::baselinev2::SimpleResnet;
@@ -12,7 +16,7 @@ fn main() {
     set_device(0);
     let mut a = randn!(1);
     info();
-    let config1 = config.clone();
+    let _config1 = config.clone();
     let handle = std::thread::spawn(move || {
         set_device(0);
         a += randn!(1);
@@ -20,7 +24,7 @@ fn main() {
         // let model = SimpleResnet::<f32>::new(10);
         let a = randn!(28, 28, 3, 1);
         let conv = Conv2d::<f32>::new(3, 3, [3, 3], [1, 1], [1, 1], false);
-        let (y) = conv.forward2(&a);
+        let y = conv.forward2(&a);
         // let (_y, _df) = model.forward(&a);
         y.eval();
     });

@@ -1,4 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use ndarray::Zip;
 
 pub fn allocation_test(c: &mut Criterion) {
     use model_lib::ctx::allocator::{Alloc, FlatAllocator};
@@ -39,16 +40,19 @@ pub fn elementwise_math(c: &mut Criterion) {
     use ndarray::prelude::*;
     use model_lib::ctx::*;
     let iteration = black_box(1000);
-    let shape1 = black_box((64, 32));
-    let shape2 = black_box((64, 32));
+    let shape1 = black_box((2, 16));
+    let shape2 = black_box((2, 16));
 
     c.bench_function("naive elemwise", |b| {
         b.iter(|| {
-            let a = Array2::<f32>::zeros(shape1);
-            let b = Array2::<f32>::ones(shape2);
+            
             let mut out = Array2::<f32>::zeros(shape2);
             for _ in 0..iteration {
-                out += &((&a + &b) * &a);
+                let a = Array2::<f32>::zeros(shape1);
+                let b = Array2::<f32>::ones(shape2);
+                let c = Array2::<f32>::zeros(shape1);
+                let d = Array2::<f32>::ones(shape2);
+                out += &(((&a - &b) * (&c - &d)) / 4.0);
             }
             out
          })
@@ -57,12 +61,33 @@ pub fn elementwise_math(c: &mut Criterion) {
     let mut alloc = ArrayAlloc::new();
     c.bench_function("fused elemwise", |b| {
         b.iter(|| {
-            let a = alloc.request::<f32, _, _>(shape1).zeros().id();
-            let b = alloc.request::<f32, _, _>(shape2).ones().id();
             let mut out = Array2::<f32>::zeros(shape2);
             for _ in 0..iteration {
-                let exec = (a + b) * a;
-                out += &*exec.exec(&alloc).unwrap().view();
+                let a = alloc.request::<f32, _, _>(shape1).zeros().id();
+                let b = alloc.request::<f32, _, _>(shape2).ones().id();
+                let c = alloc.request::<f32, _, _>(shape1).zeros().id();
+                let d = alloc.request::<f32, _, _>(shape2).ones().id();
+                let exec = (a - b) * (c - d) / 4.0;
+                out += &*exec.exec(&alloc).view();
+            }
+            alloc.clear();
+            out
+        });
+    });
+
+    let mut alloc = ArrayAlloc::new();
+    c.bench_function("fused elemwise custom", |b| {
+        b.iter(|| {
+            let mut out = Array2::<f32>::zeros(shape2);
+            for _ in 0..iteration {
+                let mut a = alloc.request::<f32, _, _>(shape1).zeros();
+                let mut b = alloc.request::<f32, _, _>(shape2).ones();
+                let mut c = alloc.request::<f32, _, _>(shape1).zeros();
+                let mut d = alloc.request::<f32, _, _>(shape2).ones();
+                Zip::from(&mut out).and(a.view()).and(b.view()).and(c.view()).and(d.view())
+                    .for_each(|out, a, b, c, d| {
+                        *out = (*a - *b) * (*c - *d) / 4.0;
+                    });
             }
             alloc.clear();
             out

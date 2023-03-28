@@ -25,6 +25,7 @@ pub use configs::{Config, Options};
 
 pub mod nn;
 
+use crate as model_lib;
 
 /// Convert from idents and literals to Options
 /// convert whatever is in [...] by calling config!(...)
@@ -42,7 +43,7 @@ macro_rules! opt {
     (Path($i:ident)) => {
         {
             let path: PathBuf = $i.into();
-            Options::from(path)
+            crate::Options::from(path)
         }
     };
     ($i:ident) => {

@@ -94,7 +94,7 @@ pub fn baseline_spawn_fn(version_num: usize, mut config: Config, global_config: 
     let runinfo = run::RunInfo {
         model_class: "baseline".into(),
         version: version_num,
-        dataset: "cifar10".into(),
+        dataset: "mnist".into(),
         config: config.clone(),
         ..Default::default()
     };
@@ -102,7 +102,7 @@ pub fn baseline_spawn_fn(version_num: usize, mut config: Config, global_config: 
     let run_info = runinfo.clone();
     let spawn_fn = Box::new(move |commands: &mut Commands| -> Result<Entity> {
         let config = config;
-        run::models::baselinev2::run(&config).map(|x| {
+        run::models::baselinev3::run_train_loop(&config).map(|x| {
             let env = BaseTrainProcess(x);
             let id = commands.spawn((run_info, env)).id();
             id

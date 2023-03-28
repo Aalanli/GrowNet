@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::thread::{spawn, JoinHandle};
 
-use crate::{Config};
+use crate::{Config, config};
 // pub mod baseline;
 pub mod baselinev2;
 pub mod baselinev3;

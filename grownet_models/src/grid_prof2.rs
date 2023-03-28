@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![allow(unused_macros)]
 
 pub fn black_box<T>(dummy: T) -> T {
     unsafe {
