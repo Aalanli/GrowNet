@@ -34,3 +34,15 @@ pub trait NodeV4 {
     type B;
     fn step(&mut self, input: Self::F, output: Self::B);
 }
+
+/// It is the node's responsibility to adjust itself, hence the only functions it should support
+/// are forward, of which a node receives a message, and decides if it should send one out
+/// and backward, of which a node receives a push, and decides if it should send a push
+/// in the future it may be advantageous to add a grow function, or just use higher abstractions such as NodeV4
+pub trait NodeV5<Ctx> {
+    type F;
+    type B;
+    fn forward(&mut self, ctx: Ctx, forward: Self::F) -> Option<Self::F>; // inputs and outputs should be homogeneous
+    fn backward(&mut self, ctx: Ctx, backward: Self::B) -> Option<Self::B>; // backward messages should also be homogeneous
+}
+

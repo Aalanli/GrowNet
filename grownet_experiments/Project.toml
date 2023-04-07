@@ -1,0 +1,7 @@
+name = "grownet_experiments"
+uuid = "c64a39d4-962e-4f79-b6ae-674158e09b2e"
+authors = ["AL <allanlin666666@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
