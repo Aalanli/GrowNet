@@ -6,17 +6,29 @@
       {
         "id": "0366a7f9b48b6567",
         "type": "tabs",
+        "dimension": 61.92893401015228,
+        "children": [
+          {
+            "id": "16174a21417cb819",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "research/Main.md",
+                "mode": "source",
+                "source": false
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "84dee3140d8f081c",
+        "type": "tabs",
+        "dimension": 38.07106598984771,
         "children": [
           {
             "id": "08ce6665d0e723f0",
-            "type": "leaf",
-            "state": {
-              "type": "empty",
-              "state": {}
-            }
-          },
-          {
-            "id": "224ed8479ac170d5",
             "type": "leaf",
             "state": {
               "type": "markdown",
@@ -27,8 +39,7 @@
               }
             }
           }
-        ],
-        "currentTab": 1
+        ]
       }
     ],
     "direction": "vertical"
@@ -78,7 +89,8 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 300,
+    "collapsed": true
   },
   "right": {
     "id": "383f4f8952bae0e2",
@@ -94,7 +106,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "README.md",
+                "file": "research/Main.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -111,7 +123,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "README.md",
+                "file": "research/Main.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -134,15 +146,24 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "README.md"
+                "file": "research/Main.md"
               }
             }
+          },
+          {
+            "id": "2da0347a606e6177",
+            "type": "leaf",
+            "state": {
+              "type": "mermaid-toolbar-view",
+              "state": {}
+            }
           }
-        ]
+        ],
+        "currentTab": 4
       }
     ],
     "direction": "horizontal",
-    "width": 300,
+    "width": 200,
     "collapsed": true
   },
   "left-ribbon": {
@@ -152,12 +173,17 @@
       "canvas:Create new canvas": false,
       "daily-notes:Open today's daily note": false,
       "templates:Insert template": false,
-      "command-palette:Open command palette": false
+      "command-palette:Open command palette": false,
+      "table-editor-obsidian:Advanced Tables Toolbar": false,
+      "mermaid-tools:Open Mermaid Toolbar": false
     }
   },
-  "active": "224ed8479ac170d5",
+  "active": "16174a21417cb819",
   "lastOpenFiles": [
-    "Diagram1.png",
-    "README.md"
+    "README.md",
+    "research/Main.md",
+    "research",
+    "flamegraph.svg",
+    "Diagram1.png"
   ]
 }
