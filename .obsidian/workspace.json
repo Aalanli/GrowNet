@@ -4,39 +4,15 @@
     "type": "split",
     "children": [
       {
-        "id": "0366a7f9b48b6567",
+        "id": "3f4a37820c27e3ce",
         "type": "tabs",
-        "dimension": 61.92893401015228,
         "children": [
           {
-            "id": "16174a21417cb819",
+            "id": "367e0b3c5b536296",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "research/Main.md",
-                "mode": "source",
-                "source": false
-              }
-            }
-          }
-        ]
-      },
-      {
-        "id": "84dee3140d8f081c",
-        "type": "tabs",
-        "dimension": 38.07106598984771,
-        "children": [
-          {
-            "id": "08ce6665d0e723f0",
-            "type": "leaf",
-            "state": {
-              "type": "markdown",
-              "state": {
-                "file": "README.md",
-                "mode": "source",
-                "source": false
-              }
+              "type": "empty",
+              "state": {}
             }
           }
         ]
@@ -89,7 +65,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300,
+    "width": 200,
     "collapsed": true
   },
   "right": {
@@ -106,7 +82,6 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "research/Main.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -123,7 +98,6 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "research/Main.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -145,9 +119,7 @@
             "type": "leaf",
             "state": {
               "type": "outline",
-              "state": {
-                "file": "research/Main.md"
-              }
+              "state": {}
             }
           },
           {
@@ -178,10 +150,13 @@
       "mermaid-tools:Open Mermaid Toolbar": false
     }
   },
-  "active": "16174a21417cb819",
+  "active": "367e0b3c5b536296",
   "lastOpenFiles": [
-    "README.md",
+    "research/Research direction.canvas",
+    "research/Marvin Minsky - Connectionist vs Symbolic.md",
     "research/Main.md",
+    "research/AI Impact.canvas",
+    "README.md",
     "research",
     "flamegraph.svg",
     "Diagram1.png"

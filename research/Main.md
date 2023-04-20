@@ -17,7 +17,7 @@ Symbolic systems:
 - Structural / hierarchical
 - Interpretable
 - Representational
-
+- [ ] 
 
 - Stiff, fragile, sensitive to error
 - Top-down, rigid, fixed
