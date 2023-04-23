@@ -159,6 +159,17 @@
   },
   "active": "949a5945058f4876",
   "lastOpenFiles": [
+    "target/debug/deps/syn-854769a003407503.syn.94d61bde-cgu.4.rcgu.o",
+    "target/debug/build/curl-sys-2348ed4d9e964cc6/out/build/curl/lib/dynbuf.o",
+    "target/debug/build/curl-sys-2348ed4d9e964cc6/out/build/curl/lib/doh.o",
+    "target/debug/deps/serde_derive-a2e1fc4a64351daf.18aydb0hi1z90c2z.rcgu.o",
+    "target/debug/deps/serde_derive-a2e1fc4a64351daf.uqklmqv5jqjfewd.rcgu.rmeta",
+    "target/debug/build/curl-sys-2348ed4d9e964cc6/out/build/curl/lib/curl_threads.o",
+    "target/debug/deps/rmetaVxK75z/lib.rmeta",
+    "target/debug/deps/rmetaVxK75z",
+    "target/debug/build/curl-sys-2348ed4d9e964cc6/out/build/curl/lib/curl_range.o",
+    "target/debug/deps/thiserror_impl-1367d22ddff3e70e.1jgpcwhvo3gkn71f.rcgu.o",
+    "target/debug/build/curl-sys-2348ed4d9e964cc6/out/build/curl/lib/curl_memrchr.o",
     "research/AI Impact.canvas",
     "research/AI Impact - common scenario.md",
     "research/Research direction.canvas",
@@ -166,7 +177,6 @@
     "research/Marvin Minsky - Connectionist vs Symbolic.md",
     "research/Subspace voting - interpretation of DNNs.md",
     "README.md",
-    "research",
     "flamegraph.svg",
     "Diagram1.png"
   ]
