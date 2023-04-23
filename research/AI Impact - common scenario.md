@@ -1,0 +1,22 @@
+WIth the gift of hindsight, we have seen the potency of computing and its transformative, paradigm shifting potential. I am of an age where I can dimly remember a time before the ubiquity of technology, yet technology, the internet, has been so normalized at this point that its removal would necessitate some fairly drastic and uncomfortable lifestyle changes.
+
+The idea of computation, with the birth of the internet, gave us transcendentally more information and connection, it changed our social behaviors, our economies and most critically, our philosophies, ethics and modes of thought. Our very identities are tied to this idea of computation; our universe is a computational universe, our brains are naturally computers, and anything 'real' can be simulated with convergent limiting fideility, so we believe[^1].  
+
+We are at now an inflection point in history, or so would many believe. Progress in artificial intelligence through machine learning has reached a point of performance that poises to some a seemingly existential risk. And indeed, full AGI *(artificial general intelligence)* would be very much an existential risk to humanity. We find ourselves in a similar situation to those in the 90s and early 2000s, will AI have as much of an impact as the internet did in the next decade?
+
+For those without the gift of prophesy, we must state our assumptions with precision and take a more principled, arduous approach to our predictions. The future is riddled with exceptions and edge cases, indeed the impact of machine learning will very much depend on these, on if any major architectural breakthroughs occur, on if major advancements in interpretability research occur, etc. But I restrict myself to the most probable case, in my reckoning, so that the question becomes: what will the impact of deep learning be on humanity in the next decade assuming that only minor research advancements occur? Even still, this question is littered with vagueness, but for the sake of brevity, clarifications will be made along the way, if not, then assume the mean. 
+
+I should clarify that deep learning is a subset of machine learning, and is the driving idea behind most of achievements in the field. To wit, in deep learning, we define a scalar loss function $\mathcal L: X \times Y \to \mathbb R$ and parametric model $f_\theta: X \to Y$. The goal is the finding of a configuration of parameters that will minimize the loss. $$\theta^*=\underset{\theta}{\text{argmin }} \underset{(x, y) \sim \mathcal D}{\mathbb{E}}[\mathcal L(f_\theta(x),y)]$$ To do this, we use gradient descent $$\theta^\prime \leftarrow \theta - \alpha \nabla_\theta \mathcal L(f_\theta(x), y)$$There are several details I skipped in this presentation, such as the formulation presented is only a favor of the most common paradigms, but one can imagine that an abuse of notation is sufficient to cover all cases, and is not relevant to the current task.
+
+The current main applications of machine learning are perception, generation and heuristic search, with the associated paradigms of supervised, unsupervised and reinforcement learning respectively. 
+
+By far the application with the largest potential, I surmise, is generation. Modern deep learning methods suffer from unpredictability and opaqueness that would render most serious applications of perception models useless, tesla 'autopilot' is a prime example. While the reinforcement learning domain cannot be tackled by deep learning methods alone, as the models lack recursive and hierarchical capabilities, so machine learning is relegated primarily as a heuristic search mechanism. Besides, current reinforcement learning techniques can only tackle well structured worlds will clear objectives, aka games. Real world applications would have to be similarly restrictive, shackled by the data efficiencies of current approaches and intrinsic limitations of perception models as discussed earlier.
+
+There are several formulations of generative models, the most common of which is the probablistic one, with models representing a push forward on a base probability distribution. $$\begin{align} w &\sim N(0, 1) \\ \hat x &= f_\theta(w) \end{align}$$
+So that $\hat x$ comes from an approximation of the true data generating distribution. 
+
+
+
+
+[^1]: So even truth becomes computational, which extends to the natural sciences with computational physics, computational chemistry, computational biology, neuroscience, medicine, etc.
+
