@@ -18,8 +18,21 @@
                 "source": false
               }
             }
+          },
+          {
+            "id": "70f11f485f51631f",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "research/Subspace voting - interpretation of DNNs.md",
+                "mode": "source",
+                "source": false
+              }
+            }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "vertical"
@@ -64,6 +77,14 @@
               "type": "starred",
               "state": {}
             }
+          },
+          {
+            "id": "acd98edf9203cc08",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {}
+            }
           }
         ]
       }
@@ -85,7 +106,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "research/AI Impact - common scenario.md",
+                "file": "research/Subspace voting - interpretation of DNNs.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -102,7 +123,7 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "research/AI Impact - common scenario.md",
+                "file": "research/Subspace voting - interpretation of DNNs.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               }
@@ -125,7 +146,7 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "research/AI Impact - common scenario.md"
+                "file": "research/Subspace voting - interpretation of DNNs.md"
               }
             }
           },
@@ -157,23 +178,22 @@
       "mermaid-tools:Open Mermaid Toolbar": false
     }
   },
-  "active": "949a5945058f4876",
+  "active": "70f11f485f51631f",
   "lastOpenFiles": [
-    "target/debug/deps/syn-854769a003407503.syn.94d61bde-cgu.4.rcgu.o",
-    "target/debug/build/curl-sys-2348ed4d9e964cc6/out/build/curl/lib/dynbuf.o",
-    "target/debug/build/curl-sys-2348ed4d9e964cc6/out/build/curl/lib/doh.o",
-    "target/debug/deps/serde_derive-a2e1fc4a64351daf.18aydb0hi1z90c2z.rcgu.o",
-    "target/debug/deps/serde_derive-a2e1fc4a64351daf.uqklmqv5jqjfewd.rcgu.rmeta",
-    "target/debug/build/curl-sys-2348ed4d9e964cc6/out/build/curl/lib/curl_threads.o",
-    "target/debug/deps/rmetaVxK75z/lib.rmeta",
-    "target/debug/deps/rmetaVxK75z",
-    "target/debug/build/curl-sys-2348ed4d9e964cc6/out/build/curl/lib/curl_range.o",
-    "target/debug/deps/thiserror_impl-1367d22ddff3e70e.1jgpcwhvo3gkn71f.rcgu.o",
-    "target/debug/build/curl-sys-2348ed4d9e964cc6/out/build/curl/lib/curl_memrchr.o",
-    "research/AI Impact.canvas",
-    "research/AI Impact - common scenario.md",
     "research/Research direction.canvas",
     "research/Main.md",
+    "research/AI Impact.canvas",
+    "target/debug/deps/libtermcolor-76bc63af8d53c9bb.rmeta",
+    "target/debug/deps/rmetaQQBm8C",
+    "target/debug/deps/bit_vec-19047232ff0060d6.d",
+    "target/debug/deps/librand_chacha-22d53bc6d7cde890.rmeta",
+    "target/debug/deps/libbevy_tasks-46396209bedb6150.rmeta",
+    "target/debug/deps/libansi_term-fbbb8073eb9c786e.rmeta",
+    "target/debug/deps/rmetaV3Jl8a/lib.rmeta",
+    "target/debug/deps/rmetaV3Jl8a",
+    "target/debug/deps/libunicode_xid-80cdd381dbca682a.rmeta",
+    "target/debug/deps/rmetainT9vf",
+    "research/AI Impact - common scenario.md",
     "research/Marvin Minsky - Connectionist vs Symbolic.md",
     "research/Subspace voting - interpretation of DNNs.md",
     "README.md",
