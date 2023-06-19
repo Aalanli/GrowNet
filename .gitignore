@@ -43,3 +43,4 @@ data
 .ipynb_checkpoints
 ml_datasets
 assets/config
+wandb
